@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body{margin:0;-webkit-font-smoothing:antialiased}
+  ::selection{background:rgba(0,88,190,.25)}
+  input::placeholder{color:#8a93a6}
+  @keyframes tm-pulse{0%,100%{opacity:1}50%{opacity:.45}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;width:100%;font-family:'Inter',system-ui,sans-serif;background:linear-gradient(150deg,#eef2ff 0%,#f8f9ff 38%,#eaf2ff 70%,#e3ecff 100%);position:relative;overflow:hidden">
+
+  <div style="position:absolute;top:-180px;right:-160px;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(33,112,228,.20),transparent 70%);filter:blur(10px);pointer-events:none"></div>
+  <div style="position:absolute;bottom:-220px;left:-140px;width:480px;height:480px;border-radius:50%;background:radial-gradient(circle,rgba(111,251,190,.18),transparent 70%);filter:blur(10px);pointer-events:none"></div>
+
+  <div style="position:relative;max-width:1160px;margin:0 auto;padding:48px 48px 80px">
+
+    <!-- header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;flex-wrap:wrap;gap:16px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#0058be,#2170e4);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:16px;letter-spacing:-.02em">T</div>
+        <div>
+          <div style="font-size:12px;font-weight:600;letter-spacing:.02em;color:#424754;text-transform:uppercase">TalentMatch AI</div>
+          <div style="font-size:24px;font-weight:600;line-height:32px;letter-spacing:-.01em;color:#0b1c30">Candidates — Senior Product Designer</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.5);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:#0058be">HR</div>
+      </div>
+    </div>
+
+    <!-- AI insight card -->
+    <div style="position:relative;border-radius:24px;padding:1px;background:linear-gradient(120deg,#2170e4,#6ffbbe,#ffb95f,#2170e4);margin-bottom:28px;box-shadow:0 20px 25px -5px rgba(0,0,0,.05)">
+      <div style="border-radius:23px;background:rgba(255,255,255,.72);backdrop-filter:blur(20px);padding:20px 24px;display:flex;align-items:center;gap:16px">
+        <div style="width:38px;height:38px;flex:none;border-radius:12px;background:rgba(33,112,228,.14);display:flex;align-items:center;justify-content:center">
+          <div style="width:14px;height:14px;border-radius:4px;background:linear-gradient(135deg,#0058be,#6ffbbe);animation:tm-pulse 2.4s ease-in-out infinite"></div>
+        </div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:14px;font-weight:600;color:#0b1c30;margin-bottom:2px">AI Insight</div>
+          <div style="font-size:14px;line-height:20px;color:#424754">{{ aiInsight }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- controls -->
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px">
+      <div style="display:flex;gap:6px;background:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.5);backdrop-filter:blur(12px);padding:5px;border-radius:14px">
+        <sc-for list="{{ tabs }}" as="tab" hint-placeholder-count="4">
+          <div onClick="{{ tab.select }}" style="{{ tab.style }}">{{ tab.label }}</div>
+        </sc-for>
+      </div>
+      <div style="position:relative;flex:1;min-width:220px;max-width:320px">
+        <input type="text" placeholder="Search by name or role" value="{{ query }}" onChange="{{ onQueryChange }}" style="width:100%;box-sizing:border-box;padding:10px 14px;font-size:14px;font-family:inherit;border-radius:12px;border:1px solid rgba(255,255,255,.6);background:rgba(255,255,255,.55);backdrop-filter:blur(12px);color:#0b1c30;outline:none" />
+      </div>
+    </div>
+
+    <div style="font-size:12px;font-weight:600;letter-spacing:.01em;color:#727785;margin-bottom:14px">{{ resultCountLabel }}</div>
+
+    <!-- list -->
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <sc-for list="{{ visibleCandidates }}" as="c" hint-placeholder-count="5">
+        <div style="border-radius:24px;background:rgba(255,255,255,.6);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.4);padding:20px 24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+
+          <div style="width:48px;height:48px;flex:none;border-radius:14px;background:{{ c.avatarBg }};display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:600;color:#fff">{{ c.initials }}</div>
+
+          <div style="flex:2;min-width:180px">
+            <div style="font-size:16px;font-weight:600;color:#0b1c30;margin-bottom:2px">{{ c.name }}</div>
+            <div style="font-size:13px;color:#424754;margin-bottom:8px">{{ c.role }} · {{ c.experience }}</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <sc-for list="{{ c.matchedSkills }}" as="skill" hint-placeholder-count="3">
+                <div style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;background:rgba(111,251,190,.35);color:#00714d">{{ skill }}</div>
+              </sc-for>
+              <sc-for list="{{ c.missingSkills }}" as="skill" hint-placeholder-count="1">
+                <div style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;background:rgba(186,26,26,.10);color:#93000a">{{ skill }}</div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:84px">
+            <div style="width:56px;height:56px;border-radius:50%;background:{{ c.ringStyle }};display:flex;align-items:center;justify-content:center">
+              <div style="width:46px;height:46px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:{{ c.scoreColor }}">{{ c.scoreLabel }}</div>
+            </div>
+            <div style="font-size:10px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:{{ c.scoreColor }}">{{ c.bandLabel }}</div>
+          </div>
+
+          <div style="flex:none;display:flex;gap:8px">
+            <button onClick="{{ c.onView }}" style="font-size:13px;font-weight:600;font-family:inherit;padding:9px 16px;border-radius:10px;border:1px solid rgba(11,28,48,.14);background:rgba(255,255,255,.5);color:#0b1c30;cursor:pointer">View</button>
+            <button onClick="{{ c.onReject }}" style="font-size:13px;font-weight:600;font-family:inherit;padding:9px 16px;border-radius:10px;border:none;background:#ba1a1a;color:#fff;cursor:pointer;opacity:{{ c.rejectOpacity }}">{{ c.rejectLabel }}</button>
+          </div>
+        </div>
+      </sc-for>
+
+      <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
+        <div style="text-align:center;padding:60px 20px;color:#727785;font-size:14px">No candidates match this filter.</div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const BANDS = {
+  pass:   { color: '#00714d', ring: 'conic-gradient(#4edea3 0 100%)',  label: 'Pass' },
+  review: { color: '#825100', ring: 'conic-gradient(#ffb95f 0 100%)',  label: 'Needs Review' },
+  fail:   { color: '#93000a', ring: 'conic-gradient(#ff8a80 0 100%)',  label: 'Fail' },
+  processing: { color: '#727785', ring: 'conic-gradient(#c2c6d6 0 100%)', label: 'Analyzing…' }
+};
+
+const RAW = [
+  { name: 'Alexis Tran', role: 'Senior Product Designer', experience: '7 yrs', score: 88, matched: ['Figma', 'Design Systems', 'User Research'], missing: [] },
+  { name: 'Marcus Ojo', role: 'Product Designer', experience: '5 yrs', score: 74, matched: ['Figma', 'Prototyping'], missing: ['Design Systems'] },
+  { name: 'Priya Nair', role: 'UX Lead', experience: '9 yrs', score: 62, matched: ['User Research', 'Workshop Facilitation'], missing: ['Figma'] },
+  { name: 'Daniel Kwon', role: 'Product Designer', experience: '4 yrs', score: 55, matched: ['Prototyping'], missing: ['Design Systems', 'User Research'] },
+  { name: 'Sofia Reyes', role: 'UI/Visual Designer', experience: '3 yrs', score: 41, matched: ['Visual Design'], missing: ['User Research', 'Design Systems'] },
+  { name: 'Wei Chen', role: 'Senior Product Designer', experience: '6 yrs', score: null, matched: [], missing: [] },
+  { name: 'Grace Adeyemi', role: 'Product Designer', experience: '5 yrs', score: 79, matched: ['Design Systems', 'Figma', 'Prototyping'], missing: [] },
+];
+
+function bandKey(score) {
+  if (score == null) return 'processing';
+  if (score > 70) return 'pass';
+  if (score >= 50) return 'review';
+  return 'fail';
+}
+
+function initials(name) {
+  return name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
+}
+
+const AVATAR_COLORS = ['#0058be', '#2170e4', '#006c49', '#825100', '#427e9e', '#5a4fcf'];
+
+class Component extends DCLogic {
+  state = { tab: 'all', query: '', rejected: {} };
+
+  select(tab) { this.setState({ tab }); }
+  onQueryChange = (e) => this.setState({ query: e.target.value });
+  reject(name) { this.setState(s => ({ rejected: { ...s.rejected, [name]: !s.rejected[name] } })); }
+  view(name) { alert('Open profile: ' + name); }
+
+  renderVals() {
+    const { tab, query, rejected } = this.state;
+    const tabDefs = [
+      { key: 'all', label: 'All' },
+      { key: 'pass', label: 'Pass' },
+      { key: 'review', label: 'Needs Review' },
+      { key: 'fail', label: 'Fail' },
+    ];
+
+    const tabs = tabDefs.map(t => ({
+      label: t.label,
+      select: () => this.select(t.key),
+      style: `padding:8px 16px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;color:${tab === t.key ? '#fff' : '#424754'};background:${tab === t.key ? '#0058be' : 'transparent'}`
+    }));
+
+    const q = query.trim().toLowerCase();
+    const candidates = RAW
+      .map(c => ({ ...c, key: bandKey(c.score) }))
+      .filter(c => tab === 'all' || c.key === tab)
+      .filter(c => !q || c.name.toLowerCase().includes(q) || c.role.toLowerCase().includes(q));
+
+    const visibleCandidates = candidates.map((c, i) => {
+      const band = BANDS[c.key];
+      const isRejected = !!rejected[c.name];
+      return {
+        name: c.name,
+        role: c.role,
+        experience: c.experience,
+        initials: initials(c.name),
+        avatarBg: AVATAR_COLORS[i % AVATAR_COLORS.length],
+        matchedSkills: c.matched,
+        missingSkills: c.missing,
+        scoreLabel: c.score == null ? '—' : String(c.score),
+        scoreColor: band.color,
+        ringStyle: band.ring,
+        bandLabel: band.label,
+        onView: () => this.view(c.name),
+        onReject: () => this.reject(c.name),
+        rejectLabel: isRejected ? 'Undo' : 'Reject',
+        rejectOpacity: isRejected ? 0.5 : 1,
+      };
+    });
+
+    return {
+      tabs,
+      query,
+      onQueryChange: this.onQueryChange,
+      visibleCandidates,
+      isEmpty: visibleCandidates.length === 0,
+      resultCountLabel: `${visibleCandidates.length} candidate${visibleCandidates.length === 1 ? '' : 's'}`,
+      aiInsight: 'Top 3 matches share strong Figma and design-systems experience — recommend fast-tracking Alexis Tran and Grace Adeyemi to interview this week.',
+    };
+  }
+}
+
+</script>
+</body>
+</html>

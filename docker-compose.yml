@@ -1,0 +1,89 @@
+services:
+  # PostgreSQL — ใช้เป็นทั้ง app DB, LangGraph checkpointer (HITL) และคลังเวกเตอร์
+  # อิมเมจ pgvector/pgvector = postgres ทางการ + extension `vector` ติดตั้งมาแล้ว
+  # (postgres:16-alpine เดิมไม่มี extension นี้ และคอมไพล์บน alpine ยุ่งกว่า)
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: talentmatch_db
+    environment:
+      POSTGRES_USER: talentmatch
+      POSTGRES_PASSWORD: talentmatch
+      POSTGRES_DB: talentmatch
+    # ไม่ publish 5432 ออก host: backend ต่อผ่าน network ภายใน (db:5432) และ
+    # ช่วงพอร์ตที่ Windows/WinNAT จองไว้เปลี่ยนทุกครั้งที่รีบูต ทำให้ bind ล้มเป็นครั้งคราว
+    # ถ้าต้องต่อ psql จากภายนอกจริง ๆ ให้เพิ่ม ports: ["55432:5432"] แล้วเช็คว่าพอร์ตว่าง
+    # ดู DB ได้ด้วย: docker compose exec db psql -U talentmatch -d talentmatch
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U talentmatch -d talentmatch"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # MailHog — SMTP ปลอมสำหรับ dev: รับอีเมลที่ระบบส่งแล้วโชว์ในหน้าเว็บ (ไม่ส่งออกจริง)
+  # ทดสอบฟีเจอร์ส่งอีเมลได้โดยไม่ต้องมี Gmail credentials
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: talentmatch_mailhog
+    ports:
+      - "8025:8025"   # หน้าเว็บดูอีเมล (SMTP 1025 ไม่ publish — backend ต่อผ่าน mailhog:1025 ภายใน)
+
+  # FastAPI backend + LangGraph pipeline
+  backend:
+    build: ./backend
+    container_name: talentmatch_backend
+    depends_on:
+      db:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    env_file:
+      - ./backend/.env
+    environment:
+      # connection string ให้ PostgresSaver / app ใช้ต่อ Postgres ในคอมโพสนี้
+      DATABASE_URL: postgresql://talentmatch:talentmatch@db:5432/talentmatch
+      # SMTP ดีฟอลต์ชี้ไป MailHog (SMTP ปลอมสำหรับ dev) — โปรดักชัน override ใน .env
+      SMTP_HOST: mailhog
+      SMTP_PORT: "1025"
+      SMTP_STARTTLS: "false"
+      SMTP_FROM: recruit@talentmatch.local
+      # Auth (dev) — โปรดักชัน override JWT_SECRET/ADMIN_PASSWORD ด้วยค่าจริงที่แข็งแรงใน .env
+      JWT_SECRET: dev-only-secret-change-in-prod-0123456789abcdef
+      JWT_EXPIRE_HOURS: "12"
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: admin1234
+      # RAG: retrieval agent หาผู้สมัครเก่าที่คล้ายกัน (feature เสริม, ใช้ embedding quota แยกจาก chat)
+      RAG_ENABLED: "true"
+      RAG_TOP_K: "3"
+    ports:
+      # host 8080 (พอร์ต 8000 อยู่ในช่วง 7909-8008 ที่ WinNAT จองบน Windows จึง bind ไม่ได้
+      # — อาการเดียวกับ 3000 ที่ย้ายไป 4000) คอนเทนเนอร์ยังฟังที่ 8000 ภายในเหมือนเดิม
+      - "8080:8000"
+    volumes:
+      # mount โค้ดสำหรับ dev (แก้แล้วเห็นผลทันทีเมื่อใช้ --reload)
+      - ./backend:/app
+    # เปิด hot-reload ตอน dev (ต้องมี app/main.py ก่อนจึงจะรันได้)
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Next.js frontend (dev) — รันใน Docker เลี่ยง Smart App Control บน Windows host
+  frontend:
+    build: ./frontend
+    container_name: talentmatch_frontend
+    depends_on:
+      - backend
+    environment:
+      # เบราว์เซอร์เรียก backend ตรงผ่านพอร์ต published บน host (ย้าย 8000→8080 เลี่ยง WinNAT)
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+      # inotify ไม่ propagate ข้าม bind mount ของ Windows → hot-reload ตายเงียบ
+      # ต้องให้ webpack ใช้ polling ไม่งั้นต้อง restart container ทุกครั้งที่แก้โค้ด
+      WATCHPACK_POLLING: "true"
+    ports:
+      # host 4000 (port 3000 อยู่ในช่วง reserved ของ Windows/WinNAT จึง bind ไม่ได้)
+      - "4000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules   # กัน mount ทับ node_modules ในอิมเมจ
+
+volumes:
+  pgdata:

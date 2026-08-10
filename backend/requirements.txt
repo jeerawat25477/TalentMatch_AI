@@ -1,0 +1,22 @@
+fastapi>=0.100.0
+uvicorn>=0.22.0
+langchain>=0.1.0
+langgraph>=0.0.10
+langchain-google-genai>=0.0.11
+supabase>=1.0.3
+pydantic>=2.0
+email-validator>=2.0        # ให้ pydantic EmailStr ตรวจรูปแบบอีเมล (ผู้รับก่อนส่ง)
+python-multipart>=0.0.6
+
+# Authentication (ล็อกอิน username/password + JWT)
+PyJWT>=2.8                  # สร้าง/ตรวจ access token (HS256)
+bcrypt>=4.1                 # hash รหัสผ่าน
+pdfplumber>=0.10.2
+python-dotenv>=1.0.0
+
+# HITL checkpointer (database_supabase.md — supersedes SqliteSaver)
+langgraph-checkpoint-postgres>=1.0.0
+psycopg[binary]>=3.1.0
+
+# ทดสอบ (รันใน container: python -m pytest tests/ -v)
+pytest>=8.0.0

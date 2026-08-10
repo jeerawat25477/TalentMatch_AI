@@ -1,0 +1,32 @@
+# Secrets — อย่า commit เด็ดขาด (มี GOOGLE_API_KEY จริง)
+.env
+backend/.env
+*.env
+!*.env.example
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+frontend/node_modules/
+frontend/.next/
+
+# Vector store (ถ้าเคยใช้ Chroma local)
+chroma_db/
+
+# DB backup dumps
+*.sql.bak
+backup_*.sql
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# เครื่องมือ/บันทึกส่วนตัว (ไม่ต้องขึ้น GitHub)
+.claude/
+PRESENTATION.md

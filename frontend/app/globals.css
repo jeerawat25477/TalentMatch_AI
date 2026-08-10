@@ -1,0 +1,317 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─────────────────────────────────────────────────────────────
+   โทเคนสี — :root = โหมดสว่าง, .dark = โหมดมืด
+   เก็บเป็น "R G B" ล้วนเพื่อให้ Tailwind ใส่ opacity ต่อท้ายได้ (bg-glass/60)
+   ค่าโหมดสว่างตรงกับ DESIGN.md ทุกตัว ห้ามแก้
+   ───────────────────────────────────────────────────────────── */
+:root {
+  color-scheme: light;
+
+  --c-surface: 248 249 255;
+  --c-surface-dim: 203 219 245;
+  --c-surface-bright: 248 249 255;
+  --c-surface-container-lowest: 255 255 255;
+  --c-surface-container-low: 239 244 255;
+  --c-surface-container: 229 238 255;
+  --c-surface-container-high: 220 233 255;
+  --c-surface-container-highest: 211 228 254;
+  --c-surface-variant: 211 228 254;
+  --c-surface-tint: 0 90 194;
+  --c-on-surface: 11 28 48;
+  --c-on-surface-variant: 66 71 84;
+  --c-inverse-surface: 33 49 69;
+  --c-inverse-on-surface: 234 241 255;
+  --c-outline: 114 119 133;
+  --c-outline-variant: 194 198 214;
+
+  --c-primary: 0 88 190;
+  --c-on-primary: 255 255 255;
+  --c-primary-container: 33 112 228;
+  --c-on-primary-container: 254 252 255;
+  --c-inverse-primary: 173 198 255;
+
+  --c-secondary: 0 108 73;
+  --c-on-secondary: 255 255 255;
+  --c-secondary-container: 108 248 187;
+  --c-on-secondary-container: 0 113 77;
+
+  --c-tertiary: 130 81 0;
+  --c-on-tertiary: 255 255 255;
+  --c-tertiary-container: 163 103 0;
+  --c-on-tertiary-container: 255 251 255;
+
+  --c-error: 186 26 26;
+  --c-on-error: 255 255 255;
+  --c-error-container: 255 218 214;
+  --c-on-error-container: 147 0 10;
+
+  --c-background: 248 249 255;
+  --c-on-background: 11 28 48;
+
+  /* กลุ่ม *-fixed — ตามสเปก M3 สีชุดนี้คงที่ทั้งสองธีมโดยตั้งใจ
+     จึงประกาศไว้ที่ :root ที่เดียว ไม่มีคู่ใน .dark */
+  --c-primary-fixed: 216 226 255;
+  --c-primary-fixed-dim: 173 198 255;
+  --c-on-primary-fixed: 0 26 66;
+  --c-on-primary-fixed-variant: 0 67 149;
+  --c-secondary-fixed: 111 251 190;
+  --c-secondary-fixed-dim: 78 222 163;
+  --c-on-secondary-fixed: 0 33 19;
+  --c-on-secondary-fixed-variant: 0 82 54;
+  --c-tertiary-fixed: 255 221 184;
+  --c-tertiary-fixed-dim: 255 185 95;
+  --c-on-tertiary-fixed: 42 23 0;
+  --c-on-tertiary-fixed-variant: 101 62 0;
+
+  /* กระจก + เส้นคั่น */
+  --c-glass: 255 255 255;
+  --c-hairline: 219 223 235;
+
+  /* พื้นผิวกระจก (Surface Level 1/2 ตาม DESIGN.md) */
+  --glass-1: rgba(255, 255, 255, 0.6);
+  --glass-2: rgba(255, 255, 255, 0.8);
+  --glass-border-1: rgba(255, 255, 255, 0.4);
+  --glass-border-2: rgba(255, 255, 255, 0.6);
+  --glass-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05);
+
+  /* พื้นหลังหลัก + ก้อนแสงเบลอใน layout */
+  --page-gradient: linear-gradient(
+    150deg,
+    #eef2ff 0%,
+    #f8f9ff 38%,
+    #eaf2ff 70%,
+    #e3ecff 100%
+  );
+  --blob-a: rgba(33, 112, 228, 0.2);
+  --blob-b: rgba(111, 251, 190, 0.18);
+  --selection: rgba(0, 88, 190, 0.25);
+
+  /* ขอบ gradient ของ AI Insights */
+  --glow-a: #0058be;
+  --glow-b: #a36700;
+  --glow-c: #006c49;
+
+  /* สีประจำแบนด์คะแนน — ใช้ร่วมกันระหว่าง BANDS, ScoreRing และการ์ดสรุป */
+  --band-pass: #00714d;
+  --band-pass-ring: #4edea3;
+  --band-review: #825100;
+  --band-review-ring: #ffb95f;
+  --band-fail: #93000a;
+  --band-fail-ring: #ff8a80;
+  --band-pending: #727785;
+  --band-pending-ring: #c2c6d6;
+
+  /* เรดาร์ — คู่สีผ่านการตรวจ CVD (ΔE 27 protan / 31 normal) */
+  --chart-job: #0058be;
+  --chart-job-fill: rgba(0, 88, 190, 0.1);
+  --chart-cand: #a36700;
+  --chart-cand-fill: rgba(163, 103, 0, 0.2);
+  --chart-grid: rgba(0, 0, 0, 0.05);
+}
+
+/* โหมดมืด — M3 dark counterpart ของ palette เดิม (โทน Navy)
+   กลุ่ม *-fixed ไม่อยู่ในนี้โดยตั้งใจ: ตามสเปก M3 สีกลุ่มนั้นคงที่ทั้งสองธีม */
+.dark {
+  color-scheme: dark;
+
+  --c-surface: 13 21 38;
+  --c-surface-dim: 10 17 32;
+  --c-surface-bright: 34 48 74;
+  --c-surface-container-lowest: 8 14 26;
+  --c-surface-container-low: 20 29 46;
+  --c-surface-container: 24 34 56;
+  --c-surface-container-high: 34 45 69;
+  --c-surface-container-highest: 44 56 82;
+  --c-surface-variant: 65 72 89;
+  --c-surface-tint: 173 198 255;
+  --c-on-surface: 227 233 245;
+  --c-on-surface-variant: 194 199 214;
+  --c-inverse-surface: 227 233 245;
+  --c-inverse-on-surface: 11 28 48;
+  --c-outline: 140 146 163;
+  --c-outline-variant: 66 72 89;
+
+  --c-primary: 173 198 255;
+  --c-on-primary: 0 46 105;
+  --c-primary-container: 0 69 143;
+  --c-on-primary-container: 216 226 255;
+  --c-inverse-primary: 0 88 190;
+
+  --c-secondary: 78 222 163;
+  --c-on-secondary: 0 56 37;
+  --c-secondary-container: 0 82 54;
+  --c-on-secondary-container: 111 251 190;
+
+  --c-tertiary: 255 185 95;
+  --c-on-tertiary: 69 43 0;
+  --c-tertiary-container: 101 62 0;
+  --c-on-tertiary-container: 255 221 184;
+
+  --c-error: 255 180 171;
+  --c-on-error: 105 0 5;
+  --c-error-container: 147 0 10;
+  --c-on-error-container: 255 218 214;
+
+  --c-background: 13 21 38;
+  --c-on-background: 227 233 245;
+
+  --c-glass: 30 45 72;
+  --c-hairline: 51 64 92;
+
+  /* กระจกมืดต้องทึบกว่าฝั่งสว่าง ไม่งั้นตัวหนังสือจะจมพื้นหลัง */
+  --glass-1: rgba(30, 45, 72, 0.55);
+  --glass-2: rgba(34, 50, 80, 0.75);
+  --glass-border-1: rgba(173, 198, 255, 0.12);
+  --glass-border-2: rgba(173, 198, 255, 0.18);
+  --glass-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4);
+
+  --page-gradient: linear-gradient(
+    150deg,
+    #0b1220 0%,
+    #0d1526 38%,
+    #101d33 70%,
+    #0e1728 100%
+  );
+  --blob-a: rgba(33, 112, 228, 0.14);
+  --blob-b: rgba(78, 222, 163, 0.1);
+  --selection: rgba(173, 198, 255, 0.3);
+
+  --glow-a: #adc6ff;
+  --glow-b: #ffb95f;
+  --glow-c: #4edea3;
+
+  --band-pass: #4edea3;
+  --band-pass-ring: #00714d;
+  --band-review: #ffb95f;
+  --band-review-ring: #825100;
+  --band-fail: #ffb4ab;
+  --band-fail-ring: #93000a;
+  --band-pending: #8c92a3;
+  --band-pending-ring: #424859;
+
+  --chart-job: #adc6ff;
+  --chart-job-fill: rgba(173, 198, 255, 0.14);
+  --chart-cand: #ffb95f;
+  --chart-cand-fill: rgba(255, 185, 95, 0.22);
+  --chart-grid: rgba(255, 255, 255, 0.08);
+}
+
+@layer base {
+  body {
+    @apply bg-surface text-on-surface;
+    /* พื้นหลัง gradient นิ่ง ให้ backdrop-blur ของ glass มีสีให้ "ดูดขึ้นมา" */
+    background: var(--page-gradient);
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  ::selection {
+    background: var(--selection);
+  }
+  .material-symbols-outlined {
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+    vertical-align: middle;
+  }
+}
+
+@layer components {
+  /* Surface Level 1 — การ์ดปกติ */
+  .glass-card {
+    background: var(--glass-1);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border-1);
+  }
+
+  /* Surface Level 2 — การ์ดลอย/โมดัล */
+  .glass-card-elevated {
+    background: var(--glass-2);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border-2);
+    box-shadow: var(--glass-shadow);
+  }
+
+  /* AI Insights Module — ขอบ gradient หลายสีบอกว่า "AI กำลังคิด/แนะนำ" */
+  .ai-glow-border {
+    position: relative;
+  }
+  .ai-glow-border::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    padding: 1px;
+    border-radius: inherit;
+    background: linear-gradient(
+      45deg,
+      var(--glow-a),
+      var(--glow-b),
+      var(--glow-c)
+    );
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .btn-primary {
+    @apply bg-primary text-on-primary rounded-lg px-sm py-xs text-label-md flex items-center justify-center gap-xs
+           hover:opacity-90 active:scale-95 duration-150 shadow-md shadow-primary/20
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+  }
+  /* ปุ่มรอง (neutral) — ขอบต้องเป็นสี outline ไม่ใช่สีขาว
+     เดิม border-white/50 บน .glass-card (ขาว 60%) มองไม่เห็นว่าเป็นปุ่ม */
+  .btn-secondary-glass {
+    @apply bg-glass/80 border border-outline/80 text-on-surface rounded-lg px-sm py-xs text-label-md
+           hover:bg-glass hover:border-outline active:scale-95 duration-150
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  /* ปุ่ม action หลักภายในการ์ด (tonal) — เด่นกว่าปุ่มรอง แต่ไม่แย่งน้ำหนักกับ .btn-primary
+     ใช้โทเคน *-fixed ล้วน จึงคุมคอนทราสต์ได้เท่ากันทั้งสองธีมโดยไม่ต้องมีตัวแปรมืดแยก */
+  .btn-tonal {
+    @apply bg-primary-fixed border border-primary/60 text-on-primary-fixed-variant font-semibold
+           rounded-lg px-sm py-xs text-label-md inline-flex items-center justify-center gap-base
+           hover:bg-primary-fixed-dim hover:border-primary active:scale-95 duration-150
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  /* ปุ่มทำลายข้อมูล (ลบถาวร) — ทึบเต็มสี error เพื่อให้อ่านว่า "ย้อนกลับไม่ได้"
+     ต่างจากปุ่ม "ปฏิเสธผู้สมัคร" ที่เป็นแบบขอบ เพราะนั่นย้อนกลับได้ */
+  .btn-danger {
+    @apply bg-error text-on-error rounded-lg px-sm py-xs text-label-md font-semibold
+           inline-flex items-center justify-center gap-xs
+           hover:opacity-90 active:scale-95 duration-150
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-2 focus-visible:ring-offset-surface
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+  }
+  /* ช่องกรอก — ขอบต้องอ่านออกว่าเป็นกล่องรับข้อความ ไม่ใช่ข้อความเปล่าบนการ์ด
+     เดิม border-white/50 บนพื้นขาวจึงมองไม่เห็นขอบเขตของฟิลด์ */
+  .input-glass {
+    @apply bg-glass/90 border border-outline/80 rounded-lg px-sm py-xs text-body-md text-on-surface
+           placeholder:text-outline hover:border-outline
+           focus:bg-glass focus:border-primary focus:ring-2 focus:ring-primary/40
+           outline-none transition-all;
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+.animate-pulse-soft {
+  animation: pulse-soft 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
