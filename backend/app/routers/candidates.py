@@ -39,6 +39,24 @@ MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "10"))
 MAX_FILES = int(os.getenv("MAX_FILES", "20"))
 _MAX_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 _PDF_MAGIC = b"%PDF-"  # PDF จริงต้องขึ้นต้นด้วยไบต์ชุดนี้ ไม่เชื่อแค่ชื่อไฟล์ .pdf
+# เรซูเม่ที่สั้นกว่านี้ถือว่า "อ่านไม่ออก" — เทียบกับของจริง: sample อังกฤษสั้นสุด ~350 ตัวอักษร
+# เรซูเม่ไทยจริงที่ทดสอบไว้ 1,951 และ 2,870 ตัวอักษร เกณฑ์นี้จึงกว้างพอที่ของดีจะผ่านหมด
+MIN_RESUME_TEXT_CHARS = int(os.getenv("MIN_RESUME_TEXT_CHARS", "80"))
+
+
+def _is_unreadable_resume(text: str) -> bool:
+    """PDF ใบนี้ไม่มีข้อความให้ใช้งานใช่ไหม (เรซูเม่สแกน/ถ่ายรูป = มีแต่ภาพ ไม่มีชั้นข้อความ).
+
+    ถ้าไม่กันตรงนี้ ระบบจะสร้างผู้สมัครที่ข้อมูลว่างแล้วยิงเข้ากราฟต่อ = เสียโควตา ~3 chat calls
+    ต่อไฟล์ (จาก 20/วัน) เพื่อให้ AI วิเคราะห์ความว่างเปล่า แล้วได้คะแนนมั่ว ๆ ปนในรายชื่อ
+    โดย HR ไม่รู้ตัวเพราะ API ตอบเหมือนสำเร็จปกติ
+
+    นับเฉพาะอักขระที่ไม่ใช่ช่องว่าง — บาง PDF คืนช่องว่าง/ขึ้นบรรทัดมาเป็นพรืดโดยไม่มีเนื้อจริง
+    ขอบเขต: บอกได้แค่ "มีข้อความพอไหม" ไม่ได้บอกว่า "เป็นเรซูเม่จริงไหม" — ไฟล์สแกนที่มี
+    กล่องข้อความปนมาเกินเกณฑ์จะยังหลุดผ่าน ซึ่งต้องใช้ OCR ถึงจะครอบได้ (คนละขนาดงาน)
+    """
+    return len("".join((text or "").split())) < MIN_RESUME_TEXT_CHARS
+
 
 def _is_duplicate_upload(
     digest: str, seen_in_batch: set[str], existing_in_job: set[str]
@@ -140,6 +158,7 @@ async def upload_resumes(
 
     candidate_ids: list[UUID] = []
     duplicate_files: list[str] = []
+    unreadable_files: list[str] = []
     seen_in_batch: set[str] = set()
     with get_conn() as conn:
         existing_hashes = {
@@ -181,6 +200,13 @@ async def upload_resumes(
             except Exception as exc:  # noqa: BLE001
                 log.warning("แกะข้อความจาก %s ไม่สำเร็จ: %s", file.filename, exc)
                 raw = ""
+            # เรซูเม่สแกน/ถ่ายรูปไม่มีชั้นข้อความ — ถ้าปล่อยผ่านจะเสียโควตาให้ AI อ่านความว่างเปล่า
+            if _is_unreadable_resume(raw):
+                log.info("ข้ามไฟล์ %s — สกัดข้อความไม่ได้/สั้นเกินเกณฑ์", file.filename)
+                unreadable_files.append(file.filename or "")
+                seen_in_batch.discard(digest)  # ไม่ได้บันทึกลง DB จึงไม่ควรกันไฟล์นี้ในรอบถัดไป
+                continue
+
             # full_name ชั่วคราวจากชื่อไฟล์ — resume_parser จะอัปเดตเป็นชื่อจริงภายหลัง
             placeholder_name = PurePath(file.filename).stem[:255]
             # ON CONFLICT กันเคสสองคนอัปไฟล์เดียวกันพร้อมกัน (เช็คข้างบนไม่เห็นกันข้าม request)
@@ -211,8 +237,9 @@ async def upload_resumes(
         job_id=UUID(job_id),
         accepted=len(candidate_ids),
         candidate_ids=candidate_ids,
-        skipped=len(duplicate_files),
+        skipped=len(duplicate_files) + len(unreadable_files),
         duplicate_files=duplicate_files,
+        unreadable_files=unreadable_files,
     )
 
 
@@ -335,7 +362,8 @@ def reprocess_candidate(candidate_id: str, background_tasks: BackgroundTasks) ->
         raise HTTPException(status_code=409, detail="ผู้สมัครรายนี้วิเคราะห์เสร็จแล้ว")
     if str(candidate_id) in active_candidates():
         raise HTTPException(status_code=409, detail="กำลังวิเคราะห์อยู่แล้ว กรุณารอสักครู่")
-    if not (row["raw_resume_text"] or "").strip():
+    # ใช้เกณฑ์เดียวกับด่านอัปโหลด — ไม่งั้นจะมีเคส "อัปโหลดไม่ผ่าน แต่ reprocess ปล่อยผ่าน"
+    if _is_unreadable_resume(row["raw_resume_text"]):
         raise HTTPException(
             status_code=422,
             detail="ไม่มีข้อความเรซูเม่ในระบบ (สกัดจาก PDF ไม่ได้) — ต้องอัปโหลดไฟล์ใหม่",

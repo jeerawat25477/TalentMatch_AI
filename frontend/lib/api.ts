@@ -178,9 +178,12 @@ export function uploadResumes(
 ): Promise<{
   accepted: number;
   candidate_ids: string[];
-  /** ไฟล์ที่ backend ข้ามเพราะเคยอัปโหลดเข้าตำแหน่งงานนี้แล้ว (เทียบด้วย hash ของไบต์ไฟล์) */
+  /** จำนวนไฟล์ที่ไม่ได้สร้างผู้สมัคร = ซ้ำ + อ่านข้อความไม่ออก */
   skipped: number;
+  /** เคยอัปโหลดเข้าตำแหน่งงานนี้แล้ว (เทียบด้วย hash ของไบต์ไฟล์) */
   duplicate_files: string[];
+  /** สกัดข้อความไม่ได้ — มักเป็นเรซูเม่สแกน/ถ่ายรูปที่ไม่มีชั้นข้อความ */
+  unreadable_files: string[];
 }> {
   return new Promise((resolve, reject) => {
     const form = new FormData();

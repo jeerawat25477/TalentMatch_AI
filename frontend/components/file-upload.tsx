@@ -17,6 +17,8 @@ export default function FileUpload({
   const [error, setError] = useState<string | null>(null);
   // ไฟล์ที่ backend ข้ามเพราะเคยอัปโหลดไปแล้ว — ต้องบอก HR ไม่งั้นจะงงว่าทำไมคนไม่ขึ้น
   const [duplicates, setDuplicates] = useState<string[]>([]);
+  // ไฟล์ที่สกัดข้อความไม่ได้ (มักเป็นเรซูเม่สแกน) — ผู้ใช้ต้องลงมือแก้เอง จึงใช้โทน error
+  const [unreadable, setUnreadable] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function handleFiles(fileList: FileList | null) {
@@ -30,11 +32,13 @@ export default function FileUpload({
     }
     setError(null);
     setDuplicates([]);
+    setUnreadable([]);
     setBusy(true);
     setProgress(0);
     try {
       const result = await uploadResumes(jobId, pdfs, setProgress);
       setDuplicates(result.duplicate_files ?? []);
+      setUnreadable(result.unreadable_files ?? []);
       onUploaded();
     } catch (e) {
       setError(e instanceof Error ? e.message : "อัปโหลดล้มเหลว");
@@ -115,6 +119,28 @@ export default function FileUpload({
             </p>
             <p className="text-on-surface-variant text-label-sm leading-snug mt-0.5">
               {duplicates.join(", ")}
+            </p>
+          </div>
+        </div>
+      )}
+      {unreadable.length > 0 && (
+        <div className="mt-xs p-sm rounded-xl border border-error/40 bg-error-container/10 flex gap-xs items-start">
+          <span
+            className="material-symbols-outlined text-error text-[20px]"
+            style={{ fontVariationSettings: "'FILL' 1" }}
+          >
+            image_not_supported
+          </span>
+          <div>
+            <p className="text-on-surface text-label-md leading-snug">
+              อ่านข้อความจากไฟล์ไม่ได้ {unreadable.length} ไฟล์ — ยังไม่ได้เพิ่มเข้าระบบ
+            </p>
+            <p className="text-on-surface-variant text-label-sm leading-snug mt-0.5">
+              {unreadable.join(", ")}
+            </p>
+            <p className="text-on-surface-variant text-label-sm leading-snug mt-1">
+              ไฟล์อาจเป็นรูปสแกนหรือรูปถ่าย ลองบันทึกเป็น PDF ที่มีข้อความ (เลือกคัดลอกตัวหนังสือได้)
+              แล้วอัปโหลดใหม่
             </p>
           </div>
         </div>
