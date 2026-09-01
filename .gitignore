@@ -23,6 +23,10 @@ chroma_db/
 *.sql.bak
 backup_*.sql
 
+# เรซูเม่จริงที่วางไว้ทดสอบที่ root — เป็นข้อมูลส่วนบุคคล ห้ามขึ้น GitHub
+# ใช้ / นำหน้าเพื่อจำกัดเฉพาะ root (backend/sample_data/*.pdf ยังต้อง commit อยู่)
+/*.pdf
+
 # OS / editor
 .DS_Store
 Thumbs.db

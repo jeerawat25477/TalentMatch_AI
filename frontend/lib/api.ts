@@ -175,7 +175,13 @@ export function uploadResumes(
   jobId: string,
   files: File[],
   onProgress?: (percent: number) => void,
-): Promise<{ accepted: number; candidate_ids: string[] }> {
+): Promise<{
+  accepted: number;
+  candidate_ids: string[];
+  /** ไฟล์ที่ backend ข้ามเพราะเคยอัปโหลดเข้าตำแหน่งงานนี้แล้ว (เทียบด้วย hash ของไบต์ไฟล์) */
+  skipped: number;
+  duplicate_files: string[];
+}> {
   return new Promise((resolve, reject) => {
     const form = new FormData();
     files.forEach((f) => form.append("files", f));

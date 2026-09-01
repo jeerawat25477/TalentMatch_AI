@@ -105,6 +105,10 @@ class ResumeUploadAccepted(BaseModel):
     job_id: UUID
     accepted: int = Field(..., description="จำนวนไฟล์ที่รับเข้าและสร้างแถวผู้สมัครแล้ว")
     candidate_ids: list[UUID]
+    # ไฟล์ที่ข้ามเพราะเคยอัปโหลดเข้าตำแหน่งงานนี้แล้ว (ตัดสินด้วย sha256 ของไบต์ไฟล์)
+    # มีค่า default เพื่อให้ client รุ่นเก่าที่ไม่รู้จักฟิลด์นี้ยังทำงานได้
+    skipped: int = 0
+    duplicate_files: list[str] = []
     message: str = "กำลังประมวลผลเบื้องหลัง — โปรด poll รายชื่อผู้สมัครเพื่อดูผล"
 
 

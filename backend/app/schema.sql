@@ -36,6 +36,13 @@ CREATE TABLE IF NOT EXISTS candidates (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- กันอัปโหลดไฟล์เดิมซ้ำ: hash ของไบต์ PDF ต่อหนึ่งตำแหน่งงาน
+-- (ชื่อไฟล์เปลี่ยนได้ ส่วนอีเมลยังไม่มีตอนอัปโหลด จึงใช้ hash เป็นตัวชี้ขาด)
+-- แถวเก่าเป็น NULL ได้ — Postgres ถือว่า NULL แต่ละตัวไม่เท่ากัน จึงอยู่ร่วมกันได้โดยไม่ต้อง backfill
+ALTER TABLE candidates ADD COLUMN IF NOT EXISTS resume_sha256 CHAR(64);
+CREATE UNIQUE INDEX IF NOT EXISTS candidates_job_resume_uniq
+    ON candidates (job_id, resume_sha256);
+
 CREATE TABLE IF NOT EXISTS evaluations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     job_id UUID REFERENCES jobs(id) ON DELETE CASCADE,

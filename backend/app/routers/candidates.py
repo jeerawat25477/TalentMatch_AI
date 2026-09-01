@@ -1,4 +1,5 @@
 """เราเตอร์ผู้สมัคร: อัปโหลด resume (async), รายชื่อ, และรายละเอียด."""
+import hashlib
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -38,6 +39,18 @@ MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "10"))
 MAX_FILES = int(os.getenv("MAX_FILES", "20"))
 _MAX_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 _PDF_MAGIC = b"%PDF-"  # PDF จริงต้องขึ้นต้นด้วยไบต์ชุดนี้ ไม่เชื่อแค่ชื่อไฟล์ .pdf
+
+def _is_duplicate_upload(
+    digest: str, seen_in_batch: set[str], existing_in_job: set[str]
+) -> bool:
+    """ไฟล์นี้เคยเห็นแล้วหรือยัง — ทั้งในชุดที่อัปมาพร้อมกัน และในตำแหน่งงานนี้.
+
+    ตัดสินด้วย hash ของไบต์ ไม่ใช่ชื่อไฟล์ (เปลี่ยนได้) และไม่ใช่อีเมล (ตอนอัปโหลดยังไม่มี —
+    LLM ยังไม่ได้แกะ และค่าที่แกะมาจาก PDF ที่ใครก็อัปได้ก็เชื่อไม่ได้อยู่ดี)
+    ไฟล์ซ้ำหนึ่งใบ = ผู้สมัครเกินมาหนึ่งแถว + กราฟรันฟรีอีกรอบ (~3 chat calls จากโควตา 20/วัน)
+    """
+    return digest in seen_in_batch or digest in existing_in_job
+
 
 # ช่วงผ่อนผันก่อนจะบอกว่าผู้สมัคร "ค้าง" — กันแค่ช่วงสั้น ๆ ระหว่างที่แถวถูก INSERT แล้ว
 # แต่ background task ยังไม่ทันจอง (คนที่รอคิวถูกจองไว้ตั้งแต่ต้น batch แล้ว)
@@ -126,7 +139,17 @@ async def upload_resumes(
         )
 
     candidate_ids: list[UUID] = []
+    duplicate_files: list[str] = []
+    seen_in_batch: set[str] = set()
     with get_conn() as conn:
+        existing_hashes = {
+            r["resume_sha256"]
+            for r in conn.execute(
+                """SELECT resume_sha256 FROM candidates
+                   WHERE job_id = %s AND resume_sha256 IS NOT NULL""",
+                (job_id,),
+            ).fetchall()
+        }
         for file in files:
             if not (file.filename or "").lower().endswith(".pdf"):
                 raise HTTPException(
@@ -145,6 +168,13 @@ async def upload_resumes(
                     status_code=400,
                     detail=f"ไฟล์ {file.filename} ไม่ใช่ PDF ที่ถูกต้อง",
                 )
+            # เช็คซ้ำ "ก่อน" แกะข้อความ — ไฟล์ที่เคยเห็นแล้วไม่ต้องเสียเวลาแกะซ้ำ
+            digest = hashlib.sha256(content).hexdigest()
+            if _is_duplicate_upload(digest, seen_in_batch, existing_hashes):
+                duplicate_files.append(file.filename or "")
+                continue
+            seen_in_batch.add(digest)
+
             # แกะข้อความแบบ graceful — PDF เสีย/แกะไม่ได้ ไม่ควรล้มทั้ง batch
             try:
                 raw = extract_text_from_pdf(content)
@@ -153,23 +183,36 @@ async def upload_resumes(
                 raw = ""
             # full_name ชั่วคราวจากชื่อไฟล์ — resume_parser จะอัปเดตเป็นชื่อจริงภายหลัง
             placeholder_name = PurePath(file.filename).stem[:255]
+            # ON CONFLICT กันเคสสองคนอัปไฟล์เดียวกันพร้อมกัน (เช็คข้างบนไม่เห็นกันข้าม request)
+            # ใช้แทนการ catch UniqueViolation เพราะ statement ที่ error จะทำให้ทรานแซกชันทั้งก้อน
+            # abort ต้องไปตั้ง SAVEPOINT เพิ่ม — DO NOTHING จบในตัวและอะตอมมิกกว่า
             row = conn.execute(
                 """
-                INSERT INTO candidates (job_id, full_name, raw_resume_text)
-                VALUES (%s, %s, %s)
+                INSERT INTO candidates (job_id, full_name, raw_resume_text, resume_sha256)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (job_id, resume_sha256) DO NOTHING
                 RETURNING id
                 """,
-                (job_id, placeholder_name, raw),
+                (job_id, placeholder_name, raw, digest),
             ).fetchone()
+            if row is None:  # มีคนอื่นแทรกไฟล์เดียวกันเข้าไปก่อนแล้ว
+                duplicate_files.append(file.filename or "")
+                continue
             candidate_ids.append(row["id"])
         conn.commit()
 
     # เตะกราฟให้ทำงานเบื้องหลังแล้วตอบกลับทันที (frontend จะ poll เอง)
-    background_tasks.add_task(
-        _run_graph_for_job, job_id, [str(c) for c in candidate_ids]
-    )
+    # ถ้าซ้ำหมดทั้งชุดก็ไม่ต้องเตะ — ไม่มีใครให้ประมวลผล
+    if candidate_ids:
+        background_tasks.add_task(
+            _run_graph_for_job, job_id, [str(c) for c in candidate_ids]
+        )
     return ResumeUploadAccepted(
-        job_id=UUID(job_id), accepted=len(candidate_ids), candidate_ids=candidate_ids
+        job_id=UUID(job_id),
+        accepted=len(candidate_ids),
+        candidate_ids=candidate_ids,
+        skipped=len(duplicate_files),
+        duplicate_files=duplicate_files,
     )
 
 

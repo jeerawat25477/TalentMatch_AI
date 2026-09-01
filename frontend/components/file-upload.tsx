@@ -15,6 +15,8 @@ export default function FileUpload({
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // ไฟล์ที่ backend ข้ามเพราะเคยอัปโหลดไปแล้ว — ต้องบอก HR ไม่งั้นจะงงว่าทำไมคนไม่ขึ้น
+  const [duplicates, setDuplicates] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function handleFiles(fileList: FileList | null) {
@@ -27,10 +29,12 @@ export default function FileUpload({
       return;
     }
     setError(null);
+    setDuplicates([]);
     setBusy(true);
     setProgress(0);
     try {
-      await uploadResumes(jobId, pdfs, setProgress);
+      const result = await uploadResumes(jobId, pdfs, setProgress);
+      setDuplicates(result.duplicate_files ?? []);
       onUploaded();
     } catch (e) {
       setError(e instanceof Error ? e.message : "อัปโหลดล้มเหลว");
@@ -95,6 +99,20 @@ export default function FileUpload({
         )}
       </div>
       {error && <p className="text-error text-label-md mt-xs">{error}</p>}
+      {duplicates.length > 0 && (
+        <div className="mt-xs p-sm rounded-xl border border-tertiary/30 bg-tertiary-container/10 flex gap-xs items-start">
+          <span
+            className="material-symbols-outlined text-tertiary text-[20px]"
+            style={{ fontVariationSettings: "'FILL' 1" }}
+          >
+            content_copy
+          </span>
+          <p className="text-on-tertiary-fixed-variant text-label-md leading-snug">
+            ข้ามไฟล์ที่เคยอัปโหลดในตำแหน่งนี้แล้ว {duplicates.length} ไฟล์:{" "}
+            {duplicates.join(", ")}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
