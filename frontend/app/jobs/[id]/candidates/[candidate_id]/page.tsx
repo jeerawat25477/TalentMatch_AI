@@ -158,7 +158,7 @@ export default function CandidateDeepDive() {
                     verified_user
                   </span>
                   <div>
-                    <p className="text-on-secondary-fixed-variant text-label-md leading-snug">
+                    <p className="text-on-surface text-label-md leading-snug">
                       {c.audit_log}
                     </p>
                     <p className="text-secondary font-bold text-label-sm mt-1">
@@ -180,7 +180,7 @@ export default function CandidateDeepDive() {
                     autorenew
                   </span>
                   <div>
-                    <p className="text-on-tertiary-fixed-variant text-label-md leading-snug">
+                    <p className="text-on-surface text-label-md leading-snug">
                       ตรวจอคติแล้วให้คำนวณคะแนนใหม่ {c.bias_revision.round} รอบ — ถอดเกณฑ์:{" "}
                       {[
                         ...c.bias_revision.excluded_required,

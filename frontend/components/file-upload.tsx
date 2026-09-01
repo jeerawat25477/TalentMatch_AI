@@ -107,10 +107,16 @@ export default function FileUpload({
           >
             content_copy
           </span>
-          <p className="text-on-tertiary-fixed-variant text-label-md leading-snug">
-            ข้ามไฟล์ที่เคยอัปโหลดในตำแหน่งนี้แล้ว {duplicates.length} ไฟล์:{" "}
-            {duplicates.join(", ")}
-          </p>
+          {/* สีข้อความต้องเป็น on-surface ที่พลิกตามธีม — ตระกูล *-fixed ตั้งใจให้เหมือนกัน
+              ทั้งสองธีม (น้ำตาลเข้ม) พอวางบนพื้นมืดแล้วอ่านไม่ออก */}
+          <div>
+            <p className="text-on-surface text-label-md leading-snug">
+              ข้ามไฟล์ที่เคยอัปโหลดแล้ว {duplicates.length} ไฟล์
+            </p>
+            <p className="text-on-surface-variant text-label-sm leading-snug mt-0.5">
+              {duplicates.join(", ")}
+            </p>
+          </div>
         </div>
       )}
     </div>
