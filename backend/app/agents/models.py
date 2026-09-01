@@ -35,6 +35,13 @@ class BiasAudit(BaseModel):
         default_factory=list,
         description="preferred_skills ใน JD ที่ควรถอดออกก่อนคำนวณใหม่ เพราะเป็นเกณฑ์ที่อาจมีอคติ",
     )
+    biased_jd_criteria: list[str] = Field(
+        default_factory=list,
+        description=(
+            "เกณฑ์อคติที่พบใน JD ดิบซึ่ง 'ไม่ใช่ทักษะ' (เพศ อายุ เชื้อชาติ ศาสนา สถาบันการศึกษา) "
+            "จึงถอดออกจากคะแนนไม่ได้ ต้องเตือน HR ให้แก้ประกาศแทน"
+        ),
+    )
 
 
 class InterviewQuestion(BaseModel):

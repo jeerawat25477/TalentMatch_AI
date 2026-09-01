@@ -11,7 +11,7 @@ from app.agents.nodes.matcher import match_candidates
 
 def _state() -> dict:
     return {
-        "raw_jd": "",
+        "raw_jd": "ตำแหน่ง Backend Developer\nคุณสมบัติ: Python, เพศชาย อายุไม่เกิน 30 ปี",
         "raw_resumes": [],
         "analyzed_jd": {
             "job_title": "Backend Developer",
@@ -135,4 +135,29 @@ def test_full_revise_path_keeps_revision_record(monkeypatch):
     assert revision["excluded_required"] == ["มหาวิทยาลัยชั้นนำ"]
     # รอบสองต้องไม่วนอีก แม้ auditor จะ flag ซ้ำ
     assert state["bias_revision_count"] == {"cand-1": 1}
+    assert route_candidates(state) in {"advance", "reject"}
+
+
+def test_jd_level_bias_is_reported_even_when_nothing_can_be_recomputed(monkeypatch):
+    """เกณฑ์อย่าง "เพศชาย/อายุไม่เกิน 30" ถูก jd_analyzer กรองทิ้งก่อนถึง required_skills
+    (พิสูจน์กับ Gemini จริงแล้ว) จึงถอดออกจากคะแนนไม่ได้ — ต้องไม่เข้าลูป แต่ต้องเตือน HR."""
+
+    def fake_invoke(*args, **kwargs):
+        return BiasAudit(
+            is_biased=True,
+            audit_status="flagged",
+            audit_log="ประกาศระบุเพศและอายุ",
+            biased_jd_criteria=["เพศชาย", "อายุไม่เกิน 30 ปี"],
+        )
+
+    monkeypatch.setattr(bias_auditor, "structured_invoke", fake_invoke)
+    state = _state()
+    state.update(match_candidates(state))
+    state.update(bias_auditor.audit_bias(state))
+
+    log = state["evaluations"][0]["audit_log"]
+    assert "เพศชาย" in log and "อายุไม่เกิน 30 ปี" in log
+    # ไม่มี skill ให้ถอด → ห้ามวนกลับ matcher (จะเสีย chat call ฟรี ๆ)
+    assert state["bias_revision_pending"] == {"cand-1": False}
+    assert state["bias_revision_count"] == {}
     assert route_candidates(state) in {"advance", "reject"}
