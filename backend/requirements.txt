@@ -11,6 +11,9 @@ python-multipart>=0.0.6
 # Authentication (ล็อกอิน username/password + JWT)
 PyJWT>=2.8                  # สร้าง/ตรวจ access token (HS256)
 bcrypt>=4.1                 # hash รหัสผ่าน
+# สกัดข้อความจาก PDF — pypdfium2 เป็นตัวหลัก (อ่านตามลำดับ content stream ภาษาไทยจึงไม่เพี้ยน)
+# pdfplumber เก็บไว้เป็นทางสำรองเมื่อ pypdfium2 แกะไม่ออก (ดู utils/pdf_extractor.py)
+pypdfium2>=4.30
 pdfplumber>=0.10.2
 python-dotenv>=1.0.0
 
