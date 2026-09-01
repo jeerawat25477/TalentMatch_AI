@@ -11,9 +11,10 @@ python-multipart>=0.0.6
 # Authentication (ล็อกอิน username/password + JWT)
 PyJWT>=2.8                  # สร้าง/ตรวจ access token (HS256)
 bcrypt>=4.1                 # hash รหัสผ่าน
-# สกัดข้อความจาก PDF — pypdfium2 เป็นตัวหลัก (อ่านตามลำดับ content stream ภาษาไทยจึงไม่เพี้ยน)
-# pdfplumber เก็บไว้เป็นทางสำรองเมื่อ pypdfium2 แกะไม่ออก (ดู utils/pdf_extractor.py)
-pypdfium2>=4.30
+# สกัดข้อความจาก PDF — PyMuPDF เป็นตัวหลัก: เป็น engine เดียวที่จัดลำดับสระ/วรรณยุกต์ไทย
+# ได้ถูกต้อง (ทดสอบกับเรซูเม่ไทยจริง 2 ใบ) ⚠ license = AGPL-3.0 ถ้าจะเปิดให้คนนอกใช้ผ่านเน็ต
+# ต้องเปิดซอร์สทั้งระบบ · pdfplumber เก็บไว้เป็นทางสำรอง (ดู utils/pdf_extractor.py)
+pymupdf>=1.24
 pdfplumber>=0.10.2
 python-dotenv>=1.0.0
 
