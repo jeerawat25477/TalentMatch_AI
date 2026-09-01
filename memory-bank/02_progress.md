@@ -1,6 +1,6 @@
 # Memory Bank — 02: ความคืบหน้า (สถานะล่าสุด)
 
-> อัปเดตล่าสุด: 2026-08-02 (วงจรชีวิตตำแหน่งงาน: ปิดรับสมัคร + ลบถาวร) · แก้ไฟล์นี้ทุกครั้งที่ทำงานเสร็จเป็นก้อน
+> อัปเดตล่าสุด: 2026-08-30 (agent loop bias_auditor → matcher แบบ critique/revise) · แก้ไฟล์นี้ทุกครั้งที่ทำงานเสร็จเป็นก้อน
 
 ## ✅ เสร็จแล้ว
 
@@ -291,17 +291,36 @@ R↔React **0.845** — ทั้งหมด *สูงกว่า* คู่�
 - **ตรวจแล้วว่าไม่เสียหาย:** คลัง RAG ไม่ได้เพี้ยนจากตัวซ้ำ — [vectors.py](../backend/app/vectors.py) มี `DISTINCT ON (re.content)` อยู่แล้ว
   (ยิงค้นจริงคืน 3 คน ไม่ใช่ 8) อย่าเอาข้อนี้ไปเป็นเหตุผลของงานถัดไป
 
+### Agent loop: bias_auditor → matcher (critique → revise) — จำกัด 1 รอบ
+ทำให้ระบบเป็น multi-agent orchestration มากขึ้นจากเดิมที่ auditor แค่ตรวจแล้วส่งต่อ
+- **`BiasAudit` structured output** เพิ่ม `biased_required_skills` / `biased_preferred_skills` ให้ auditor ระบุ skill criteria จาก JD ที่ควรถอดเพราะอาจมีอคติ
+- **state ใหม่:** `bias_revision_count`, `bias_revision_pending`, `bias_exclusions`
+  - auditor flag + มี criteria ให้ถอด + ยังไม่เคย revise → set pending และนับรอบ
+  - matcher อ่าน `bias_exclusions` แล้วกรอง JD ก่อนคำนวณคะแนนใหม่แบบ deterministic
+  - matcher clear pending แล้วส่งกลับ auditor ตรวจซ้ำอีกครั้ง
+- **graph:** conditional edge หลัง `bias_auditor` เพิ่มทาง `revise → matcher`; HR decision ยังชนะก่อนเสมอ (`approved/rejected` ไม่ถูก loop ขวาง)
+- **คุมโควตา:** เพิ่ม chat call เฉพาะเคส flagged เท่านั้น และวนได้สูงสุด 1 รอบ (`MAX_BIAS_REVISIONS = 1`)
+- **เก็บร่องรอย + โชว์บนหน้าเว็บ:** คอลัมน์ใหม่ `evaluations.bias_revision` (JSONB) เก็บ
+  `{round, score_before, score_after, excluded_required, excluded_preferred, reason}` — **matcher เป็นคนเขียน**
+  (มันรู้คะแนนก่อน/หลัง) แล้ว auditor รอบสองคัดลอกต่อไปถึง `_persist_evaluation`
+  - เดิม codex ต่อข้อความ "Revise รอบที่ 1" ลง `audit_log` แต่ auditor **รอบสองเขียนทับทั้งช่อง** → ลูปหายไปจากหน้าเว็บทั้งดุ้น (ถอดออกแล้ว)
+  - หน้า detail ผู้สมัครมีการ์ดสีอำพัน "ตรวจอคติแล้วให้คำนวณคะแนนใหม่ N รอบ — ถอดเกณฑ์ … / คะแนน X → Y"
+- **ทดสอบแล้ว:** `test_bias_loop.py` 5 เคส — auditor ตั้ง pending, matcher apply exclusion, ไม่วนเกิน 1,
+  HR decision ชนะ pending revision, และเส้นทางเต็ม matcher→auditor→router→matcher→auditor ที่ยืนยันว่า
+  `bias_revision` รอดไปถึง evaluation สุดท้าย (ยังไม่ได้รันชุดเต็มใน Docker — Docker daemon ปิดอยู่ตอนแก้)
+
 ## 🔜 ค้างอยู่ / ขั้นต่อไป (เรียงลำดับแนะนำ)
 
-1. **[feature — multi-agent] ลูป bias_auditor → matcher (critique → revise)** — ทำให้เป็น agent loop จริง
-   - **เงื่อนไขสำคัญ (คุมโควตา):** cap รอบไว้ **1 รอบ** และเข้าลูป **เฉพาะเคสที่ bias_auditor flag จริง** (`audit_status="flagged"`) ไม่ใช่ทุกคน → เปลือง chat call เพิ่มเฉพาะเคสมีปัญหา
-   - เมื่อ flag: auditor เสนอ "ทักษะ/เกณฑ์ที่อาจมีอคติ" → ตัดออกจาก JD/skills → ให้ matcher (deterministic, ฟรี) คำนวณใหม่ → ตรวจซ้ำ 1 ครั้ง
-   - ⚠️ **คุณค่าจริงมีจำกัด** (บันทึกไว้ตอนวิเคราะห์): คะแนนมาจาก matcher ที่ดูแค่ทักษะอยู่แล้ว ไม่มีเพศ/อายุ/สถาบัน → อคติในคะแนนแทบไม่มีให้แก้ · ประโยชน์หลักคือจับอคติใน "ตัว JD" + โชว์ agent loop สำหรับรายงาน
-   - ต้องเพิ่ม conditional edge หลัง bias_auditor (flagged → กลับ matcher, ไม่งั้น → router เดิม) + counter กันวนเกิน 1 · ระวังกระทบ HITL/checkpointer (รูปกราฟเปลี่ยน)
-2. Hardening ที่เหลือก่อน deploy (ดู checklist ใน [04_security.md](04_security.md)): TLS/reverse proxy · non-root container · ย้าย rate-limit ไป Redis · secrets manager
-3. เคลียร์หนี้ dev: job ที่ `parsed_criteria` เป็น NULL, แถวอีเมลที่โดน stub ทับ (subject='s'), reducer ของ HRSystemState
-4. ปรับปรุงความทนทาน: Gemini คืน 503 เป็นระยะ (SDK retry ให้เอง) และ free tier มีโควตาต่ำมาก — ถ้าอัปโหลดทีละหลายไฟล์จะชนลิมิตแน่ ควรคุม concurrency/backoff หรืออัปเกรดแพลน
-5. ข้อมูล dev ค้าง: มี 2 งาน (`Python Developer`, `Senior Python Developer` ตัวซ้ำ) ที่ `parsed_criteria` เป็น NULL แต่มี evaluation คะแนน 100/40 ค้างจากตอนทดสอบยุคแรก — ถ้าอยากให้สะอาดต้องลบทิ้ง (guard ใหม่ใน matcher กันไม่ให้เกิดเคสนี้ซ้ำแล้ว)
+1. Hardening ที่เหลือก่อน deploy (ดู checklist ใน [04_security.md](04_security.md)): TLS/reverse proxy · non-root container · ย้าย rate-limit ไป Redis · secrets manager
+2. เคลียร์หนี้ dev: job ที่ `parsed_criteria` เป็น NULL, แถวอีเมลที่โดน stub ทับ (subject='s'), reducer ของ HRSystemState
+3. ปรับปรุงความทนทาน: Gemini คืน 503 เป็นระยะ (SDK retry ให้เอง) และ free tier มีโควตาต่ำมาก — ถ้าอัปโหลดทีละหลายไฟล์จะชนลิมิตแน่ ควรคุม concurrency/backoff หรืออัปเกรดแพลน
+4. ข้อมูล dev ค้าง: มี 2 งาน (`Python Developer`, `Senior Python Developer` ตัวซ้ำ) ที่ `parsed_criteria` เป็น NULL แต่มี evaluation คะแนน 100/40 ค้างจากตอนทดสอบยุคแรก — ถ้าอยากให้สะอาดต้องลบทิ้ง (guard ใหม่ใน matcher กันไม่ให้เกิดเคสนี้ซ้ำแล้ว)
+5. **[feature — ไอเดีย, ยังไม่สร้าง 2026-08-11] รับใบสมัครทางอีเมลอัตโนมัติ (ลดงาน HR)** — เพิ่ม "ปากทางรับอีเมล" หน้า pipeline เดิม (async อยู่แล้ว ไม่ต้องรื้อ): worker ดึงอีเมล → จับคู่ตำแหน่ง → เรียก upload ภายใน → กราฟประเมิน → หยุดรอ HR เหมือนเดิม
+   - **แนวทางที่เลือก:** IMAP polling worker (self-contained, ใช้กล่องเมลจริงเช่น Gmail App Password ที่มี SMTP creds อยู่แล้ว — ไม่ต้องเปิด public URL/webhook)
+   - **Toggle (สำคัญ — ผู้ใช้ย้ำ):** ให้ HR เปิด/ปิดได้ **แบบ B = ปุ่มสวิตช์ในหน้าตั้งค่า** เก็บ flag ใน DB (ตาราง settings) worker อ่านทุกรอบ poll → เปิด/ปิดสดไม่ต้อง restart. **default = ปิด** (ปลอดภัยโดยปริยาย เปิดเฉพาะตอนพรีเซน/ทดสอบ). "ปิด" ต้องหลับสนิท: ไม่ต่อ IMAP/ไม่แตะเมล/ไม่กินโควตาเลย (แพตเทิร์นเดียวกับ RAG no-op)
+   - **กำแพงจริง 3 ข้อ:** (1) **โควตา Gemini 20 call/วัน = รับได้จริง ~6 คน/วัน** → ต้องมีคิว/throttle ไม่ยิงเข้ากราฟทุกฉบับทันที (2) จับคู่อีเมล↔งานด้วย `apply+<job_id>@...` หรือ subject (อย่าใช้ LLM เดา—เปลืองโควตา) (3) dedupe ด้วยอีเมลผู้ส่ง (upload เดิมไม่กันซ้ำ) + security (magic-byte/size cap มีแล้ว)
+   - ⚠️ **ห้าม auto-reply** — การส่งอีเมลตอบกลับต้องให้ HR กดยืนยันเองเหมือนเดิม (กันเป็น spam relay)
+   - ⚠️ MailHog ใน dev รับแค่เมล**ขาออก** ทดสอบ ingestion จริงต้องมีกล่องเมลจริงให้ worker ดึง
 6. **[ค้าง — ผู้ใช้เลือก "ปล่อยไว้ก่อน" 2026-08-10] สกัดข้อความ PDF ภาษาไทยเพี้ยน** — `pdfplumber` เรียง glyph ตามพิกัด x ทำให้สระ/วรรณยุกต์ซ้อน (◌ี ◌ั ◌์) สลับตำแหน่ง (เช่น `จีรวัฒน์` → `จรี วัฒน์`, `ศักดิ์` → `ศักดิ`). กระทบเฉพาะข้อความไทย (Latin สกัดถูก) → ชื่อ/การศึกษาเพี้ยน แต่ทักษะ/คะแนนไม่กระทบ. ทางแก้ที่ได้ผล: สลับ engine เป็น **pypdfium2** (license เสรี, อ่านตาม content stream) หรือ PyMuPDF (เก่งกว่าแต่ AGPL) ใน [utils/pdf_extractor.py](../backend/app/utils/pdf_extractor.py) — ต้อง rebuild backend + เพิ่ม dependency
 
 ## ⚠️ กับดัก / บันทึกการตัดสินใจ

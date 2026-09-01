@@ -169,6 +169,31 @@ export default function CandidateDeepDive() {
                   </div>
                 </div>
               )}
+
+              {/* ลูป critique/revise: auditor ถอดเกณฑ์ที่มีอคติ แล้ว matcher คำนวณคะแนนใหม่ */}
+              {c.bias_revision && (
+                <div className="p-sm rounded-xl border border-tertiary/30 bg-tertiary-container/10 flex gap-xs items-start">
+                  <span
+                    className="material-symbols-outlined text-tertiary"
+                    style={{ fontVariationSettings: "'FILL' 1" }}
+                  >
+                    autorenew
+                  </span>
+                  <div>
+                    <p className="text-on-tertiary-fixed-variant text-label-md leading-snug">
+                      ตรวจอคติแล้วให้คำนวณคะแนนใหม่ {c.bias_revision.round} รอบ — ถอดเกณฑ์:{" "}
+                      {[
+                        ...c.bias_revision.excluded_required,
+                        ...c.bias_revision.excluded_preferred,
+                      ].join(", ") || "—"}
+                    </p>
+                    <p className="text-tertiary font-bold text-label-sm mt-1">
+                      คะแนน {c.bias_revision.score_before ?? "—"} →{" "}
+                      {c.bias_revision.score_after ?? c.fit_score ?? "—"}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* ขวา: Gap Analysis */}

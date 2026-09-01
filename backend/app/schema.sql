@@ -59,6 +59,8 @@ ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS email_sent_to TEXT;
 ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS email_send_count INT NOT NULL DEFAULT 0;
 -- ผู้สมัครเก่าที่โปรไฟล์คล้ายกัน จาก retrieval agent (RAG, เปิด/ปิดด้วย RAG_ENABLED)
 ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS similar_candidates JSONB;
+-- ร่องรอยลูป critique/revise (bias_auditor -> matcher): เกณฑ์ที่ถอด + คะแนนก่อน/หลัง
+ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS bias_revision JSONB;
 
 CREATE TABLE IF NOT EXISTS hr_decisions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

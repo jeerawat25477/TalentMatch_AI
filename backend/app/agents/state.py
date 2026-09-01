@@ -18,6 +18,11 @@ class HRSystemState(TypedDict):
 
     # Evaluations
     evaluations: List[Dict[str, Any]]  # {"candidate_id","fit_score","gaps","is_biased","audit_status","audit_log"}
+    # Bias critique/revise loop (จำกัดรอบใน graph.py): auditor เสนอ criteria ที่ควรถอด,
+    # matcher คำนวณใหม่แบบ deterministic แล้ว auditor ตรวจซ้ำ
+    bias_revision_count: Dict[str, int]  # {candidate_id: จำนวนรอบ revise ที่ใช้ไป}
+    bias_revision_pending: Dict[str, bool]  # {candidate_id: auditor ขอให้ matcher revise รอบถัดไป}
+    bias_exclusions: Dict[str, Any]  # {candidate_id: {"required_skills": [], "preferred_skills": [], "reason": str}}
 
     # RAG: ผู้สมัครเก่าที่โปรไฟล์คล้ายกัน (retrieval agent เติม, เปิด/ปิดด้วย RAG_ENABLED)
     similar_candidates: Dict[str, Any]  # {candidate_id: [{id, full_name, job_title, fit_score, distance}, ...]}

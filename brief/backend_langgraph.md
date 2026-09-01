@@ -41,6 +41,11 @@ class HRSystemState(TypedDict):
     # Evaluations
     evaluations: List[Dict[str, Any]]  # {"candidate_id": str, "fit_score": int, "gaps": list, "is_biased": bool}
 
+    # Bias critique/revise loop
+    bias_revision_count: Dict[str, int]  # {"candidate_id": จำนวนรอบ revise ที่ใช้ไป}
+    bias_revision_pending: Dict[str, bool]  # {"candidate_id": true ถ้า auditor ขอให้ matcher คำนวณใหม่}
+    bias_exclusions: Dict[str, Any]  # {"candidate_id": {"required_skills": [], "preferred_skills": [], "reason": str}}
+
     # Human-in-the-Loop Decisions
     hr_decision: Dict[str, str]  # {"candidate_id": "approved" | "rejected" | "pending"}
     hr_notes: Dict[str, str]
@@ -77,6 +82,9 @@ class HRSystemState(TypedDict):
 
 ### Node 4: Bias Auditor
 *   **เป้าหมาย**: คัดกรองอคติ (Bias Check)
+*   **Critique/Revise loop**: ถ้า auditor พบเกณฑ์ใน JD ที่อาจมีอคติ ให้ระบุ `biased_required_skills` /
+    `biased_preferred_skills` แล้ว router ส่งกลับ `matcher` เพื่อถอดเกณฑ์นั้นและคำนวณใหม่แบบ deterministic
+    **จำกัด 1 รอบต่อผู้สมัคร** เพื่อคุมโควตาและกันวนไม่จบ
 *   **Prompt**:
     ```text
     จงตรวจสอบผลการประเมินของผู้สมัครคนนี้ว่ามีการระบุข้อมูลอคติเกี่ยวกับ เพศ, อายุ, เชื้อชาติ, ศาสนา หรือสถาบันการศึกษาหรือไม่ ถ้ามี ให้ตัดข้อมูลอคติออกแล้วประเมินทักษะอย่างเที่ยงตรง
@@ -114,6 +122,8 @@ workflow.add_edge("matcher", "bias_auditor")
 
 # 4. Router สำหรับตัดสินใจ (Conditional Edges)
 def route_candidates(state: HRSystemState):
+    # ถ้า auditor ขอ revise และยังไม่เกิน 1 รอบ ให้ย้อนกลับ matcher ก่อน
+    # ถ้ามี HR decision แล้ว ให้ HR decision ชนะเสมอ
     # ดึงคะแนนประเมินล่าสุดของแคนดิเดต
     evals = state["evaluations"]
     for ev in evals:
@@ -126,6 +136,7 @@ workflow.add_conditional_edges(
     "bias_auditor",
     route_candidates,
     {
+        "revise": "matcher", # auditor flagged → matcher ถอด criteria ที่มีอคติแล้วคำนวณใหม่
         "wait_for_hr": END, # หยุดรันรอสัญญาณอนุมัติจาก HR
         "auto_process": "interview_planner" # ถ้านาย A คะแนนผ่านเกณฑ์ ส่งไปต่อทันที
     }

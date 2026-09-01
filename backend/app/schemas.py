@@ -79,6 +79,9 @@ class CandidateDetail(CandidateSummary):
     email_send_count: int = 0  # จำนวนครั้งที่ส่งอีเมล (รวมส่งซ้ำ)
     # ผู้สมัครเก่าที่โปรไฟล์คล้ายกัน จาก retrieval agent (RAG) — ว่าง/None ถ้าปิด RAG
     similar_candidates: Optional[list[dict[str, Any]]] = None
+    # ร่องรอยลูป critique/revise: auditor ถอดเกณฑ์ที่มีอคติแล้ว matcher คำนวณใหม่
+    # {round, score_before, score_after, excluded_required, excluded_preferred, reason}
+    bias_revision: Optional[dict[str, Any]] = None
     # สถานะกราฟ — ให้หน้าเว็บบอกได้ว่าการกดปุ่ม HR จะ "เดินต่อ" หรือ "ตัดสินใหม่ทับของเดิม"
     graph_status: Literal["awaiting_hr", "completed", "processing"] = "processing"
     # ถ้าผู้สมัครถูกรับเข้าเป็นพนักงานแล้ว = id ของระเบียนพนักงาน (ให้ UI ลิงก์ไปได้)

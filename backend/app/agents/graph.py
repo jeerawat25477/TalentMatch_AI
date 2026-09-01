@@ -1,6 +1,7 @@
 """ประกอบกราฟ TalentMatch: nodes + edges + router + checkpointer.
 
 Router หลัง bias_auditor:
+- auditor flagged + ยังไม่ revise → กลับ matcher เพื่อคำนวณใหม่ 1 รอบ
 - HR ตัดสินไว้แล้ว   → เชื่อ HR ก่อนเสมอ (approved → advance, rejected → reject)
 - fit > 70          → advance ... interrupt จะพักก่อน interview_planner เสมอ
 - 50 ≤ fit ≤ 70     → advance เช่นกัน แต่ runner จะ "รอ" ไม่ auto-resume
@@ -36,11 +37,14 @@ def route_candidates(state: HRSystemState) -> str:
     เป็นจริง แทนที่จะเป็นแค่ปุ่มที่กดแล้วคะแนนของ AI ยังชนะอยู่ดี
     """
     evaluation = state["evaluations"][0]
-    decision = (state.get("hr_decision") or {}).get(evaluation["candidate_id"])
+    cid = evaluation["candidate_id"]
+    decision = (state.get("hr_decision") or {}).get(cid)
     if decision == "approved":
         return "advance"
     if decision == "rejected":
         return "reject"
+    if (state.get("bias_revision_pending") or {}).get(cid):
+        return "revise"
     return "reject" if is_rejected_by_score(evaluation["fit_score"]) else "advance"
 
 
@@ -62,7 +66,7 @@ def build_graph() -> StateGraph:
     workflow.add_conditional_edges(
         "bias_auditor",
         route_candidates,
-        {"advance": "interview_planner", "reject": "email_drafter"},
+        {"revise": "matcher", "advance": "interview_planner", "reject": "email_drafter"},
     )
     workflow.add_edge("interview_planner", "email_drafter")
     workflow.add_edge("email_drafter", END)

@@ -4,17 +4,34 @@ Fit score = required 60% + preferred 40% (ตาม CLAUDE.md / บรีฟ).
 ตรรกะการเทียบทักษะอยู่ใน app/agents/skills.py (เทียบบนขอบเขตคำ + alias + implication)
 """
 from app.agents.bands import REVIEW_FROM
-from app.agents.skills import split_matched
+from app.agents.skills import canonical, split_matched
 from app.agents.state import HRSystemState
+
+
+def _without_excluded(skills: list[str], excluded: list[str]) -> list[str]:
+    """ตัด skill criteria ที่ auditor flag ออกจาก JD ก่อนคำนวณคะแนนใหม่."""
+    excluded_canonical = {canonical(s) for s in excluded if s and s.strip()}
+    if not excluded_canonical:
+        return skills
+    return [s for s in skills if canonical(s) not in excluded_canonical]
 
 
 def match_candidates(state: HRSystemState) -> dict:
     jd = state["analyzed_jd"] or {}
     profile = state["parsed_resumes"][0]
+    cid = profile["candidate_id"]
     owned = {s for s in profile.get("skills", []) if s and s.strip()}
 
-    matched_req, missing_req = split_matched(jd.get("required_skills") or [], owned)
-    matched_pref, missing_pref = split_matched(jd.get("preferred_skills") or [], owned)
+    exclusions = (state.get("bias_exclusions") or {}).get(cid) or {}
+    required_skills = _without_excluded(
+        jd.get("required_skills") or [], exclusions.get("required_skills") or []
+    )
+    preferred_skills = _without_excluded(
+        jd.get("preferred_skills") or [], exclusions.get("preferred_skills") or []
+    )
+
+    matched_req, missing_req = split_matched(required_skills, owned)
+    matched_pref, missing_pref = split_matched(preferred_skills, owned)
 
     # ตัวหารคือจำนวนทักษะ "จริง" หลังกรองคำที่ไม่ใช่ทักษะออกแล้ว (เช่น "product owners")
     # ถ้า JD ไม่ระบุทักษะฝั่งใดเลย ให้ถือว่าผ่านฝั่งนั้นเต็ม — คงพฤติกรรมเดิม
@@ -32,7 +49,7 @@ def match_candidates(state: HRSystemState) -> dict:
         fit_score = round(60 * req_ratio + 40 * pref_ratio)
 
     evaluation = {
-        "candidate_id": profile["candidate_id"],
+        "candidate_id": cid,
         "fit_score": fit_score,
         "gaps": {
             "matched_required": matched_req,
@@ -44,4 +61,22 @@ def match_candidates(state: HRSystemState) -> dict:
         "audit_status": "passed",
         "audit_log": "",
     }
-    return {"evaluations": [evaluation]}
+    if exclusions:
+        # บันทึกร่องรอยของลูป critique/revise ให้เห็นได้จริง: matcher เป็นคนเขียนก้อนนี้
+        # (auditor รอบถัดไปคัดลอก evaluation ต่อ จึงติดไปถึง _persist_evaluation)
+        # ถ้าไม่เก็บ score ก่อนแก้ หน้าเว็บจะเห็นแต่คะแนนหลังแก้ = ลูปหายไปเฉย ๆ
+        previous = (state.get("evaluations") or [{}])[0]
+        evaluation["bias_revision"] = {
+            "round": (state.get("bias_revision_count") or {}).get(cid, 1),
+            "score_before": previous.get("fit_score"),
+            "score_after": fit_score,
+            "excluded_required": exclusions.get("required_skills") or [],
+            "excluded_preferred": exclusions.get("preferred_skills") or [],
+            "reason": exclusions.get("reason", ""),
+        }
+
+    revision_pending = dict(state.get("bias_revision_pending") or {})
+    if cid in revision_pending:
+        revision_pending[cid] = False
+
+    return {"evaluations": [evaluation], "bias_revision_pending": revision_pending}

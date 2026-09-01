@@ -103,6 +103,16 @@ export interface ParsedResume {
   education: string;
 }
 
+/** ร่องรอยรอบ critique/revise: auditor ถอดเกณฑ์ที่อาจมีอคติ แล้ว matcher คำนวณคะแนนใหม่ */
+export interface BiasRevision {
+  round: number;
+  score_before: number | null;
+  score_after: number | null;
+  excluded_required: string[];
+  excluded_preferred: string[];
+  reason: string;
+}
+
 /** ผู้สมัครเก่าที่โปรไฟล์คล้ายกัน จาก retrieval agent (RAG) */
 export interface SimilarCandidate {
   id: string;
@@ -124,6 +134,8 @@ export interface CandidateDetail extends CandidateSummary {
   /** จำนวนครั้งที่ส่งอีเมล (รวมส่งซ้ำ) */
   email_send_count: number;
   similar_candidates: SimilarCandidate[] | null;
+  /** ร่องรอยลูป critique/revise (bias_auditor -> matcher) — null ถ้าไม่เคยเข้าลูป */
+  bias_revision: BiasRevision | null;
   graph_status: GraphStatus;
   /** ถ้ารับเข้าเป็นพนักงานแล้ว = id ระเบียนพนักงาน (ให้ปุ่มสลับเป็นลิงก์ดูข้อมูลพนักงาน) */
   employee_id: string | null;

@@ -27,6 +27,14 @@ class BiasAudit(BaseModel):
     is_biased: bool = Field(..., description="พบการใช้ข้อมูลอคติในการประเมินหรือไม่")
     audit_status: Literal["passed", "flagged"] = "passed"
     audit_log: str = Field("", description="สรุปสิ่งที่ตรวจพบ/แก้ไข")
+    biased_required_skills: list[str] = Field(
+        default_factory=list,
+        description="required_skills ใน JD ที่ควรถอดออกก่อนคำนวณใหม่ เพราะเป็นเกณฑ์ที่อาจมีอคติ",
+    )
+    biased_preferred_skills: list[str] = Field(
+        default_factory=list,
+        description="preferred_skills ใน JD ที่ควรถอดออกก่อนคำนวณใหม่ เพราะเป็นเกณฑ์ที่อาจมีอคติ",
+    )
 
 
 class InterviewQuestion(BaseModel):

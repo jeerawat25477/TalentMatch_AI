@@ -82,8 +82,8 @@ def _persist_evaluation(
         conn.execute(
             """INSERT INTO evaluations
                (job_id, candidate_id, fit_score, gap_analysis, audit_status, audit_log,
-                similar_candidates)
-               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                similar_candidates, bias_revision)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
             (
                 job_id,
                 candidate_id,
@@ -92,6 +92,7 @@ def _persist_evaluation(
                 evaluation.get("audit_status", "passed"),
                 evaluation.get("audit_log", ""),
                 Json(similar) if similar else None,
+                Json(evaluation["bias_revision"]) if evaluation.get("bias_revision") else None,
             ),
         )
         conn.commit()
@@ -148,6 +149,9 @@ def _process_candidate_locked(
         "interview_plans": {},
         "email_drafts": {},
         "similar_candidates": {},
+        "bias_revision_count": {},
+        "bias_revision_pending": {},
+        "bias_exclusions": {},
     }
     state = graph.invoke(initial, config)
     evaluation = state["evaluations"][0]
