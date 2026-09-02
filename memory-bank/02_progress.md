@@ -418,6 +418,26 @@ license ดีกว่าโดยไม่รันเทียบกับไ
   = resume_embeddings 19 = checkpoint threads 19 · orphan 0 · 84 เทสผ่านเท่าเดิม
 - ⚠️ `Senior Python Developer` ตัวซ้ำที่ `parsed_criteria` **ไม่** NULL (`29270baa…`) เป็นตัวดี ไม่ได้แตะ
 
+### หน้ารายละเอียดผู้สมัคร: ค้นหาคล้ายกันแบบสั่งเอง + บันทึกคำตัดสิน HR (2026-09-02)
+- **ปุ่มค้นหาคล้ายกันแบบ ad-hoc** — ยิง `GET /api/v1/candidates/search` (endpoint เดิม) ผ่าน
+  `searchCandidates()` ใน `lib/api.ts` **แยก section จาก `similar_candidates` เด็ดขาด** เพราะคนละที่มา:
+  อันเดิมมาจาก `retrieve_similar` node ตอนรันกราฟและ persist ไว้ อันใหม่ค้นสด ไม่บันทึก
+  - เติมคำค้นเริ่มต้นจาก `job.title` + `parsed_resume.skills` แต่ **ต้องรอทั้ง `c` และ `job`** ก่อน seed
+    (SWR สอง request แข่งกัน — ถ้า seed ตอน `c` มาคนเดียวจะได้แต่ทักษะ ไม่มีชื่อตำแหน่ง) และ seed
+    **ครั้งเดียว** เพราะหน้านี้ poll ทุก 4 วิ จะเขียนทับสิ่งที่ HR กำลังพิมพ์
+  - ต้องกรองตัวเองออกเอง — endpoint สาธารณะไม่ได้ส่ง `exclude_candidate_id` ต่างจาก retriever node
+  - ⚠️ `vectors.search` dedupe ตาม *เนื้อหาเรซูเม่* คนเดียวกันที่อัปเข้าหลายตำแหน่งจึงอาจโผล่ในผล
+    ด้วย candidate id ของงานอื่น (การกรอง id ตัวเองไม่ครอบเคสนี้ และไม่ควรกรองด้วยชื่อ)
+  - หมายเหตุ: หน้า `/search` (ค้นหาผู้สมัครทั่วไป) เรียก endpoint เดียวกันอยู่ก่อนแล้ว
+- **บันทึก/เวลาคำตัดสินของ HR** — `get_candidate` เพิ่ม `hd.notes` / `hd.updated_at` เป็น
+  `hr_notes` / `hr_decided_at` (JOIN เดิม ไม่ได้เพิ่ม query) แล้วโชว์ในการ์ดสรุปคำตัดสิน
+  - ⚠️ **ไม่ใช่ timeline** — `hr_decisions.candidate_id` เป็น UNIQUE + `ON CONFLICT DO UPDATE`
+    DB เก็บได้แค่คำตัดสินล่าสุด ถ้าอยากได้ประวัติจริงต้องเพิ่มตาราง append-only แยก
+  - กด "แก้ไข" ต้องเติม `hr_notes` เดิมกลับเข้า textarea เพราะ upsert ทับ `notes` ด้วยค่าที่ส่งมา
+    เสมอ — ส่งค่าว่าง = ลบเหตุผลเดิมทิ้ง
+- ⚠️ ข้อจำกัดตอนทดสอบ: browser pane จับภาพได้เฉพาะ viewport แรกของหน้านี้ ส่วนที่ต้องเลื่อนลง
+  ออกมาเป็นภาพดำ (DOM ปกติ) — ตรวจด้วย `read_page`/JS แล้วซ่อน section อื่นชั่วคราวเพื่อถ่ายภาพ
+
 ## 🔜 ค้างอยู่ / ขั้นต่อไป (เรียงลำดับแนะนำ)
 
 1. Hardening ที่เหลือก่อน deploy (ดู checklist ใน [04_security.md](04_security.md)): TLS/reverse proxy · non-root container · ย้าย rate-limit ไป Redis · secrets manager
