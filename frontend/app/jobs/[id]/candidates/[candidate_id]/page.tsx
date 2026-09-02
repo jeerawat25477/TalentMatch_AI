@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import AiInsight from "@/components/ai-insight";
 import Breadcrumb from "@/components/breadcrumb";
@@ -11,9 +11,14 @@ import InterviewGuide from "@/components/interview-guide";
 import RadarChart from "@/components/radar-chart";
 import SkillGap from "@/components/skill-gap";
 import StatusBadge from "@/components/status-badge";
-import { fetcher, sendEmail, submitDecision } from "@/lib/api";
+import { fetcher, searchCandidates, sendEmail, submitDecision } from "@/lib/api";
 import { BANDS, initials, scoreBand } from "@/lib/types";
-import type { CandidateDetail, Decision, Job } from "@/lib/types";
+import type {
+  CandidateDetail,
+  CandidateSearchHit,
+  Decision,
+  Job,
+} from "@/lib/types";
 
 export default function CandidateDeepDive() {
   const { id, candidate_id } = useParams<{ id: string; candidate_id: string }>();
@@ -37,6 +42,12 @@ export default function CandidateDeepDive() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [showHire, setShowHire] = useState(false);
+  // ค้นหาผู้สมัครคล้ายกันแบบสั่งเอง — ยิงสดทุกครั้ง ไม่ได้บันทึกลง DB (hits = null คือยังไม่เคยค้น)
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [hits, setHits] = useState<CandidateSearchHit[] | null>(null);
+  const seeded = useRef(false);
   const router = useRouter();
 
   // ซิงก์ร่างอีเมลจาก backend เมื่อมีข้อมูลใหม่ (แก้ต่อในเครื่องได้)
@@ -50,6 +61,35 @@ export default function CandidateDeepDive() {
   useEffect(() => {
     if (c?.email) setEmailTo(c.email);
   }, [c?.email]);
+
+  // เติมคำค้นเริ่มต้นจากตำแหน่งงาน + ทักษะของผู้สมัคร — ทำครั้งเดียว เพราะ SWR poll ทุก 4 วิ
+  // ถ้าเขียนทับทุกรอบจะลบสิ่งที่ HR กำลังพิมพ์อยู่ (parsed_resume ไม่มีฟิลด์ตำแหน่ง จึงยืม job.title)
+  useEffect(() => {
+    // รอทั้งสอง request ให้มาก่อน — ไม่งั้น c มาก่อน job แล้วจะ seed โดยไม่มีชื่อตำแหน่งติดไป
+    if (seeded.current || !c || !job) return;
+    const seed = [job.title, ...(c.parsed_resume?.skills ?? []).slice(0, 8)]
+      .filter(Boolean)
+      .join(", ");
+    if (!seed) return;
+    seeded.current = true;
+    setQuery(seed);
+  }, [c, job]);
+
+  async function handleSearch() {
+    setSearching(true);
+    setSearchError(null);
+    try {
+      const found = await searchCandidates(query.trim(), 10);
+      // endpoint สาธารณะไม่ได้ส่ง exclude_candidate_id (ต่างจาก retrieve_similar node)
+      // จึงเจอตัวเองเป็นอันดับ 1 เสมอ ต้องกรองออกเอง
+      setHits(found.filter((h) => h.id !== candidate_id));
+    } catch (e) {
+      setSearchError(e instanceof Error ? e.message : "ค้นหาไม่สำเร็จ");
+      setHits(null);
+    } finally {
+      setSearching(false);
+    }
+  }
 
   async function handleSend() {
     setSending(true);
@@ -358,6 +398,103 @@ export default function CandidateDeepDive() {
           </ul>
         </section>
       )}
+
+      {/* ค้นหาคล้ายกันแบบสั่งเอง (ad-hoc) — คนละที่มากับ section ด้านบน:
+          อันบนมาจาก retrieve_similar node ตอนรันกราฟ บันทึกผูกกับผู้สมัครคนนี้ไว้แล้ว
+          ส่วนอันนี้ยิง GET /candidates/search สดทุกครั้ง ไม่ persist */}
+      <section className="glass-card rounded-2xl p-md">
+        <h3 className="text-headline-md text-on-surface flex items-center gap-xs mb-xs">
+          <span className="material-symbols-outlined text-primary">
+            travel_explore
+          </span>
+          ค้นหาผู้สมัครคล้ายกันเพิ่มเติม
+          <span className="text-label-sm text-outline font-normal">
+            (ค้นสดจากคลังเวกเตอร์ — ไม่ได้บันทึกไว้)
+          </span>
+        </h3>
+        <p className="text-label-sm text-outline mb-sm">
+          แก้คำค้นได้ตามต้องการ — ค่าเริ่มต้นมาจากตำแหน่งงานและทักษะของผู้สมัครรายนี้
+        </p>
+
+        <div className="flex flex-col md:flex-row gap-xs">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && query.trim() && !searching) handleSearch();
+            }}
+            placeholder="เช่น Python, FastAPI, PostgreSQL"
+            aria-label="คำค้นหาผู้สมัครคล้ายกัน"
+            className="input-glass flex-1"
+          />
+          <button
+            onClick={handleSearch}
+            disabled={searching || !query.trim()}
+            className="btn-primary md:w-auto justify-center disabled:opacity-50"
+          >
+            <span className="material-symbols-outlined text-[18px]">search</span>
+            {searching ? "กำลังค้นหา…" : "ค้นหา"}
+          </button>
+        </div>
+
+        {searchError && (
+          <p className="text-error text-label-md mt-xs" role="alert">
+            {searchError}
+          </p>
+        )}
+
+        {hits !== null &&
+          !searchError &&
+          (hits.length === 0 ? (
+            <p className="text-label-md text-outline mt-sm">
+              ไม่พบผู้สมัครที่ใกล้เคียง — ลองแก้คำค้นให้กว้างขึ้น
+            </p>
+          ) : (
+            <ul className="space-y-xs mt-sm">
+              {hits.map((h) => {
+                const row = (
+                  <>
+                    <div className="min-w-0">
+                      <p className="text-label-md text-on-surface truncate">
+                        {h.full_name}
+                      </p>
+                      <p className="text-label-sm text-outline truncate">
+                        {h.job_title ?? "—"}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-sm flex-none">
+                      {h.fit_score != null && (
+                        <span className="text-label-md text-on-surface-variant">
+                          {h.fit_score}%
+                        </span>
+                      )}
+                      {/* สูตรเดียวกับ section ด้านบน ตัวเลขจะได้อ่านเทียบกันได้ */}
+                      <span className="text-label-sm text-outline">
+                        ใกล้เคียง {Math.round((1 - h.distance) * 100)}%
+                      </span>
+                    </div>
+                  </>
+                );
+                const cls =
+                  "flex items-center justify-between gap-sm p-sm rounded-lg bg-glass/30";
+                return (
+                  <li key={h.id}>
+                    {h.job_id ? (
+                      <Link
+                        href={`/jobs/${h.job_id}/candidates/${h.id}`}
+                        className={`${cls} hover:bg-glass/60 transition-colors`}
+                      >
+                        {row}
+                      </Link>
+                    ) : (
+                      <div className={cls}>{row}</div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          ))}
+      </section>
 
       {/* Human-in-the-Loop */}
       <div className="glass-card rounded-2xl p-md space-y-sm">
