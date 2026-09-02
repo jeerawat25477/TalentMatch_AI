@@ -185,6 +185,9 @@ R↔React **0.845** — ทั้งหมด *สูงกว่า* คู่�
 
 > ⚠️ ข้อมูลทดสอบ: อีเมลของ Anan (fit=0) กับ Somchai (fit=100) 2 แถวถูกทับด้วยเนื้อหาปลอม
 > (`subject="s"`, `body="b"`) จาก stub — อัปโหลด resume ใหม่ทับได้เมื่อโควตากลับมา
+>
+> อัปเดต 2026-09-02: จริง ๆ มี **3 แถว** (Suda ด้วย) — 2 แถวหายไปพร้อม job `3d43035d…` ตอนเก็บกวาด
+> เหลือของ Anan ในงาน `29270baa…` แถวเดียว ยังไม่ล้าง (ไม่เคยส่งออกจริง `email_sent_at` ว่าง)
 
 ### ส่งอีเมลจริง (SMTP) + แก้ช่องโหว่ใกล้ตัว + รายงาน security
 - **ส่งอีเมลได้จริงแล้ว** — `POST /api/v1/candidates/{id}/email/send` (synchronous: HR ต้องรู้ทันทีว่าสำเร็จ/ล้ม)
@@ -255,7 +258,7 @@ R↔React **0.845** — ทั้งหมด *สูงกว่า* คู่�
   PATCH closed → `closed_at` มีค่า, upload เข้างานที่ปิด → 409, PATCH open → `closed_at` = NULL,
   DELETE งานว่าง → 200, DELETE ซ้ำ → 404, DELETE ระหว่างกราฟรัน → 409 "กำลังประมวลผล",
   DELETE งานที่มีผู้สมัคร 1 คน → `deleted_candidates:1, deleted_threads:1` และ checkpoint 7 แถวของ thread นั้นหายเกลี้ยง
-  - หมายเหตุ: ยังมี orphan checkpoint 5 แถวของ thread `566187c1…` **ค้างมาจากก่อนหน้านี้** (ไม่ได้เกิดจากฟีเจอร์นี้) ถ้าอยากสะอาดต้องลบมือ
+  - หมายเหตุ: ~~ยังมี orphan checkpoint 5 แถวของ thread `566187c1…`~~ — **ลบแล้ว 2026-09-02** (ดู "เก็บกวาดข้อมูล dev" ด้านล่าง)
 
 ### กู้เคสผู้สมัคร "วิเคราะห์ค้าง" (ปุ่มวิเคราะห์ใหม่ + ป้ายค้าง)
 พบของจริง: ผู้สมัคร 4 คนค้างเป็น "กำลังวิเคราะห์…" มาตั้งแต่ **21 ก.ค.** (12 วัน) มี checkpoint คนละ 3 แถว
@@ -394,12 +397,33 @@ license ดีกว่าโดยไม่รันเทียบกับไ
 - ⚠️ ขอบเขต: ตรวจได้แค่ "มีข้อความพอไหม" ไม่ได้ตรวจว่า "เป็นเรซูเม่จริงไหม" ไฟล์สแกนที่มีกล่อง
   ข้อความปนมาเกินเกณฑ์จะยังหลุดผ่าน ต้องใช้ OCR ถึงจะครอบได้ (คนละขนาดงาน ยังไม่คุ้ม)
 
+### เก็บกวาดข้อมูล dev ยุคแรก (2026-09-02)
+`backend/scripts/cleanup_dev_data.py` — dry-run เป็นค่าเริ่มต้น ต้องใส่ `--apply` ถึงจะลบ
+(แพตเทิร์นเดียวกับ `recompute_scores.py`) ไม่เรียก LLM จึงไม่กินโควตา
+
+- **สำรอง DB ก่อนเสมอ** — `pg_dump -F c` ผ่าน container `db` แล้ว `docker compose cp` ออกมาไว้
+  **นอก repo** (ไฟล์มี PII ผู้สมัครจริง) กู้คืนด้วย
+  `docker compose exec -T db pg_restore -U talentmatch -d talentmatch --clean < backup.dump`
+- สคริปต์ **ใช้ `jobs.py::_deletion_blocker` ตัวเดียวกับ API** ไม่เขียนกฎซ้ำ — job ที่เคยส่งอีเมล
+  หรือมีพนักงานจะถูกข้าม ไม่ใช่ลบผ่าน
+- ⚠️ `active_candidates()` เป็น set ในหน่วยความจำของโปรเซส backend — สคริปต์เป็นคนละโปรเซส
+  จึงมองไม่เห็น ต้องมั่นใจเองว่าไม่มีการอัปโหลด/reprocess ค้างอยู่ตอนรัน `--apply`
+- ลบ checkpoint ผ่าน `PostgresSaver.delete_thread` เท่านั้น (ห้าม `DELETE` ตรงในตาราง) และเรียก
+  **หลัง** commit เหมือน `jobs.py::delete_job` · orphan query ต้อง UNION ทั้ง `checkpoints` +
+  `checkpoint_blobs` + `checkpoint_writes` (`checkpoint_migrations` ไม่มี `thread_id`) —
+  thread `566187c1…` ที่จดไว้ว่า "5 แถว" จริง ๆ มี **32 แถว** เพราะเดิมนับแค่ตารางเดียว
+- **ผลที่รันจริง:** ลบ 2 job (`Senior Python Developer` `3d43035d…`, `Python Developer` `6bafcaff…`)
+  → ผู้สมัคร 5 คน + evaluation 4 แถว + checkpoint 5 thread หายตาม cascade, orphan 1 thread หมด
+- **หลังเก็บกวาด DB สอดคล้องกันหมด:** jobs 6 (NULL criteria = 0) · candidates 19 = evaluations 19
+  = resume_embeddings 19 = checkpoint threads 19 · orphan 0 · 84 เทสผ่านเท่าเดิม
+- ⚠️ `Senior Python Developer` ตัวซ้ำที่ `parsed_criteria` **ไม่** NULL (`29270baa…`) เป็นตัวดี ไม่ได้แตะ
+
 ## 🔜 ค้างอยู่ / ขั้นต่อไป (เรียงลำดับแนะนำ)
 
 1. Hardening ที่เหลือก่อน deploy (ดู checklist ใน [04_security.md](04_security.md)): TLS/reverse proxy · non-root container · ย้าย rate-limit ไป Redis · secrets manager
-2. เคลียร์หนี้ dev: job ที่ `parsed_criteria` เป็น NULL, แถวอีเมลที่โดน stub ทับ (subject='s'), reducer ของ HRSystemState
+2. เคลียร์หนี้ dev: ~~job ที่ `parsed_criteria` เป็น NULL~~ (ปิดแล้ว), แถวอีเมลที่โดน stub ทับ (subject='s') **เหลือ 1 แถว** (Anan Sukjai ในงาน `29270baa…` — ล้างได้ด้วย `--clear-stub-drafts` ยังไม่ได้ล้าง), reducer ของ HRSystemState
 3. ปรับปรุงความทนทาน: Gemini คืน 503 เป็นระยะ (SDK retry ให้เอง) และ free tier มีโควตาต่ำมาก — ถ้าอัปโหลดทีละหลายไฟล์จะชนลิมิตแน่ ควรคุม concurrency/backoff หรืออัปเกรดแพลน
-4. ข้อมูล dev ค้าง: มี 2 งาน (`Python Developer`, `Senior Python Developer` ตัวซ้ำ) ที่ `parsed_criteria` เป็น NULL แต่มี evaluation คะแนน 100/40 ค้างจากตอนทดสอบยุคแรก — ถ้าอยากให้สะอาดต้องลบทิ้ง (guard ใหม่ใน matcher กันไม่ให้เกิดเคสนี้ซ้ำแล้ว)
+4. ~~ข้อมูล dev ค้าง: 2 งาน `parsed_criteria` = NULL~~ — **ปิดแล้ว 2026-09-02** ดู "เก็บกวาดข้อมูล dev" ด้านล่าง
 5. **[feature — ไอเดีย, ยังไม่สร้าง 2026-08-11] รับใบสมัครทางอีเมลอัตโนมัติ (ลดงาน HR)** — เพิ่ม "ปากทางรับอีเมล" หน้า pipeline เดิม (async อยู่แล้ว ไม่ต้องรื้อ): worker ดึงอีเมล → จับคู่ตำแหน่ง → เรียก upload ภายใน → กราฟประเมิน → หยุดรอ HR เหมือนเดิม
    - **แนวทางที่เลือก:** IMAP polling worker (self-contained, ใช้กล่องเมลจริงเช่น Gmail App Password ที่มี SMTP creds อยู่แล้ว — ไม่ต้องเปิด public URL/webhook)
    - **Toggle (สำคัญ — ผู้ใช้ย้ำ):** ให้ HR เปิด/ปิดได้ **แบบ B = ปุ่มสวิตช์ในหน้าตั้งค่า** เก็บ flag ใน DB (ตาราง settings) worker อ่านทุกรอบ poll → เปิด/ปิดสดไม่ต้อง restart. **default = ปิด** (ปลอดภัยโดยปริยาย เปิดเฉพาะตอนพรีเซน/ทดสอบ). "ปิด" ต้องหลับสนิท: ไม่ต่อ IMAP/ไม่แตะเมล/ไม่กินโควตาเลย (แพตเทิร์นเดียวกับ RAG no-op)
