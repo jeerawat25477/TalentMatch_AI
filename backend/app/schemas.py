@@ -88,6 +88,11 @@ class CandidateDetail(CandidateSummary):
     employee_id: Optional[UUID] = None
     # คำตัดสินของ HR ที่บันทึกไว้ (ถ้ามี) — ให้ปุ่มโชว์สถานะที่ตัดสินไปแล้วหลังรีเฟรช
     hr_decision: Optional[Literal["approved", "rejected", "pending"]] = None
+    # เหตุผลที่ HR บันทึกไว้ตอนตัดสิน + เวลาที่บันทึกล่าสุด
+    # ⚠️ hr_decisions.candidate_id เป็น UNIQUE และ hr.py upsert ทับแถวเดิม จึงเป็น
+    # "คำตัดสินล่าสุด" ไม่ใช่ประวัติย้อนหลัง (updated_at คือคอลัมน์เวลาเดียวที่ตารางมี)
+    hr_notes: Optional[str] = None
+    hr_decided_at: Optional[datetime] = None
 
 
 class CandidateSearchHit(BaseModel):

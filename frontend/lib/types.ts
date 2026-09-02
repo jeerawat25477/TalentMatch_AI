@@ -141,6 +141,13 @@ export interface CandidateDetail extends CandidateSummary {
   employee_id: string | null;
   /** คำตัดสินของ HR ที่บันทึกไว้ (null = ยังไม่ตัดสิน) — ให้ปุ่มโชว์สถานะหลังรีเฟรช */
   hr_decision: Decision | null;
+  /**
+   * เหตุผลที่ HR บันทึกไว้ + เวลาที่บันทึก
+   * ⚠️ backend upsert ทับแถวเดิม (hr_decisions.candidate_id เป็น UNIQUE)
+   * จึงเป็น "คำตัดสินล่าสุด" เท่านั้น ไม่ใช่ประวัติย้อนหลัง
+   */
+  hr_notes: string | null;
+  hr_decided_at: string | null;
 }
 
 export type Decision = "approved" | "rejected";

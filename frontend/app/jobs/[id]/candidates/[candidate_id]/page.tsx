@@ -535,36 +535,67 @@ export default function CandidateDeepDive() {
             const approved = decision === "approved";
             return (
               <div
-                className={`flex items-center justify-between gap-sm flex-wrap rounded-xl px-md py-sm border-2 ${
+                className={`rounded-xl px-md py-sm border-2 ${
                   approved
                     ? "bg-secondary-container/20 border-secondary/40"
                     : "bg-error-container/20 border-error/40"
                 }`}
               >
-                <div
-                  className={`flex items-center gap-xs text-body-lg font-semibold ${
-                    approved ? "text-secondary" : "text-error"
-                  }`}
-                >
-                  <span
-                    className="material-symbols-outlined text-[26px]"
-                    style={{ fontVariationSettings: "'FILL' 1" }}
+                <div className="flex items-center justify-between gap-sm flex-wrap">
+                  <div
+                    className={`flex items-center gap-xs text-body-lg font-semibold ${
+                      approved ? "text-secondary" : "text-error"
+                    }`}
                   >
-                    {approved ? "check_circle" : "cancel"}
-                  </span>
-                  {approved ? "อนุมัติให้สัมภาษณ์แล้ว" : "ปฏิเสธแล้ว"}
+                    <span
+                      className="material-symbols-outlined text-[26px]"
+                      style={{ fontVariationSettings: "'FILL' 1" }}
+                    >
+                      {approved ? "check_circle" : "cancel"}
+                    </span>
+                    {approved ? "อนุมัติให้สัมภาษณ์แล้ว" : "ปฏิเสธแล้ว"}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setError(null);
+                      // เติมเหตุผลเดิมกลับเข้าช่อง — endpoint upsert ทับ notes ด้วยค่าที่ส่งมา
+                      // เสมอ ถ้าปล่อยว่างแล้วกดยืนยัน เท่ากับลบเหตุผลเดิมทิ้ง
+                      setNotes(c.hr_notes ?? "");
+                      setEditing(true);
+                    }}
+                    disabled={busy !== null}
+                    className="btn-secondary-glass"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">edit</span>
+                    แก้ไข
+                  </button>
                 </div>
-                <button
-                  onClick={() => {
-                    setError(null);
-                    setEditing(true);
-                  }}
-                  disabled={busy !== null}
-                  className="btn-secondary-glass"
-                >
-                  <span className="material-symbols-outlined text-[18px]">edit</span>
-                  แก้ไข
-                </button>
+
+                {/* บันทึก/เวลาที่ HR ตัดสิน — DB เก็บแถวเดียวต่อผู้สมัคร (upsert)
+                    จึงเป็นคำตัดสินล่าสุด ไม่ใช่ประวัติย้อนหลัง */}
+                {(c.hr_decided_at || c.hr_notes) && (
+                  <div className="mt-xs pt-xs border-t border-outline-variant/30 space-y-1">
+                    {c.hr_decided_at && (
+                      <p className="text-label-sm text-outline flex items-center gap-xs">
+                        <span className="material-symbols-outlined text-[16px]">
+                          schedule
+                        </span>
+                        บันทึกล่าสุดเมื่อ{" "}
+                        {new Date(c.hr_decided_at).toLocaleString("th-TH")}
+                      </p>
+                    )}
+                    {c.hr_notes && (
+                      <div className="flex items-start gap-xs">
+                        <span className="material-symbols-outlined text-[16px] text-outline mt-0.5">
+                          sticky_note_2
+                        </span>
+                        <p className="text-label-md text-on-surface whitespace-pre-wrap min-w-0">
+                          {c.hr_notes}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           }

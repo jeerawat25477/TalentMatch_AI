@@ -428,7 +428,8 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
                    e.interview_plan, e.email_draft, e.email_sent_at, e.email_sent_to,
                    COALESCE(e.email_send_count, 0) AS email_send_count,
                    e.similar_candidates, e.bias_revision, (e.id IS NOT NULL) AS has_eval,
-                   emp.id AS employee_id, hd.decision AS hr_decision
+                   emp.id AS employee_id, hd.decision AS hr_decision,
+                   hd.notes AS hr_notes, hd.updated_at AS hr_decided_at
             FROM candidates c
             LEFT JOIN evaluations e ON e.candidate_id = c.id
             LEFT JOIN employees emp ON emp.candidate_id = c.id
