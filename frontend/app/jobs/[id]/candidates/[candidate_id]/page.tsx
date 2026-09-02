@@ -178,6 +178,12 @@ export default function CandidateDeepDive() {
                 <div className="mt-1">
                   <StatusBadge score={c.fit_score} />
                 </div>
+                {/* ที่มาของคะแนนเป็นภาษาคน — แถวเก่าไม่มีค่านี้ ก็แค่ไม่โชว์ */}
+                {c.score_explanation && (
+                  <p className="mt-xs text-label-sm text-on-surface-variant leading-snug">
+                    {c.score_explanation}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-xs">

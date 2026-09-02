@@ -4,6 +4,7 @@ Fit score = required 60% + preferred 40% (ตาม CLAUDE.md / บรีฟ).
 ตรรกะการเทียบทักษะอยู่ใน app/agents/skills.py (เทียบบนขอบเขตคำ + alias + implication)
 """
 from app.agents.bands import REVIEW_FROM
+from app.agents.explain import explain_score
 from app.agents.skills import canonical, matching_owned, split_matched
 from app.agents.state import HRSystemState
 
@@ -75,15 +76,19 @@ def match_candidates(state: HRSystemState) -> dict:
         matched_req + matched_pref, owned, profile.get("skill_evidence") or {}
     )
 
+    gaps = {
+        "matched_required": matched_req,
+        "missing_required": missing_req,
+        "matched_preferred": matched_pref,
+        "missing_preferred": missing_pref,
+    }
+
     evaluation = {
         "candidate_id": cid,
         "fit_score": fit_score,
-        "gaps": {
-            "matched_required": matched_req,
-            "missing_required": missing_req,
-            "matched_preferred": matched_pref,
-            "missing_preferred": missing_pref,
-        },
+        "gaps": gaps,
+        # อธิบายตัวเลขที่คำนวณเสร็จแล้วเป็นภาษาคน (template ล้วน ไม่เรียก LLM)
+        "score_explanation": explain_score(gaps, fit_score),
         "skill_evidence": skill_evidence,
         "is_biased": False,
         "audit_status": "passed",

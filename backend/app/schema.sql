@@ -71,6 +71,8 @@ ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS bias_revision JSONB;
 -- หลักฐานจากเรซูเม่ของแต่ละทักษะที่ตรงเกณฑ์ {ชื่อทักษะแบบ JD: ข้อความที่ยกมา}
 -- ผ่านการตรวจกับข้อความเรซูเม่จริงแล้ว (agents/evidence.py) — แถวเก่าเป็น NULL ตลอดไป
 ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS skill_evidence JSONB;
+-- ประโยคอธิบายที่มาของ fit_score (สร้างจาก template ใน agents/explain.py ไม่ได้เรียก LLM)
+ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS score_explanation TEXT;
 
 CREATE TABLE IF NOT EXISTS hr_decisions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

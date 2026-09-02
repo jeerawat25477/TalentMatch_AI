@@ -143,6 +143,8 @@ export interface CandidateDetail extends CandidateSummary {
    * null = แถวเก่าก่อนมีฟีเจอร์นี้ (ไม่ backfill) — ต้อง render ได้ปกติ
    */
   skill_evidence: Record<string, string> | null;
+  /** ประโยคอธิบายที่มาของคะแนน (สร้างจาก template ฝั่ง backend ไม่ใช่ LLM) */
+  score_explanation: string | null;
   graph_status: GraphStatus;
   /** ถ้ารับเข้าเป็นพนักงานแล้ว = id ระเบียนพนักงาน (ให้ปุ่มสลับเป็นลิงก์ดูข้อมูลพนักงาน) */
   employee_id: string | null;
