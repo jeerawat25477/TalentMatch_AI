@@ -4,7 +4,7 @@ Fit score = required 60% + preferred 40% (ตาม CLAUDE.md / บรีฟ).
 ตรรกะการเทียบทักษะอยู่ใน app/agents/skills.py (เทียบบนขอบเขตคำ + alias + implication)
 """
 from app.agents.bands import REVIEW_FROM
-from app.agents.skills import canonical, split_matched
+from app.agents.skills import canonical, matching_owned, split_matched
 from app.agents.state import HRSystemState
 
 
@@ -14,6 +14,27 @@ def _without_excluded(skills: list[str], excluded: list[str]) -> list[str]:
     if not excluded_canonical:
         return skills
     return [s for s in skills if canonical(s) not in excluded_canonical]
+
+
+def _evidence_by_jd_skill(
+    matched: list[str], owned: set[str], evidence: dict[str, str]
+) -> dict[str, str]:
+    """แปลงหลักฐานจาก "คีย์ตามการสะกดในเรซูเม่" เป็น "คีย์ตามการสะกดใน JD".
+
+    จำเป็นเพราะ gap_analysis เก็บข้อความต้นฉบับของ JD (skills.py::split_matched) แต่
+    skill_evidence ผูกกับ parsed_resume.skills — JD เขียน "SQL" ผู้สมัครเขียน "PostgreSQL"
+    แล้วผ่านด้วย IMPLIES จะจับคู่ตรง ๆ ไม่ได้ ต้องถามผ่านตรรกะเทียบทักษะชุดเดียวกับที่
+    ใช้ให้คะแนน (matching_owned) ไม่ใช่เทียบสตริงเอง
+    """
+    if not evidence:
+        return {}
+    out: dict[str, str] = {}
+    for jd_skill in matched:
+        source = matching_owned(jd_skill, owned)
+        quote = evidence.get(source) if source else None
+        if quote:
+            out[jd_skill] = quote
+    return out
 
 
 def match_candidates(state: HRSystemState) -> dict:
@@ -48,6 +69,12 @@ def match_candidates(state: HRSystemState) -> dict:
     else:
         fit_score = round(60 * req_ratio + 40 * pref_ratio)
 
+    # หลักฐานเฉพาะทักษะที่ "ตรงเกณฑ์" — ทักษะที่ขาดคือไม่มีในเรซูเม่ จึงไม่มีข้อความให้อ้าง
+    # (หลักฐานผ่านด่าน filter_evidence ใน resume_parser มาแล้ว ที่นี่แค่เปลี่ยนคีย์)
+    skill_evidence = _evidence_by_jd_skill(
+        matched_req + matched_pref, owned, profile.get("skill_evidence") or {}
+    )
+
     evaluation = {
         "candidate_id": cid,
         "fit_score": fit_score,
@@ -57,6 +84,7 @@ def match_candidates(state: HRSystemState) -> dict:
             "matched_preferred": matched_pref,
             "missing_preferred": missing_pref,
         },
+        "skill_evidence": skill_evidence,
         "is_biased": False,
         "audit_status": "passed",
         "audit_log": "",

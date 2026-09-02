@@ -245,7 +245,7 @@ export default function CandidateDeepDive() {
                 </h3>
                 <RadarChart gap={c.gap_analysis} />
               </div>
-              <SkillGap gap={c.gap_analysis} />
+              <SkillGap gap={c.gap_analysis} evidence={c.skill_evidence} />
             </div>
           </div>
         </div>

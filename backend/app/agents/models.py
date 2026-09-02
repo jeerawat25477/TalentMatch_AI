@@ -22,6 +22,22 @@ class ResumeProfile(BaseModel):
     education: str = Field("", description="วุฒิการศึกษาสูงสุด")
 
 
+class SkillEvidence(BaseModel):
+    """หลักฐานของแต่ละทักษะ — **แยก LLM call ออกจาก ResumeProfile โดยเจตนา**.
+
+    เคยลองยัดเป็นฟิลด์หนึ่งใน ResumeProfile แล้ววัดกับเรซูเม่จริง: gemini-2.5-flash-lite
+    เอาความสนใจไปอยู่กับการหาหลักฐานจนฟิลด์เดิมแย่ลงแบบวัดได้ (ชื่อ ปีประสบการณ์
+    และวุฒิการศึกษาเพี้ยน — ดู memory-bank) การถามทีละงานจึงไม่ใช่การสิ้นเปลือง แต่จำเป็น
+    """
+    evidence: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "ชื่อทักษะ (สะกดตรงกับรายการที่ให้มาเป๊ะ) -> ข้อความสั้น ๆ ที่คัดลอกจากเรซูเม่ "
+            "มาตรง ๆ เป็นที่มาว่าทำไมถึงนับว่าผู้สมัครมีทักษะนี้ ห้ามแต่งขึ้นเอง"
+        ),
+    )
+
+
 class BiasAudit(BaseModel):
     """ผลจาก Bias Auditor."""
     is_biased: bool = Field(..., description="พบการใช้ข้อมูลอคติในการประเมินหรือไม่")

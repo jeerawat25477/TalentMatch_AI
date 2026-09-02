@@ -158,22 +158,39 @@ def _covers(required_toks: list[str], owned: str) -> bool:
     return any(owned_toks[i : i + n] == required_toks for i in range(len(owned_toks) - n + 1))
 
 
-def matches(required: str, owned: set[str]) -> bool:
-    """ผู้สมัครที่มีทักษะ `owned` ถือว่ามีทักษะ `required` หรือไม่."""
+def matching_owned(required: str, owned: set[str]) -> str | None:
+    """ทักษะของผู้สมัคร (สะกดตามต้นฉบับ) ที่ทำให้ `required` ถือว่าผ่าน — None ถ้าไม่ผ่าน.
+
+    ต้องรู้ว่า "ตัวไหน" ทำให้ผ่าน เพราะ gap_analysis เก็บการสะกดตาม JD ส่วนหลักฐาน
+    (skill_evidence) ผูกกับการสะกดในเรซูเม่ — JD เขียน "SQL" ผู้สมัครเขียน "PostgreSQL"
+    แล้วผ่านด้วย IMPLIES การจับคู่ด้วย dict lookup ตรง ๆ จึงพลาด
+
+    วนบน sorted() ไม่ใช่ set: ผลลัพธ์ต้องเหมือนเดิมทุกรอบ ไม่งั้นหลักฐานที่ HR เห็น
+    จะสลับไปมาโดยที่คะแนนไม่เปลี่ยน
+    """
     req = canonical(required)
     if not req:
-        return False
+        return None
     req_toks = req.split()
 
-    for o in owned:
+    for o in sorted(owned):
         can_o = canonical(o)
         if req == can_o:
-            return True
+            return o
         if req in IMPLIES.get(can_o, ()):
-            return True
+            return o
         if _covers(req_toks, can_o):
-            return True
-    return False
+            return o
+    return None
+
+
+def matches(required: str, owned: set[str]) -> bool:
+    """ผู้สมัครที่มีทักษะ `owned` ถือว่ามีทักษะ `required` หรือไม่.
+
+    ตรรกะการเทียบอยู่ใน matching_owned ที่เดียว — ห้ามเขียนซ้ำที่นี่ ไม่งั้นสองสำเนา
+    จะค่อย ๆ ต่างกันแล้วคะแนนกับหลักฐานจะไม่ตรงกัน
+    """
+    return matching_owned(required, owned) is not None
 
 
 def split_matched(required: list[str], owned: set[str]) -> tuple[list[str], list[str]]:

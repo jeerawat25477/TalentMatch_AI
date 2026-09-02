@@ -82,6 +82,9 @@ class CandidateDetail(CandidateSummary):
     # ร่องรอยลูป critique/revise: auditor ถอดเกณฑ์ที่มีอคติแล้ว matcher คำนวณใหม่
     # {round, score_before, score_after, excluded_required, excluded_preferred, reason}
     bias_revision: Optional[dict[str, Any]] = None
+    # หลักฐานจากเรซูเม่ของทักษะที่ตรงเกณฑ์ {ชื่อทักษะแบบที่สะกดใน JD: ข้อความที่ยกมา}
+    # ตรวจกับข้อความเรซูเม่จริงแล้ว (agents/evidence.py) — None = แถวเก่าก่อนมีฟีเจอร์นี้
+    skill_evidence: Optional[dict[str, str]] = None
     # สถานะกราฟ — ให้หน้าเว็บบอกได้ว่าการกดปุ่ม HR จะ "เดินต่อ" หรือ "ตัดสินใหม่ทับของเดิม"
     graph_status: Literal["awaiting_hr", "completed", "processing"] = "processing"
     # ถ้าผู้สมัครถูกรับเข้าเป็นพนักงานแล้ว = id ของระเบียนพนักงาน (ให้ UI ลิงก์ไปได้)

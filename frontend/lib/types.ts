@@ -136,6 +136,13 @@ export interface CandidateDetail extends CandidateSummary {
   similar_candidates: SimilarCandidate[] | null;
   /** ร่องรอยลูป critique/revise (bias_auditor -> matcher) — null ถ้าไม่เคยเข้าลูป */
   bias_revision: BiasRevision | null;
+  /**
+   * หลักฐานจากเรซูเม่ของทักษะที่ตรงเกณฑ์ — คีย์คือชื่อทักษะ **ตามที่สะกดใน JD**
+   * (ตรงกับใน gap_analysis.matched_* จึง join ได้ตรง ๆ)
+   * ผ่านการตรวจกับข้อความเรซูเม่จริงมาแล้วฝั่ง backend
+   * null = แถวเก่าก่อนมีฟีเจอร์นี้ (ไม่ backfill) — ต้อง render ได้ปกติ
+   */
+  skill_evidence: Record<string, string> | null;
   graph_status: GraphStatus;
   /** ถ้ารับเข้าเป็นพนักงานแล้ว = id ระเบียนพนักงาน (ให้ปุ่มสลับเป็นลิงก์ดูข้อมูลพนักงาน) */
   employee_id: string | null;
