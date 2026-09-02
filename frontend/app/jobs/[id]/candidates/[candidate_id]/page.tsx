@@ -12,7 +12,7 @@ import RadarChart from "@/components/radar-chart";
 import SkillGap from "@/components/skill-gap";
 import StatusBadge from "@/components/status-badge";
 import { fetcher, searchCandidates, sendEmail, submitDecision } from "@/lib/api";
-import { BANDS, initials, scoreBand } from "@/lib/types";
+import { BANDS, CONFIDENCE, initials, scoreBand } from "@/lib/types";
 import type {
   CandidateDetail,
   CandidateSearchHit,
@@ -175,8 +175,22 @@ export default function CandidateDeepDive() {
                   </div>
                 </div>
                 <h2 className="text-headline-md text-on-surface">{c.full_name}</h2>
-                <div className="mt-1">
+                <div className="mt-1 flex items-center justify-center gap-xs flex-wrap">
                   <StatusBadge score={c.fit_score} />
+                  {/* ความมั่นใจของผลวิเคราะห์ — คนละมิติกับคะแนน แถวเก่าไม่มีก็ไม่โชว์ */}
+                  {c.confidence && (
+                    <span
+                      title={CONFIDENCE[c.confidence].hint}
+                      className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-label-sm font-bold whitespace-nowrap ${
+                        CONFIDENCE[c.confidence].chip
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[14px]">
+                        {CONFIDENCE[c.confidence].icon}
+                      </span>
+                      {CONFIDENCE[c.confidence].label}
+                    </span>
+                  )}
                 </div>
                 {/* ที่มาของคะแนนเป็นภาษาคน — แถวเก่าไม่มีค่านี้ ก็แค่ไม่โชว์ */}
                 {c.score_explanation && (

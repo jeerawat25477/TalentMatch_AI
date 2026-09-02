@@ -73,6 +73,9 @@ ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS bias_revision JSONB;
 ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS skill_evidence JSONB;
 -- ประโยคอธิบายที่มาของ fit_score (สร้างจาก template ใน agents/explain.py ไม่ได้เรียก LLM)
 ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS score_explanation TEXT;
+-- ความมั่นใจของผลวิเคราะห์ 'high'|'medium'|'low' (คนละมิติกับ fit_score — บอกว่าผลนี้
+-- อิงข้อมูลครบแค่ไหน) คำนวณ deterministic ใน agents/bands.py ไม่ได้ให้ LLM ประเมินตัวเอง
+ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS confidence VARCHAR(10);
 
 CREATE TABLE IF NOT EXISTS hr_decisions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

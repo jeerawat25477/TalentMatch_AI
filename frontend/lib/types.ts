@@ -145,6 +145,8 @@ export interface CandidateDetail extends CandidateSummary {
   skill_evidence: Record<string, string> | null;
   /** ประโยคอธิบายที่มาของคะแนน (สร้างจาก template ฝั่ง backend ไม่ใช่ LLM) */
   score_explanation: string | null;
+  /** ความมั่นใจของผลวิเคราะห์ — คนละมิติกับ fit_score (null = แถวเก่า ไม่โชว์ชิป) */
+  confidence: Confidence | null;
   graph_status: GraphStatus;
   /** ถ้ารับเข้าเป็นพนักงานแล้ว = id ระเบียนพนักงาน (ให้ปุ่มสลับเป็นลิงก์ดูข้อมูลพนักงาน) */
   employee_id: string | null;
@@ -217,6 +219,37 @@ export const BANDS: Record<
     label: "กำลังวิเคราะห์…",
     // on-surface-variant ไม่ใช่ outline — outline บนพื้น outline-variant/40 ได้แค่ 4.17:1 ในโหมดมืด
     chip: "bg-outline-variant/40 text-on-surface-variant",
+  },
+};
+
+// ---------- ความมั่นใจของผลวิเคราะห์ ----------
+// ⚠️ คนละมิติกับ fit score: fit บอก "เหมาะกับงานแค่ไหน" · confidence บอก "ผลนี้อิงข้อมูล
+// ครบแค่ไหน" — เกณฑ์คำนวณอยู่ที่ backend/app/agents/bands.py ที่เดียว หน้านี้แค่แสดงผล
+export type Confidence = "high" | "medium" | "low";
+
+// สูตรชิปเดียวกับ BANDS · โทนเตือนต้องใช้คู่ *-fixed ไม่ใช่ tertiary-container
+// (คู่ปกติกลายเป็นสว่างบนสว่างในโหมดมืด — บทเรียนเดียวกับ BANDS.review)
+export const CONFIDENCE: Record<
+  Confidence,
+  { label: string; chip: string; icon: string; hint: string }
+> = {
+  high: {
+    label: "ข้อมูลครบ",
+    chip: "bg-secondary-container/40 text-on-secondary-container",
+    icon: "verified",
+    hint: "สกัดข้อความจากเรซูเม่ได้ครบ และยืนยันหลักฐานของทักษะที่ตรงเกณฑ์ได้เกือบทั้งหมด",
+  },
+  medium: {
+    label: "ข้อมูลปานกลาง",
+    chip: "bg-outline-variant/40 text-on-surface-variant",
+    icon: "help",
+    hint: "ข้อมูลพอใช้ได้ แต่ยืนยันหลักฐานของทักษะได้ไม่ครบ — ควรอ่านเรซูเม่ประกอบ",
+  },
+  low: {
+    label: "ข้อมูลน้อย",
+    chip: "bg-tertiary-fixed text-on-tertiary-fixed-variant",
+    icon: "warning",
+    hint: "ข้อความจากเรซูเม่สกัดได้น้อย หรือยืนยันหลักฐานของทักษะแทบไม่ได้เลย ควรตรวจสอบด้วยตาเพิ่มเติมก่อนตัดสิน",
   },
 };
 

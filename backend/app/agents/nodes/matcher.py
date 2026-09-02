@@ -3,7 +3,7 @@
 Fit score = required 60% + preferred 40% (ตาม CLAUDE.md / บรีฟ).
 ตรรกะการเทียบทักษะอยู่ใน app/agents/skills.py (เทียบบนขอบเขตคำ + alias + implication)
 """
-from app.agents.bands import REVIEW_FROM
+from app.agents.bands import REVIEW_FROM, confidence_level
 from app.agents.explain import explain_score
 from app.agents.skills import canonical, matching_owned, split_matched
 from app.agents.state import HRSystemState
@@ -43,6 +43,9 @@ def match_candidates(state: HRSystemState) -> dict:
     profile = state["parsed_resumes"][0]
     cid = profile["candidate_id"]
     owned = {s for s in profile.get("skills", []) if s and s.strip()}
+    # ข้อความเรซูเม่ดิบ — ใช้วัดความมั่นใจของผลวิเคราะห์ (กราฟรันทีละคน จึงเป็น [0] เสมอ)
+    raw_resumes = state.get("raw_resumes") or [{}]
+    resume_text = raw_resumes[0].get("content") or ""
 
     exclusions = (state.get("bias_exclusions") or {}).get(cid) or {}
     required_skills = _without_excluded(
@@ -90,6 +93,13 @@ def match_candidates(state: HRSystemState) -> dict:
         # อธิบายตัวเลขที่คำนวณเสร็จแล้วเป็นภาษาคน (template ล้วน ไม่เรียก LLM)
         "score_explanation": explain_score(gaps, fit_score),
         "skill_evidence": skill_evidence,
+        # ความน่าเชื่อถือของผลวิเคราะห์ คนละมิติกับ fit_score — นับอักขระที่ไม่ใช่ช่องว่าง
+        # ด้วยสูตรเดียวกับ candidates.py::_is_unreadable_resume
+        "confidence": confidence_level(
+            len("".join(resume_text.split())),
+            len(matched_req) + len(matched_pref),
+            len(skill_evidence),
+        ),
         "is_biased": False,
         "audit_status": "passed",
         "audit_log": "",

@@ -82,8 +82,9 @@ def _persist_evaluation(
         conn.execute(
             """INSERT INTO evaluations
                (job_id, candidate_id, fit_score, gap_analysis, audit_status, audit_log,
-                similar_candidates, bias_revision, skill_evidence, score_explanation)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                similar_candidates, bias_revision, skill_evidence, score_explanation,
+                confidence)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (
                 job_id,
                 candidate_id,
@@ -95,6 +96,7 @@ def _persist_evaluation(
                 Json(evaluation["bias_revision"]) if evaluation.get("bias_revision") else None,
                 Json(evaluation["skill_evidence"]) if evaluation.get("skill_evidence") else None,
                 evaluation.get("score_explanation") or None,
+                evaluation.get("confidence") or None,
             ),
         )
         conn.commit()
