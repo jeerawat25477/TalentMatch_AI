@@ -53,17 +53,36 @@ class TestBothSides:
 
 
 class TestOneSidedJD:
-    """JD ระบุแค่ฝั่งเดียว — อีกฝั่งต้องไม่โผล่ในประโยคเลย."""
+    """JD ระบุเกณฑ์แค่ฝั่งเดียว — ต้องบอกว่าอีกฝั่งได้คะแนนไปเต็ม.
+
+    matcher ให้สัดส่วนของฝั่งที่ JD ไม่ได้ระบุเป็น 1.0 (คะแนนส่วนนั้นได้ฟรี) ถ้าประโยค
+    ไม่บอก HR จะอ่านแล้วขัดกันเอง — เจอจริงกับตำแหน่ง AI Engineer ที่ required 19 ข้อ
+    preferred 0 ข้อ: ผู้สมัครตรง 0/19 แต่ได้ 40% ซึ่งดูเหมือนขัดแย้งกับคำอธิบาย
+    """
 
     def test_มีแต่ทักษะที่ต้องมี(self):
         got = explain_score(gaps(["Python"], ["Docker"]), 30)
-        assert "ทักษะที่ต้องมี" in got
-        assert "ทักษะที่อยากได้" not in got
+        assert "ขาดทักษะที่ต้องมี 1 จาก 2 ข้อ" in got
+        # ไม่ได้บรรยายผลฝั่ง preferred (ไม่มีให้บรรยาย) แต่ต้องบอกที่มาของคะแนน
+        assert "ไม่มีทักษะที่อยากได้เลยสักข้อ" not in got
+        assert "JD ไม่ได้ระบุทักษะที่อยากได้ คะแนนส่วนนั้นจึงถูกนับให้เต็ม" in got
 
     def test_มีแต่ทักษะที่อยากได้(self):
         got = explain_score(gaps(m_pref=["Redis"], x_pref=["Kafka"]), 80)
-        assert "ทักษะที่อยากได้" in got
-        assert "ทักษะที่ต้องมี" not in got
+        assert "ขาดทักษะที่อยากได้ 1 จาก 2 ข้อ" in got
+        assert "ไม่มีทักษะที่ต้องมีเลยสักข้อ" not in got
+        assert "JD ไม่ได้ระบุทักษะที่ต้องมี คะแนนส่วนนั้นจึงถูกนับให้เต็ม" in got
+
+    def test_เคสจริงที่ทำให้ต้องแก้(self):
+        # AI Engineer: required 19 ข้อ preferred 0 ข้อ ผู้สมัครตรง 0/19 ได้ 40%
+        missing = [f"skill{i}" for i in range(19)]
+        got = explain_score(gaps([], missing), 40)
+        assert "ได้ 40% เพราะไม่มีทักษะที่ต้องมีเลยสักข้อ (0/19)" in got
+        assert "JD ไม่ได้ระบุทักษะที่อยากได้ คะแนนส่วนนั้นจึงถูกนับให้เต็ม" in got
+
+    def test_ระบุครบสองฝั่งไม่ต้องมีหมายเหตุ(self):
+        got = explain_score(gaps(["Python"], ["Docker"], ["Redis"], ["Kafka"]), 50)
+        assert "คะแนนส่วนนั้นจึงถูกนับให้เต็ม" not in got
 
 
 class TestSkillNameTruncation:
