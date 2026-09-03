@@ -1,12 +1,18 @@
 """Node 3: Candidate Matcher — gap analysis + fit score (deterministic, ไม่เรียก LLM).
 
-Fit score = required 60% + preferred 40% (ตาม CLAUDE.md / บรีฟ).
+Fit score = required 60% + preferred 40% (ตาม CLAUDE.md / บรีฟ) — แต่ถ้า JD ระบุเกณฑ์
+แค่ฝั่งเดียว จะเฉลี่ยน้ำหนักใหม่ให้ฝั่งนั้นเป็น 100% ไม่ใช่แจกคะแนนอีกฝั่งให้ฟรี
 ตรรกะการเทียบทักษะอยู่ใน app/agents/skills.py (เทียบบนขอบเขตคำ + alias + implication)
 """
 from app.agents.bands import REVIEW_FROM, confidence_level
 from app.agents.explain import explain_score
 from app.agents.skills import canonical, matching_owned, split_matched
 from app.agents.state import HRSystemState
+
+# น้ำหนักของสองฝั่ง — เป็น "สัดส่วนความสำคัญ" ไม่ใช่คะแนนตายตัว
+# ใช้เป็นตัวหารด้วย จึงเปลี่ยนเป็น 70/30 ได้โดยไม่ต้องแก้ที่อื่น
+REQUIRED_WEIGHT = 60
+PREFERRED_WEIGHT = 40
 
 
 def _without_excluded(skills: list[str], excluded: list[str]) -> list[str]:
@@ -59,11 +65,8 @@ def match_candidates(state: HRSystemState) -> dict:
     matched_pref, missing_pref = split_matched(preferred_skills, owned)
 
     # ตัวหารคือจำนวนทักษะ "จริง" หลังกรองคำที่ไม่ใช่ทักษะออกแล้ว (เช่น "product owners")
-    # ถ้า JD ไม่ระบุทักษะฝั่งใดเลย ให้ถือว่าผ่านฝั่งนั้นเต็ม — คงพฤติกรรมเดิม
     n_req = len(matched_req) + len(missing_req)
     n_pref = len(matched_pref) + len(missing_pref)
-    req_ratio = len(matched_req) / n_req if n_req else 1.0
-    pref_ratio = len(matched_pref) / n_pref if n_pref else 1.0
 
     if not n_req and not n_pref:
         # JD ไม่มีทักษะให้เทียบเลย (LLM วิเคราะห์ล้มเหลว หรือสกัดได้แต่ชื่อบทบาท) —
@@ -71,7 +74,19 @@ def match_candidates(state: HRSystemState) -> dict:
         # จึงบังคับให้ตกแบนด์ "รอ HR" เพื่อให้มนุษย์ตัดสินแทนการเดา
         fit_score = REVIEW_FROM
     else:
-        fit_score = round(60 * req_ratio + 40 * pref_ratio)
+        # เฉลี่ยน้ำหนักใหม่ตามฝั่งที่ JD ระบุจริง: 60/40 คือความสำคัญ "เชิงเปรียบเทียบ"
+        # ซึ่งมีความหมายก็ต่อเมื่อมีทั้งสองฝั่ง
+        # เดิมฝั่งที่ JD ไม่ระบุถูกนับเป็นผ่านเต็ม (ratio 1.0) ทำให้ JD ที่มีแต่ required
+        # แจกคะแนนฟรี 40 ให้ทุกคน — ผู้สมัครที่ตรงเกณฑ์ 0/19 ยังได้ 40% ซึ่ง HR อ่านแล้วงง
+        # และไม่มีทางอธิบายให้สมเหตุสมผลได้ เพราะคะแนนนั้นไม่ควรมีตั้งแต่แรก
+        w_req = REQUIRED_WEIGHT if n_req else 0
+        w_pref = PREFERRED_WEIGHT if n_pref else 0
+        earned = 0.0
+        if n_req:
+            earned += w_req * len(matched_req) / n_req
+        if n_pref:
+            earned += w_pref * len(matched_pref) / n_pref
+        fit_score = round(100 * earned / (w_req + w_pref))
 
     # หลักฐานเฉพาะทักษะที่ "ตรงเกณฑ์" — ทักษะที่ขาดคือไม่มีในเรซูเม่ จึงไม่มีข้อความให้อ้าง
     # (หลักฐานผ่านด่าน filter_evidence ใน resume_parser มาแล้ว ที่นี่แค่เปลี่ยนคีย์)
