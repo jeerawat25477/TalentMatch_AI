@@ -44,6 +44,44 @@ def _evidence_by_jd_skill(
     return out
 
 
+def compute_fit_score(
+    matched_req: list[str],
+    missing_req: list[str],
+    matched_pref: list[str],
+    missing_pref: list[str],
+) -> int:
+    """คะแนนความเหมาะสม 0-100 — **แหล่งความจริงเดียวของสูตร**.
+
+    แยกออกมาเป็นฟังก์ชันบริสุทธิ์เพราะ scripts/recompute_scores.py เคยคัดลอกสูตรไปไว้เอง
+    แล้วหลุดไม่ตรงกันเงียบ ๆ (สคริปต์ยังถือสูตรเก่าอยู่ตอนที่ matcher แก้ไปแล้ว
+    ถ้ารันจะเอาบั๊กกลับมาทับคะแนนที่ถูกต้อง) — ห้ามคำนวณคะแนนที่อื่นอีก
+
+    ตัวหารคือจำนวนทักษะ "จริง" หลังกรองคำที่ไม่ใช่ทักษะออกแล้ว (เช่น "product owners")
+    """
+    n_req = len(matched_req) + len(missing_req)
+    n_pref = len(matched_pref) + len(missing_pref)
+
+    if not n_req and not n_pref:
+        # JD ไม่มีทักษะให้เทียบเลย (LLM วิเคราะห์ล้มเหลว หรือสกัดได้แต่ชื่อบทบาท) —
+        # สูตรปกติจะให้ 100 ทุกคน แล้ว router จะ auto-advance ไปเชิญสัมภาษณ์ยกแผง
+        # จึงบังคับให้ตกแบนด์ "รอ HR" เพื่อให้มนุษย์ตัดสินแทนการเดา
+        return REVIEW_FROM
+
+    # เฉลี่ยน้ำหนักใหม่ตามฝั่งที่ JD ระบุจริง: 60/40 คือความสำคัญ "เชิงเปรียบเทียบ"
+    # ซึ่งมีความหมายก็ต่อเมื่อมีทั้งสองฝั่ง
+    # เดิมฝั่งที่ JD ไม่ระบุถูกนับเป็นผ่านเต็ม (ratio 1.0) ทำให้ JD ที่มีแต่ required
+    # แจกคะแนนฟรี 40 ให้ทุกคน — ผู้สมัครที่ตรงเกณฑ์ 0/19 ยังได้ 40% ซึ่ง HR อ่านแล้วงง
+    # และไม่มีทางอธิบายให้สมเหตุสมผลได้ เพราะคะแนนนั้นไม่ควรมีตั้งแต่แรก
+    w_req = REQUIRED_WEIGHT if n_req else 0
+    w_pref = PREFERRED_WEIGHT if n_pref else 0
+    earned = 0.0
+    if n_req:
+        earned += w_req * len(matched_req) / n_req
+    if n_pref:
+        earned += w_pref * len(matched_pref) / n_pref
+    return round(100 * earned / (w_req + w_pref))
+
+
 def match_candidates(state: HRSystemState) -> dict:
     jd = state["analyzed_jd"] or {}
     profile = state["parsed_resumes"][0]
@@ -64,29 +102,7 @@ def match_candidates(state: HRSystemState) -> dict:
     matched_req, missing_req = split_matched(required_skills, owned)
     matched_pref, missing_pref = split_matched(preferred_skills, owned)
 
-    # ตัวหารคือจำนวนทักษะ "จริง" หลังกรองคำที่ไม่ใช่ทักษะออกแล้ว (เช่น "product owners")
-    n_req = len(matched_req) + len(missing_req)
-    n_pref = len(matched_pref) + len(missing_pref)
-
-    if not n_req and not n_pref:
-        # JD ไม่มีทักษะให้เทียบเลย (LLM วิเคราะห์ล้มเหลว หรือสกัดได้แต่ชื่อบทบาท) —
-        # สูตรปกติจะให้ 100 ทุกคน แล้ว router จะ auto-advance ไปเชิญสัมภาษณ์ยกแผง
-        # จึงบังคับให้ตกแบนด์ "รอ HR" เพื่อให้มนุษย์ตัดสินแทนการเดา
-        fit_score = REVIEW_FROM
-    else:
-        # เฉลี่ยน้ำหนักใหม่ตามฝั่งที่ JD ระบุจริง: 60/40 คือความสำคัญ "เชิงเปรียบเทียบ"
-        # ซึ่งมีความหมายก็ต่อเมื่อมีทั้งสองฝั่ง
-        # เดิมฝั่งที่ JD ไม่ระบุถูกนับเป็นผ่านเต็ม (ratio 1.0) ทำให้ JD ที่มีแต่ required
-        # แจกคะแนนฟรี 40 ให้ทุกคน — ผู้สมัครที่ตรงเกณฑ์ 0/19 ยังได้ 40% ซึ่ง HR อ่านแล้วงง
-        # และไม่มีทางอธิบายให้สมเหตุสมผลได้ เพราะคะแนนนั้นไม่ควรมีตั้งแต่แรก
-        w_req = REQUIRED_WEIGHT if n_req else 0
-        w_pref = PREFERRED_WEIGHT if n_pref else 0
-        earned = 0.0
-        if n_req:
-            earned += w_req * len(matched_req) / n_req
-        if n_pref:
-            earned += w_pref * len(matched_pref) / n_pref
-        fit_score = round(100 * earned / (w_req + w_pref))
+    fit_score = compute_fit_score(matched_req, missing_req, matched_pref, missing_pref)
 
     # หลักฐานเฉพาะทักษะที่ "ตรงเกณฑ์" — ทักษะที่ขาดคือไม่มีในเรซูเม่ จึงไม่มีข้อความให้อ้าง
     # (หลักฐานผ่านด่าน filter_evidence ใน resume_parser มาแล้ว ที่นี่แค่เปลี่ยนคีย์)

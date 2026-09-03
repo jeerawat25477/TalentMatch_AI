@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from psycopg.types.json import Json  # noqa: E402
 
 from app.agents.bands import band as score_band  # noqa: E402
+from app.agents.nodes.matcher import compute_fit_score  # noqa: E402
 from app.agents.skills import is_skill, split_matched  # noqa: E402
 from app.database import close_pool, get_conn  # noqa: E402
 
@@ -45,11 +46,9 @@ def recompute(criteria: dict, resume: dict) -> tuple[int, dict]:
     m_req, x_req = split_matched(criteria.get("required_skills") or [], owned)
     m_pref, x_pref = split_matched(criteria.get("preferred_skills") or [], owned)
 
-    n_req, n_pref = len(m_req) + len(x_req), len(m_pref) + len(x_pref)
-    score = round(
-        60 * (len(m_req) / n_req if n_req else 1.0)
-        + 40 * (len(m_pref) / n_pref if n_pref else 1.0)
-    )
+    # ⚠️ ห้ามคำนวณคะแนนเองที่นี่ — เคยคัดลอกสูตรไว้แล้วหลุดไม่ตรงกับ matcher เงียบ ๆ
+    # (สคริปต์ยังถือสูตรเก่าที่นับฝั่งซึ่ง JD ไม่ระบุเป็นผ่านเต็ม รันแล้วบั๊กกลับมา)
+    score = compute_fit_score(m_req, x_req, m_pref, x_pref)
     return score, {
         "matched_required": m_req,
         "missing_required": x_req,
