@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import close_pool, init_db
-from app.routers import auth, candidates, employees, hr, jobs
+from app.routers import auth, candidates, email_templates, employees, hr, jobs
 from app.tracing import tracing_status
 
 # uvicorn ไม่ตั้ง handler ให้ root logger — ถ้าไม่ตั้งเอง log จาก background task จะหายเงียบ
@@ -51,6 +51,7 @@ app.include_router(jobs.router)
 app.include_router(candidates.router)
 app.include_router(hr.router)
 app.include_router(employees.router)
+app.include_router(email_templates.router)
 
 
 @app.get("/health", tags=["meta"])

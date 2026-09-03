@@ -131,3 +131,23 @@ CREATE TABLE IF NOT EXISTS employees (
     hired_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- ============================================================
+-- เทมเพลตอีเมลที่ HR บันทึกไว้ใช้ซ้ำ
+-- ============================================================
+-- ชั้นอำนวยความสะดวกล้วน ๆ: เก็บร่าง subject/body ที่ HR แก้บ่อย ๆ ไว้เรียกใช้ซ้ำ
+-- ไม่เกี่ยวกับเส้นทางการส่งอีเมลจริง (ยังผ่าน /email/send + email_sender.py เหมือนเดิม)
+-- HR ยังต้องเห็นและยืนยันเนื้อหาบนจอก่อนส่งเสมอ — เทมเพลตแค่เติมช่องให้ ไม่ส่งเอง
+--
+-- ไม่มี user_id: ระบบตอนนี้มี admin คนเดียว (ดู CLAUDE.md เรื่อง auth)
+-- ถ้ารองรับหลายผู้ใช้เมื่อไหร่ค่อยเพิ่มคอลัมน์ อย่าเผื่อล่วงหน้า
+CREATE TABLE IF NOT EXISTS email_templates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,                     -- ชื่อที่ HR ตั้งเอง
+    -- ต้องตรงกับ EmailDraft.kind (app/agents/models.py) เพื่อให้กรองเทมเพลต
+    -- ให้ตรงสถานการณ์ที่กำลังร่างอยู่ ไม่เอาอีเมลปฏิเสธไปโผล่ตอนเชิญสัมภาษณ์
+    kind VARCHAR(20) NOT NULL CHECK (kind IN ('invitation', 'rejection')),
+    subject_template TEXT NOT NULL,
+    body_template TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);

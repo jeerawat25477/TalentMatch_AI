@@ -6,6 +6,7 @@ import type {
   CandidateSummary,
   Decision,
   EmailSendResult,
+  EmailTemplate,
   EmployeeCreate,
   EmployeeDetail,
   EmployeeListItem,
@@ -130,6 +131,28 @@ export const sendEmail = (
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
+
+// ---------- เทมเพลตอีเมลที่บันทึกไว้ใช้ซ้ำ ----------
+// ชั้นอำนวยความสะดวกล้วน ๆ ไม่เกี่ยวกับการส่งจริง (ยังผ่าน sendEmail ด้านบนเหมือนเดิม)
+export const listEmailTemplates = (kind?: EmailTemplate["kind"]) =>
+  request<EmailTemplate[]>(
+    `/api/v1/email-templates${kind ? `?kind=${kind}` : ""}`,
+  );
+
+export const createEmailTemplate = (data: {
+  name: string;
+  kind: EmailTemplate["kind"];
+  subject_template: string;
+  body_template: string;
+}) =>
+  request<EmailTemplate>("/api/v1/email-templates", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
+export const deleteEmailTemplate = (id: string) =>
+  request<{ id: string }>(`/api/v1/email-templates/${id}`, { method: "DELETE" });
 
 export const submitDecision = (
   candidateId: string,

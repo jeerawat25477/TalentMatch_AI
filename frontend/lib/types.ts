@@ -89,6 +89,32 @@ export interface EmailDraft {
   body: string;
 }
 
+/** เทมเพลตอีเมลที่ HR บันทึกไว้ใช้ซ้ำ — เป็นแค่ร่างตั้งต้น ไม่ใช่คำสั่งส่ง */
+export interface EmailTemplate {
+  id: string;
+  name: string;
+  kind: EmailDraft["kind"];
+  subject_template: string;
+  body_template: string;
+  created_at: string;
+}
+
+/**
+ * ตัวแปรที่แทนที่ได้ในเทมเพลต — เติมให้ตอน "เลือก" เทมเพลตเท่านั้น
+ * HR ยังเห็นและแก้ผลลัพธ์ได้ก่อนกดส่งเสมอ (ไม่มี auto-send)
+ */
+export const TEMPLATE_VARS = ["{candidate_name}", "{job_title}"] as const;
+
+/** แทนค่าตัวแปรในเทมเพลต · ตัวที่ไม่รู้จักปล่อยไว้ตามเดิม ไม่ลบทิ้งเงียบ ๆ */
+export function fillTemplate(
+  text: string,
+  vars: { candidate_name: string; job_title: string },
+): string {
+  return text
+    .replaceAll("{candidate_name}", vars.candidate_name)
+    .replaceAll("{job_title}", vars.job_title);
+}
+
 export interface EmailSendResult {
   candidate_id: string;
   email_sent_to: string;

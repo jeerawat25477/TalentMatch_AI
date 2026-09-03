@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import AiInsight from "@/components/ai-insight";
 import Breadcrumb from "@/components/breadcrumb";
+import EmailTemplatePicker from "@/components/email-template-picker";
 import HireEmployeeDialog from "@/components/hire-employee-dialog";
 import InterviewGuide from "@/components/interview-guide";
 import RadarChart from "@/components/radar-chart";
@@ -318,6 +319,21 @@ export default function CandidateDeepDive() {
                   </span>
                 </div>
               )}
+
+              {/* เทมเพลตที่บันทึกไว้ — เติมช่องให้เฉย ๆ HR ยังต้องตรวจและกดส่งเอง */}
+              <EmailTemplatePicker
+                kind={c.email_draft.kind}
+                subject={emailSubject}
+                body={emailBody}
+                vars={{
+                  candidate_name: c.full_name,
+                  job_title: job?.title ?? "",
+                }}
+                onApply={(s, b) => {
+                  setEmailSubject(s);
+                  setEmailBody(b);
+                }}
+              />
 
               <label className="block text-label-sm text-outline">
                 ผู้รับ

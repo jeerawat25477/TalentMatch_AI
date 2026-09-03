@@ -127,6 +127,10 @@ class ResumeUploadAccepted(BaseModel):
 
 
 # ---------- ส่งอีเมล ----------
+# ต้องตรงกับ EmailDraft.kind ใน agents/models.py และ CHECK ในตาราง email_templates
+EmailKind = Literal["invitation", "rejection"]
+
+
 class EmailSendIn(BaseModel):
     """ค่าที่ HR เห็น/แก้บนจอแล้วยืนยันส่ง — รับจาก request ไม่ดึงจาก DB ตรง.
 
@@ -142,6 +146,28 @@ class EmailSendOut(BaseModel):
     email_sent_to: str
     email_sent_at: datetime
     email_send_count: int = 0
+
+
+# ---------- เทมเพลตอีเมลที่บันทึกไว้ใช้ซ้ำ ----------
+class EmailTemplateIn(BaseModel):
+    """เทมเพลตที่ HR บันทึกไว้เอง — เป็นแค่ร่างตั้งต้น ไม่ใช่คำสั่งส่ง.
+
+    ค่าที่ส่งจริงยังมาจาก EmailSendIn ที่ HR เห็นและยืนยันบนจอเสมอ
+    (ดู CLAUDE.md "Email send is synchronous and HR-gated")
+    """
+    name: str = Field(..., min_length=1, max_length=255)
+    kind: EmailKind
+    subject_template: str = Field(..., min_length=1, max_length=500)
+    body_template: str = Field(..., min_length=1)
+
+
+class EmailTemplateOut(EmailTemplateIn):
+    id: UUID
+    created_at: datetime
+
+
+class EmailTemplateDeleteOut(BaseModel):
+    id: UUID
 
 
 # ---------- Auth ----------
