@@ -214,6 +214,28 @@ def _drive_to_end(graph, config, max_steps: int = 4) -> dict:
     return state
 
 
+def decide_candidate(candidate_id: str, decision: str, notes: str | None) -> None:
+    """ตัดสินหนึ่งคนแบบ "เข้าคิว" — ห่อ resume_after_decision ด้วยทะเบียน + semaphore.
+
+    เดิม resume_after_decision ถูกเรียกตรง ๆ จาก BackgroundTask โดยไม่ผ่านทั้งสองอย่าง
+    ต่างจาก process_candidate ทำให้:
+      1. ทะเบียน _active มองไม่เห็นการตัดสินที่กำลังรัน — การ์ดกันลบ (jobs/candidates)
+         และป้าย "ค้าง" (_is_stalled) จึงตัดสินใจบนข้อมูลที่ไม่ครบ และการกดปุ่มซ้ำ
+         (หรือ bulk ซ้ำ) จะรันคนเดิมซ้อนกัน
+      2. ไม่ผ่าน _gate = ตัดสินหลายคนพร้อมกันแล้วยิง LLM ขนานไม่จำกัด ชนเพดาน RPM
+
+    ตัวห่อนี้จึงเป็นทางเข้าเดียวของการตัดสิน ทั้งปุ่มเดี่ยวและ bulk
+    (resume_after_decision เดิมไม่มี try/except — exception หลุดเข้า BackgroundTask runner
+    ที่นี่จึงต้อง finally release เสมอ ไม่งั้นผู้สมัครค้างในทะเบียนถาวรจนลบไม่ได้)
+    """
+    reserve_candidates([candidate_id])  # ปกติ router จองไว้แล้ว เรียกซ้ำได้ปลอดภัย
+    try:
+        with _gate:
+            resume_after_decision(candidate_id, decision, notes)
+    finally:
+        release_candidate(candidate_id)
+
+
 def resume_after_decision(candidate_id: str, decision: str, notes: str | None) -> None:
     """หลัง HR ตัดสิน: เขียน hr_decision ลง state แล้วเดินกราฟต่อ (ไม่ rerun จากต้น).
 

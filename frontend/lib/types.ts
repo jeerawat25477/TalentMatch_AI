@@ -42,6 +42,20 @@ export interface CandidateSummary {
   audit_status: string | null;
   gap_analysis: GapAnalysis | null;
   created_at: string;
+  /**
+   * สองฟิลด์นี้ backend เพิ่งเริ่มส่งมากับหน้ารายชื่อ (เดิมมีแต่ในหน้ารายละเอียด)
+   * ใช้ตัดสินว่าติ๊กเลือกเพื่อตัดสินหมู่ได้ไหม — เป็น optional กันกรณี backend เก่า
+   */
+  graph_status?: GraphStatus;
+  hr_decision?: Decision | null;
+}
+
+/** ผลการ "รับเข้าคิว" ของการตัดสินหมู่ — ไม่ใช่ผลการตัดสิน (งานจริงรันเบื้องหลัง) */
+export interface BulkDecisionResult {
+  accepted: number;
+  candidate_ids: string[];
+  skipped: { id: string; reason: string }[];
+  message: string;
 }
 
 /** ผลค้นหาเชิงความหมายจากคลังเวกเตอร์ (GET /api/v1/candidates/search) */

@@ -1,6 +1,7 @@
 // ตัวช่วยเรียก FastAPI backend — base URL จาก env (เบราว์เซอร์เรียกตรงที่ :8000)
 import { clearToken, getToken, setToken } from "./auth";
 import type {
+  BulkDecisionResult,
   CandidateDetail,
   CandidateSearchHit,
   CandidateSummary,
@@ -167,6 +168,19 @@ export const submitDecision = (
 
 // ---------- พนักงาน ----------
 // รับผู้สมัครเข้าเป็นพนักงาน — backend ตอบ 409 ถ้าเคยรับเข้าแล้ว
+// ตัดสินหลายคนด้วยผลเดียวกัน — ตอบ 202 ทันที งานจริงรันเบื้องหลัง
+// ผลรายคนดูจากการ poll หน้ารายชื่อเดิม (graph_status เปลี่ยนเป็น completed)
+export const bulkDecision = (
+  candidateIds: string[],
+  decision: Decision,
+  notes?: string,
+) =>
+  request<BulkDecisionResult>("/api/v1/candidates/bulk-decision", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ candidate_ids: candidateIds, decision, notes }),
+  });
+
 export const hireCandidate = (candidateId: string, data: EmployeeCreate) =>
   request<EmployeeDetail>(`/api/v1/candidates/${candidateId}/hire`, {
     method: "POST",

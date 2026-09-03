@@ -25,6 +25,9 @@ export default function CandidateCard({
   matched = [],
   missing = [],
   onChanged,
+  selectable = false,
+  selected = false,
+  onSelectChange,
 }: {
   jobId: string;
   candidate: CandidateSummary;
@@ -33,6 +36,10 @@ export default function CandidateCard({
   missing?: string[];
   /** เรียกหลังกระทำสำเร็จ (วิเคราะห์ใหม่ / ลบ) เพื่อให้หน้าแม่ revalidate */
   onChanged?: () => void;
+  /** ติ๊กเลือกเพื่อตัดสินหมู่ได้ไหม — เฉพาะคนที่กราฟรอ HR อยู่จริง */
+  selectable?: boolean;
+  selected?: boolean;
+  onSelectChange?: (checked: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
@@ -68,7 +75,23 @@ export default function CandidateCard({
   }
 
   return (
-    <div className="glass-card rounded-2xl px-md py-sm flex items-center gap-md flex-wrap">
+    <div
+      className={`glass-card rounded-2xl px-md py-sm flex items-center gap-md flex-wrap ${
+        selected ? "ring-2 ring-primary" : ""
+      }`}
+    >
+      {/* ติ๊กเลือกเฉพาะคนที่ตัดสินได้จริง — คนอื่นเว้นที่ว่างไว้ให้การ์ดเรียงตรงกัน */}
+      {selectable ? (
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={(e) => onSelectChange?.(e.target.checked)}
+          aria-label={`เลือก ${candidate.full_name}`}
+          className="flex-none w-5 h-5 accent-primary cursor-pointer"
+        />
+      ) : (
+        <span className="flex-none w-5" aria-hidden />
+      )}
       <div
         className="w-12 h-12 flex-none rounded-xl flex items-center justify-center text-body-md font-semibold text-white"
         style={{ background: AVATAR_COLORS[index % AVATAR_COLORS.length] }}

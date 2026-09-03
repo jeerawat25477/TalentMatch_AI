@@ -1,13 +1,17 @@
 """เราเตอร์ Human-in-the-Loop: HR อนุมัติ/ปฏิเสธ + ส่งอีเมลถึงผู้สมัคร."""
 import logging
+import os
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
-from app.agents.runner import resume_after_decision
+from app.agents.runner import active_candidates, decide_candidate, reserve_candidates
 from app.auth import get_current_user
 from app.database import get_conn
 from app.email_sender import EmailConfigError, send_email
 from app.schemas import (
+    BulkDecisionAccepted,
+    BulkDecisionIn,
+    BulkDecisionSkip,
     EmailSendIn,
     EmailSendOut,
     HRDecisionIn,
@@ -16,9 +20,108 @@ from app.schemas import (
 
 log = logging.getLogger(__name__)
 
+# เพดานคนต่อหนึ่งคำขอ — ผูกกับโควตา LLM ไม่ใช่ประสิทธิภาพ: อนุมัติ 1 คน = ~2 call
+# (planner + drafter) โควตาฟรีมี 20 call/วัน 10 คนจึงใช้หมดวันพอดี
+MAX_BULK_DECISION = int(os.getenv("MAX_BULK_DECISION", "10"))
+
+
+def _bulk_partition(
+    requested: list[str], existing: set[str], active: frozenset[str]
+) -> tuple[list[str], list[dict]]:
+    """แยกคำขอเป็น (รับเข้าคิว, ข้าม+เหตุผล) — ฟังก์ชันบริสุทธิ์ ทดสอบได้โดยไม่ต้องมี DB.
+
+    ต้องเป็น partial success เสมอ: ถ้าคนหนึ่งใน 10 มีปัญหาแล้วทำให้อีก 9 คนที่ควรสำเร็จ
+    พลอยไม่ได้ทำไปด้วย จะแย่กว่าไม่มี bulk action เลย จึงไม่โยน exception ที่นี่
+    """
+    accepted: list[str] = []
+    skipped: list[dict] = []
+    seen: set[str] = set()
+
+    for cid in requested:
+        cid = str(cid)
+        if cid in seen:
+            skipped.append({"id": cid, "reason": "ส่งชื่อซ้ำในคำขอเดียวกัน"})
+            continue
+        seen.add(cid)
+        if cid not in existing:
+            skipped.append({"id": cid, "reason": "ไม่พบผู้สมัคร"})
+        elif cid in active:
+            skipped.append({"id": cid, "reason": "กำลังประมวลผลอยู่"})
+        else:
+            accepted.append(cid)
+    return accepted, skipped
+
+
+def _run_bulk_decision(candidate_ids: list[str], decision: str, notes: str | None) -> None:
+    """เดินกราฟทีละคนตามลำดับใน background task เดียว (แพตเทิร์นเดียวกับ _run_graph_for_job).
+
+    ห้ามแตกเป็น task ต่อคน: จะได้กราฟรันขนานไม่จำกัด แต่ละตัวเรียก planner+drafter
+    จนชนเพดาน RPM · แต่ละคน try/except เพื่อไม่ให้คนหนึ่งล้มแล้วพาที่เหลือตายไปด้วย
+    """
+    for cid in candidate_ids:
+        try:
+            decide_candidate(cid, decision, notes)  # จอง + เข้าคิว _gate + ปลดจองให้ในตัว
+        except Exception as exc:  # noqa: BLE001 — คนอื่นในชุดต้องได้ไปต่อ
+            log.exception("ตัดสินผู้สมัคร %s ไม่สำเร็จ: %s", cid, exc)
+
 router = APIRouter(
     prefix="/api/v1/candidates", tags=["hr"], dependencies=[Depends(get_current_user)]
 )
+
+
+@router.post("/bulk-decision", response_model=BulkDecisionAccepted, status_code=202)
+def submit_bulk_decision(
+    payload: BulkDecisionIn, background_tasks: BackgroundTasks
+) -> BulkDecisionAccepted:
+    """ตัดสินหลายคนด้วยผลเดียวกัน — บันทึกทันที แล้วเดินกราฟเบื้องหลัง.
+
+    ⚠️ ต้องประกาศ *ก่อน* /{candidate_id}/decision ไม่งั้น FastAPI จะจับเส้นทางนี้เป็น
+    candidate_id = "bulk-decision" (บทเรียนเดียวกับ /candidates/search)
+
+    คืนผลการ "รับเข้าคิว" ไม่ใช่ผลการตัดสิน — ผลรายคนไปปรากฏผ่าน poll เดิมของหน้ารายชื่อ
+    """
+    requested = [str(c) for c in payload.candidate_ids]
+    if len(requested) > MAX_BULK_DECISION:
+        raise HTTPException(
+            status_code=413,
+            detail=f"ตัดสินได้ครั้งละไม่เกิน {MAX_BULK_DECISION} คน (ส่งมา {len(requested)})",
+        )
+
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id FROM candidates WHERE id = ANY(%s)", (requested,)
+        ).fetchall()
+        existing = {str(r["id"]) for r in rows}
+
+        accepted, skipped = _bulk_partition(requested, existing, active_candidates())
+
+        # บันทึกคำตัดสินทั้งชุดในทรานแซกชันเดียว (SQL เดียวกับ submit_decision)
+        for cid in accepted:
+            conn.execute(
+                """
+                INSERT INTO hr_decisions (candidate_id, decision, notes)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (candidate_id)
+                DO UPDATE SET decision = EXCLUDED.decision,
+                              notes = EXCLUDED.notes,
+                              updated_at = timezone('utc'::text, now())
+                """,
+                (cid, payload.decision, payload.notes),
+            )
+        conn.commit()
+
+    # จองใน request thread ก่อนตอบ — กันดับเบิลคลิกยิงซ้ำ (แพตเทิร์นเดียวกับ reprocess)
+    if accepted:
+        reserve_candidates(accepted)
+        background_tasks.add_task(
+            _run_bulk_decision, accepted, payload.decision, payload.notes
+        )
+
+    return BulkDecisionAccepted(
+        accepted=len(accepted),
+        candidate_ids=accepted,
+        skipped=[BulkDecisionSkip(**s) for s in skipped],
+    )
 
 
 @router.post("/{candidate_id}/decision", response_model=HRDecisionOut)
@@ -55,7 +158,7 @@ def submit_decision(
 
     # resume กราฟจากจุด interrupt (ไม่ rerun จาก entry point) — ทำเบื้องหลังเพราะเรียก LLM
     background_tasks.add_task(
-        resume_after_decision, candidate_id, payload.decision, payload.notes
+        decide_candidate, candidate_id, payload.decision, payload.notes
     )
     return HRDecisionOut(**row)
 

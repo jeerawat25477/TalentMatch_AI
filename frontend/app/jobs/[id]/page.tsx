@@ -1,15 +1,27 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import useSWR from "swr";
 import AiInsight from "@/components/ai-insight";
 import Breadcrumb from "@/components/breadcrumb";
 import CandidateCard from "@/components/candidate-card";
+import ConfirmDialog from "@/components/confirm-dialog";
 import FileUpload from "@/components/file-upload";
-import { fetcher } from "@/lib/api";
+import { bulkDecision, fetcher } from "@/lib/api";
 import { JOB_STATUS, scoreBand } from "@/lib/types";
-import type { CandidateSummary, Job, ScoreBand } from "@/lib/types";
+import type {
+  BulkDecisionResult,
+  CandidateSummary,
+  Decision,
+  Job,
+  ScoreBand,
+} from "@/lib/types";
+
+/** เลือกตัดสินหมู่ได้เฉพาะคนที่กราฟหยุดรอ HR อยู่จริง — คนอื่น backend ข้ามอยู่ดี */
+function isSelectable(c: CandidateSummary): boolean {
+  return c.graph_status === "awaiting_hr" && !c.stalled;
+}
 
 const TABS: { key: "all" | ScoreBand; label: string }[] = [
   { key: "all", label: "ทั้งหมด" },
@@ -22,6 +34,12 @@ export default function JobDashboard() {
   const { id } = useParams<{ id: string }>();
   const [tab, setTab] = useState<"all" | ScoreBand>("all");
   const [query, setQuery] = useState("");
+  // เก็บเป็น "id" ไม่ใช่ index เพราะ SWR poll ทุก 4 วิแล้วลำดับการ์ดเลื่อนได้
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [confirming, setConfirming] = useState<Decision | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [bulkResult, setBulkResult] = useState<BulkDecisionResult | null>(null);
 
   const { data: job } = useSWR<Job>(`/api/v1/jobs/${id}`, fetcher);
   const { data: candidates, mutate } = useSWR<CandidateSummary[]>(
@@ -40,6 +58,40 @@ export default function JobDashboard() {
   const visible = list
     .filter((c) => tab === "all" || scoreBand(c.fit_score) === tab)
     .filter((c) => !q || c.full_name.toLowerCase().includes(q));
+
+  // เลือกได้เฉพาะคนที่มองเห็นอยู่ตอนนี้ (หลังกรอง tab/ค้นหา) ไม่ใช่ทั้งตำแหน่ง
+  const selectable = visible.filter(isSelectable);
+  // ตัดคนที่หลุดเงื่อนไขไปแล้วออกทุกรอบ poll — ไม่งั้นจะส่ง id ที่ตัดสินไปแล้วซ้ำ
+  const selectedIds = useMemo(
+    () => selectable.filter((c) => picked.has(c.id)).map((c) => c.id),
+    [selectable, picked],
+  );
+  const allPicked = selectable.length > 0 && selectedIds.length === selectable.length;
+
+  function toggle(cid: string, on: boolean) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(cid);
+      else next.delete(cid);
+      return next;
+    });
+  }
+
+  async function runBulk(decision: Decision) {
+    setBulkBusy(true);
+    setBulkError(null);
+    try {
+      const res = await bulkDecision(selectedIds, decision);
+      setBulkResult(res);
+      setPicked(new Set());
+      setConfirming(null);
+      mutate();
+    } catch (e) {
+      setBulkError(e instanceof Error ? e.message : "ตัดสินไม่สำเร็จ");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   const criteria = job?.parsed_criteria;
 
@@ -170,7 +222,87 @@ export default function JobDashboard() {
         />
       </div>
 
-      <p className="text-label-sm text-outline">{visible.length} คน</p>
+      {/* แถบตัดสินหมู่ — โผล่เมื่อเลือกอย่างน้อย 1 คน */}
+      {selectedIds.length > 0 && (
+        <div className="glass-card-elevated rounded-xl px-md py-sm flex items-center gap-sm flex-wrap sticky top-2 z-20">
+          <span className="text-label-md text-on-surface font-semibold">
+            เลือกไว้ {selectedIds.length} คน
+          </span>
+          <div className="flex-1" />
+          <button
+            onClick={() => setConfirming("approved")}
+            className="btn-primary"
+            disabled={bulkBusy}
+          >
+            <span className="material-symbols-outlined text-[18px]">check_circle</span>
+            อนุมัติทั้งหมด ({selectedIds.length})
+          </button>
+          <button
+            onClick={() => setConfirming("rejected")}
+            className="btn-danger"
+            disabled={bulkBusy}
+          >
+            <span className="material-symbols-outlined text-[18px]">cancel</span>
+            ปฏิเสธทั้งหมด ({selectedIds.length})
+          </button>
+          <button
+            onClick={() => setPicked(new Set())}
+            className="btn-secondary-glass"
+            disabled={bulkBusy}
+          >
+            ล้างการเลือก
+          </button>
+        </div>
+      )}
+
+      {/* สรุปผลการรับเข้าคิว — ผลรายคนจะทยอยขึ้นเองจากการ poll */}
+      {bulkResult && (
+        <div className="p-sm rounded-xl border border-secondary/30 bg-secondary-container/10 flex gap-xs items-start">
+          <span className="material-symbols-outlined text-secondary text-[20px]">
+            playlist_add_check
+          </span>
+          <div className="flex-1 text-on-surface text-label-md leading-snug">
+            รับเข้าคิวแล้ว {bulkResult.accepted} คน — ผลจะทยอยขึ้นในรายชื่อด้านล่าง
+            {bulkResult.skipped.length > 0 && (
+              <ul className="mt-1 space-y-0.5 text-on-surface-variant text-label-sm">
+                {bulkResult.skipped.map((sk) => (
+                  <li key={sk.id}>
+                    ข้าม{" "}
+                    {list.find((c) => c.id === sk.id)?.full_name ?? sk.id.slice(0, 8)} —{" "}
+                    {sk.reason}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <button
+            onClick={() => setBulkResult(null)}
+            aria-label="ปิดสรุปผล"
+            className="material-symbols-outlined text-outline text-[18px] flex-none"
+          >
+            close
+          </button>
+        </div>
+      )}
+
+      <div className="flex items-center gap-sm flex-wrap">
+        <p className="text-label-sm text-outline">{visible.length} คน</p>
+        {selectable.length > 0 && (
+          <label className="flex items-center gap-xs text-label-sm text-on-surface-variant cursor-pointer">
+            <input
+              type="checkbox"
+              checked={allPicked}
+              onChange={(e) =>
+                setPicked(
+                  e.target.checked ? new Set(selectable.map((c) => c.id)) : new Set(),
+                )
+              }
+              className="w-4 h-4 accent-primary cursor-pointer"
+            />
+            เลือกทั้งหมดที่รอตัดสิน ({selectable.length})
+          </label>
+        )}
+      </div>
 
       {/* List */}
       <div className="flex flex-col gap-sm">
@@ -186,6 +318,9 @@ export default function JobDashboard() {
             ]}
             missing={c.gap_analysis?.missing_required ?? []}
             onChanged={() => mutate()}
+            selectable={isSelectable(c)}
+            selected={picked.has(c.id)}
+            onSelectChange={(on) => toggle(c.id, on)}
           />
         ))}
         {visible.length === 0 && (
@@ -196,6 +331,47 @@ export default function JobDashboard() {
           </div>
         )}
       </div>
+
+      {confirming && (
+        <ConfirmDialog
+          title={
+            confirming === "approved"
+              ? "อนุมัติหลายคนพร้อมกัน"
+              : "ปฏิเสธหลายคนพร้อมกัน"
+          }
+          danger={confirming === "rejected"}
+          confirmLabel={
+            confirming === "approved" ? "อนุมัติทั้งหมด" : "ปฏิเสธทั้งหมด"
+          }
+          busy={bulkBusy}
+          error={bulkError}
+          onClose={() => {
+            setConfirming(null);
+            setBulkError(null);
+          }}
+          onConfirm={() => runBulk(confirming)}
+          body={
+            <>
+              <p>
+                จะ{confirming === "approved" ? "อนุมัติ" : "ปฏิเสธ"}ผู้สมัคร{" "}
+                <b>{selectedIds.length} คน</b> พร้อมกัน ระบบจะสร้าง
+                {confirming === "approved" ? "คำถามสัมภาษณ์และ" : ""}ร่างอีเมลให้แต่ละคน
+              </p>
+              {/* เตือนโควตา: อนุมัติ 1 คน = ~2 LLM call (planner+drafter) จากโควตาฟรี 20/วัน */}
+              <p className="mt-xs text-on-surface-variant">
+                ใช้โควตา AI ประมาณ{" "}
+                <b>
+                  {selectedIds.length * (confirming === "approved" ? 2 : 1)} ครั้ง
+                </b>{" "}
+                จากโควตาฟรีวันละ 20 ครั้ง
+              </p>
+              <p className="mt-xs text-on-surface-variant">
+                ยังไม่มีอีเมลถูกส่งออกไป — ต้องเปิดหน้าของแต่ละคนแล้วกดส่งเองเหมือนเดิม
+              </p>
+            </>
+          }
+        />
+      )}
     </div>
   );
 }

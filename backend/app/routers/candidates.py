@@ -251,9 +251,11 @@ def list_candidates(job_id: str) -> list[CandidateSummary]:
             """
             SELECT c.id, c.job_id, c.full_name, c.email,
                    e.fit_score, e.audit_status, e.gap_analysis, c.created_at,
+                   hd.decision AS hr_decision,
                    (e.id IS NOT NULL) AS has_eval
             FROM candidates c
             LEFT JOIN evaluations e ON e.candidate_id = c.id
+            LEFT JOIN hr_decisions hd ON hd.candidate_id = c.id
             WHERE c.job_id = %s
             ORDER BY e.fit_score DESC NULLS LAST, c.created_at ASC
             """,
@@ -264,6 +266,11 @@ def list_candidates(job_id: str) -> list[CandidateSummary]:
         CandidateSummary(
             **{k: v for k, v in r.items() if k != "has_eval"},
             stalled=_is_stalled(r["id"], r["has_eval"], r["created_at"], active),
+            # อ่าน checkpoint เฉพาะคนที่วิเคราะห์เสร็จแล้ว — คนที่ยังไม่มีผลประเมินเป็น
+            # processing/stalled อยู่แล้ว ไม่ต้องเสีย query (หน้านี้ poll ทุก 4 วิ)
+            graph_status=(
+                get_graph_status(str(r["id"])) if r["has_eval"] else "processing"
+            ),
         )
         for r in rows
     ]

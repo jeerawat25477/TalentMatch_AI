@@ -59,6 +59,11 @@ class CandidateSummary(BaseModel):
     created_at: datetime
     # ไม่มีผลวิเคราะห์ + ไม่มีใครกำลังรันให้ = ค้างถาวร ต้องกด "วิเคราะห์ใหม่" ถึงจะไปต่อ
     stalled: bool = False
+    # สองฟิลด์นี้ให้หน้ารายชื่อรู้ว่าใคร "รอ HR ตัดสิน" จริง ๆ (ใช้เปิด/ปิดติ๊กเลือกของ bulk)
+    # เดิมมีแต่บน CandidateDetail ทำให้ dashboard เดาจากคะแนนอย่างเดียว ซึ่งแยกไม่ออกว่า
+    # คนคะแนน 50-70 นั้นตัดสินไปแล้วหรือยัง
+    graph_status: Literal["awaiting_hr", "completed", "processing"] = "processing"
+    hr_decision: Optional[Literal["approved", "rejected", "pending"]] = None
 
 
 class CandidateDeleteOut(BaseModel):
@@ -89,12 +94,10 @@ class CandidateDetail(CandidateSummary):
     score_explanation: Optional[str] = None
     # ความมั่นใจของผลวิเคราะห์ — คนละมิติกับ fit_score (ดู agents/bands.py)
     confidence: Optional[Literal["high", "medium", "low"]] = None
-    # สถานะกราฟ — ให้หน้าเว็บบอกได้ว่าการกดปุ่ม HR จะ "เดินต่อ" หรือ "ตัดสินใหม่ทับของเดิม"
-    graph_status: Literal["awaiting_hr", "completed", "processing"] = "processing"
+    # graph_status / hr_decision สืบทอดมาจาก CandidateSummary แล้ว (ประกาศซ้ำจะกลายเป็น
+    # สองแหล่งที่หลุดไม่ตรงกันภายหลัง)
     # ถ้าผู้สมัครถูกรับเข้าเป็นพนักงานแล้ว = id ของระเบียนพนักงาน (ให้ UI ลิงก์ไปได้)
     employee_id: Optional[UUID] = None
-    # คำตัดสินของ HR ที่บันทึกไว้ (ถ้ามี) — ให้ปุ่มโชว์สถานะที่ตัดสินไปแล้วหลังรีเฟรช
-    hr_decision: Optional[Literal["approved", "rejected", "pending"]] = None
     # เหตุผลที่ HR บันทึกไว้ตอนตัดสิน + เวลาที่บันทึกล่าสุด
     # ⚠️ hr_decisions.candidate_id เป็น UNIQUE และ hr.py upsert ทับแถวเดิม จึงเป็น
     # "คำตัดสินล่าสุด" ไม่ใช่ประวัติย้อนหลัง (updated_at คือคอลัมน์เวลาเดียวที่ตารางมี)
@@ -196,6 +199,35 @@ class HRDecisionOut(BaseModel):
     decision: str
     notes: Optional[str] = None
     updated_at: datetime
+
+
+# ---------- ตัดสินหลายคนพร้อมกัน (bulk) ----------
+class BulkDecisionIn(BaseModel):
+    """ตัดสินหลายคนด้วยผลเดียวกัน — แต่ละคนยังเดินกราฟของตัวเองแยกกัน.
+
+    (thread_id = candidate_id ตาม CLAUDE.md จึงรวมเป็นการรันเดียวไม่ได้จริง)
+    """
+    candidate_ids: list[UUID] = Field(..., min_length=1)
+    decision: Literal["approved", "rejected"]
+    notes: Optional[str] = None
+
+
+class BulkDecisionSkip(BaseModel):
+    id: UUID
+    reason: str
+
+
+class BulkDecisionAccepted(BaseModel):
+    """ผลการ "รับเข้าคิว" ไม่ใช่ผลการตัดสิน — งานจริงรันเบื้องหลัง.
+
+    ผลรายคนดูได้จาก GET /jobs/{id}/candidates ที่หน้าเว็บ poll อยู่แล้วทุก 4 วิ
+    (graph_status จะเปลี่ยนเป็น completed เมื่อเดินกราฟจบ)
+    ทุกฟิลด์มี default ตามแพตเทิร์น ResumeUploadAccepted เพื่อให้ client เก่าไม่พัง
+    """
+    accepted: int = 0
+    candidate_ids: list[UUID] = []
+    skipped: list[BulkDecisionSkip] = []
+    message: str = "รับเข้าคิวแล้ว — ผลจะทยอยขึ้นในหน้ารายชื่อผู้สมัคร"
 
 
 # ---------- Employees (พนักงานที่รับเข้าหลังสัมภาษณ์ผ่าน) ----------
