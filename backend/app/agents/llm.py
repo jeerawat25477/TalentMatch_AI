@@ -65,6 +65,19 @@ def _is_retryable(exc: BaseException) -> bool:
     return any(marker in str(exc).lower() for marker in _RETRYABLE_MARKERS)
 
 
+def structured_invoke_once(
+    prompt: str, schema: Type[TModel], complex: bool = False
+) -> TModel:
+    """เรียก LLM ครั้งเดียว **ไม่ retry** — สำหรับ endpoint ที่มีคนนั่งรอหน้าจอ.
+
+    งานเบื้องหลัง (โหนดในกราฟ) ควรใช้ structured_invoke ที่มี backoff เพราะไม่มีใครรอ
+    แต่ endpoint แบบพรีวิวที่ HR กดแล้วนั่งมอง ถ้าโควตารายวันหมดจะ retry 5 ครั้ง
+    หน่วงรวมเป็นนาที กว่าจะบอกว่าล้มเหลว — รู้ผลเร็วมีประโยชน์กว่ามาก
+    แลกกับการที่ชน rate limit ชั่วคราวก็ตอบล้มเหลวทันที (ผู้ใช้กดใหม่เองได้)
+    """
+    return get_llm(complex).with_structured_output(schema).invoke(prompt)
+
+
 @retry(
     reraise=True,
     stop=stop_after_attempt(MAX_ATTEMPTS),
@@ -73,5 +86,9 @@ def _is_retryable(exc: BaseException) -> bool:
     before_sleep=before_sleep_log(log, logging.WARNING),
 )
 def structured_invoke(prompt: str, schema: Type[TModel], complex: bool = False) -> TModel:
-    """เรียก LLM ให้คืน schema (Pydantic) พร้อม exponential backoff เมื่อชน rate limit."""
-    return get_llm(complex).with_structured_output(schema).invoke(prompt)
+    """เรียก LLM ให้คืน schema (Pydantic) พร้อม exponential backoff เมื่อชน rate limit.
+
+    ห่อ structured_invoke_once ตัวเดียวกัน — การเรียก LLM จึงมี implementation ชุดเดียว
+    ต่างกันแค่มี/ไม่มี decorator ไม่ใช่โค้ดสองสำเนาที่จะค่อย ๆ หลุดไม่ตรงกัน
+    """
+    return structured_invoke_once(prompt, schema, complex)

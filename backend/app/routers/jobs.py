@@ -1,14 +1,20 @@
 """เราเตอร์ตำแหน่งงาน (Job Description)."""
 import logging
+import os
+import time
 
 from fastapi import APIRouter, Depends, HTTPException
 from psycopg.types.json import Json
 
 from app.agents.nodes import analyze_jd
+from app.agents.nodes.jd_reviewer import review_jd
 from app.agents.runner import active_candidates
+from app.agents.models import JDReview
 from app.auth import get_current_user
+from app.rate_limit import hit_and_check, retry_after_sec
 from app.database import get_checkpointer, get_conn
 from app.schemas import (
+    JDReviewIn,
     JobCreate,
     JobDeleteOut,
     JobListItem,
@@ -72,6 +78,51 @@ def create_job(payload: JobCreate) -> JobOut:
         ).fetchone()
         conn.commit()
     return JobOut(**row)
+
+
+# เพดานการกด "ตรวจ JD" ต่อผู้ใช้ต่อนาที — คุมโควตา LLM ไม่ใช่กันโจมตี
+# HR แก้ JD แล้วกดตรวจซ้ำได้หลายรอบตามธรรมชาติ แต่กดรัว ๆ จะกินโควตาฟรี 20/วันหมดโดยไม่ตั้งใจ
+JD_REVIEW_MAX_PER_MIN = int(os.getenv("JD_REVIEW_MAX_PER_MIN", "5"))
+_JD_REVIEW_WINDOW_SEC = 60.0
+_jd_review_hits: dict[str, list[float]] = {}
+
+
+@router.post("/review-jd", response_model=JDReview)
+def review_job_description(
+    payload: JDReviewIn, user: str = Depends(get_current_user)
+) -> JDReview:
+    """ตรวจร่างประกาศก่อนโพสต์ แล้วคืนคำแนะนำ — **ไม่บันทึกอะไรลงฐานข้อมูล**.
+
+    เป็นพรีวิวล้วน ๆ: HR จะแก้ตามหรือไม่ก็ได้ แล้วค่อยกด POST /api/v1/jobs สร้างงานจริง
+    (คนละจังหวะกับ jd_analyzer ที่รันหลังสร้างงานไปแล้ว)
+
+    ⚠️ ประกาศไว้ก่อน /{job_id} ตามธรรมเนียม literal-ก่อน-พารามิเตอร์ ตอนนี้ยังไม่มี
+    POST /{job_id} จึงไม่ชนจริง แต่กันไว้เผื่อมีคนเพิ่มทีหลัง (บทเรียนจาก /candidates/search)
+
+    LLM ล้มเหลว → 503 ไม่ใช่กลืน error แบบ create_job เพราะพรีวิวไม่มีอะไรให้ degrade
+    ต่างจากการสร้างงานที่ยังบันทึกแถวได้แม้ยังไม่มี parsed_criteria
+    """
+    # ตรวจเพดานก่อนเสมอ — ยังไม่เสียโควตา LLM ถ้าถูกปฏิเสธตรงนี้
+    now = time.time()
+    if not hit_and_check(
+        _jd_review_hits, user, now, JD_REVIEW_MAX_PER_MIN, _JD_REVIEW_WINDOW_SEC
+    ):
+        wait = retry_after_sec(_jd_review_hits, user, now, _JD_REVIEW_WINDOW_SEC)
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"ตรวจ JD ได้ไม่เกิน {JD_REVIEW_MAX_PER_MIN} ครั้งต่อนาที "
+                f"(กันโควตา AI หมดโดยไม่ตั้งใจ) — ลองใหม่ในอีก {wait} วินาที"
+            ),
+        )
+
+    try:
+        return review_jd(payload.raw_text)
+    except Exception as exc:  # noqa: BLE001 — โควตาหมด/คีย์ผิด ไม่ควรเป็น 500 เปล่า ๆ
+        log.exception("ตรวจ JD ไม่สำเร็จ: %s", exc)
+        raise HTTPException(
+            status_code=503, detail="ตัวช่วยตรวจ JD ไม่พร้อมใช้งานชั่วคราว"
+        ) from exc
 
 
 @router.get("/{job_id}", response_model=JobOut)

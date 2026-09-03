@@ -13,6 +13,7 @@ import type {
   EmployeeListItem,
   EmployeeStatus,
   Job,
+  JDReview,
   JobDeleteResult,
   JobListItem,
   JobStatus,
@@ -85,6 +86,14 @@ export const createJob = (rawText: string) =>
   });
 
 // เปิด/ปิดรับสมัคร — ทางเลือกแทนการลบสำหรับงานที่รับพนักงานได้แล้ว
+// ตรวจร่าง JD ก่อนโพสต์ — พรีวิวล้วน ๆ ไม่สร้างงานจริง (429 ถ้ากดถี่เกิน, 503 ถ้า AI ล่ม)
+export const reviewJD = (rawText: string) =>
+  request<JDReview>("/api/v1/jobs/review-jd", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ raw_text: rawText }),
+  });
+
 export const setJobStatus = (jobId: string, status: JobStatus) =>
   request<Job>(`/api/v1/jobs/${jobId}`, {
     method: "PATCH",

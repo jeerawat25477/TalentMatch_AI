@@ -46,6 +46,15 @@ class JobDeleteOut(BaseModel):
     deleted_threads: int = 0
 
 
+class JDReviewIn(BaseModel):
+    """ร่างประกาศที่ HR ขอให้ตรวจก่อนโพสต์ — ยังไม่มี job_id เพราะยังไม่ได้สร้างงาน.
+
+    จำกัดความยาวไว้ที่ชั้น schema เพื่อให้ประกาศที่ยาวผิดปกติถูกปฏิเสธ (422)
+    ตั้งแต่ก่อนเสียโควตา LLM
+    """
+    raw_text: str = Field(..., min_length=1, max_length=20000)
+
+
 # ---------- Candidates ----------
 class CandidateSummary(BaseModel):
     """แถวในหน้ารายชื่อผู้สมัคร (เรียงตาม fit_score)."""

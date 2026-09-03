@@ -31,6 +31,54 @@ export interface JobDeleteResult {
   deleted_threads: number;
 }
 
+// ---------- ตรวจ JD ก่อนโพสต์ (JD Reviewer) ----------
+// คนละจังหวะกับ JobRequirement: ตัวนั้นคือเกณฑ์ที่สกัดไว้ให้คะแนนผู้สมัครหลังสร้างงานแล้ว
+// ส่วนนี้คือคำแนะนำต่อตัวประกาศเอง ตั้งแต่ก่อนกดสร้าง — เป็นพรีวิว ไม่ได้บันทึกลง DB
+export type ScopeAssessment = "too_broad" | "balanced" | "too_narrow";
+
+export interface JDBiasFlag {
+  phrase: string;
+  reason: string;
+  suggestion: string;
+}
+
+export interface JDMustHaveReview {
+  skill: string;
+  reason: string;
+}
+
+export interface JDReview {
+  scope_assessment: ScopeAssessment;
+  scope_comment: string;
+  bias_flags: JDBiasFlag[];
+  must_have_review: JDMustHaveReview[];
+  missing_info: string[];
+  overall_comment: string;
+}
+
+// สูตรชิปเดียวกับ BANDS/CONFIDENCE — ทั้ง repo มีแค่ 4 สูตรนี้ ห้ามคิดสีใหม่
+// โทนเตือนต้องใช้คู่ *-fixed ไม่งั้นกลายเป็นสว่างบนสว่างในโหมดมืด
+export const SCOPE: Record<
+  ScopeAssessment,
+  { label: string; chip: string; icon: string }
+> = {
+  balanced: {
+    label: "ขอบเขตพอดี",
+    chip: "bg-secondary-container/40 text-on-secondary-container",
+    icon: "check_circle",
+  },
+  too_broad: {
+    label: "ขอบเขตกว้างไป",
+    chip: "bg-tertiary-fixed text-on-tertiary-fixed-variant",
+    icon: "unfold_more",
+  },
+  too_narrow: {
+    label: "ขอบเขตแคบไป",
+    chip: "bg-tertiary-fixed text-on-tertiary-fixed-variant",
+    icon: "unfold_less",
+  },
+};
+
 export interface CandidateSummary {
   id: string;
   job_id: string;

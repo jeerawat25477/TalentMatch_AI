@@ -38,6 +38,51 @@ class SkillEvidence(BaseModel):
     )
 
 
+class JDBiasFlag(BaseModel):
+    """ถ้อยคำหนึ่งจุดในประกาศที่อาจกีดกันผู้สมัครโดยไม่จำเป็น."""
+    phrase: str = Field(..., description="ข้อความที่ยกมาจากประกาศตรง ๆ")
+    reason: str = Field(..., description="ทำไมถ้อยคำนี้ถึงเป็นปัญหา")
+    suggestion: str = Field(..., description="ควรแก้เป็นอะไรแทน")
+
+
+class JDMustHaveReview(BaseModel):
+    """ทักษะที่ประกาศระบุว่า 'ต้องมี' แต่ควรทบทวนว่าจำเป็นขนาดนั้นจริงไหม."""
+    skill: str = Field(..., description="ชื่อทักษะตามที่เขียนในประกาศ")
+    reason: str = Field(
+        ...,
+        description=(
+            "เหตุผลที่ควรทบทวน เช่น น่าจะเป็น 'มีก็ดี' มากกว่า 'ต้องมี' "
+            "หรือเข้มเกินระดับตำแหน่งจนตัดผู้สมัครที่ทำงานได้จริงทิ้ง"
+        ),
+    )
+
+
+class JDReview(BaseModel):
+    """ผลจาก JD Reviewer — คำแนะนำก่อนโพสต์ประกาศ (ไม่ใช่โหนดในกราฟหลัก).
+
+    คนละจังหวะกับ JobRequirement: ตัวนั้น *สกัด* เกณฑ์ไปใช้ให้คะแนนผู้สมัคร
+    ส่วนตัวนี้ *วิจารณ์ตัวประกาศเอง* ตั้งแต่ก่อนมีผู้สมัครสักคน
+    """
+    scope_assessment: Literal["too_broad", "balanced", "too_narrow"] = "balanced"
+    scope_comment: str = Field(
+        "", description="อธิบายสั้น ๆ ว่าทำไมถึงประเมินขอบเขตแบบนั้น"
+    )
+    bias_flags: list[JDBiasFlag] = Field(
+        default_factory=list, description="ถ้อยคำที่อาจกีดกันผู้สมัครโดยไม่จำเป็น"
+    )
+    must_have_review: list[JDMustHaveReview] = Field(
+        default_factory=list, description="ทักษะที่ระบุว่าต้องมีแต่ควรทบทวน"
+    )
+    missing_info: list[str] = Field(
+        default_factory=list,
+        description=(
+            "ข้อมูลที่ประกาศรับสมัครควรมีแต่ยังขาด เช่น ช่วงเงินเดือน สถานที่ทำงาน "
+            "รูปแบบการทำงาน ขอบเขตความรับผิดชอบ"
+        ),
+    )
+    overall_comment: str = Field("", description="สรุปภาพรวมให้ HR อ่านเป็นย่อหน้าเดียว")
+
+
 class BiasAudit(BaseModel):
     """ผลจาก Bias Auditor."""
     is_biased: bool = Field(..., description="พบการใช้ข้อมูลอคติในการประเมินหรือไม่")
