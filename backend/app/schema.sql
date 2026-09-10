@@ -191,9 +191,11 @@ CREATE INDEX IF NOT EXISTS processing_queue_pick
 -- backoff ใน agents/llm.py แก้ได้แค่ลิมิตต่อนาที (RPM) — ลิมิตต่อวัน (RPD) retry ไปก็ไม่หาย
 -- ต้องรู้ว่าวันนี้ใช้ไปเท่าไรก่อนจะยิงงานถัดไป ไม่งั้น batch ใหญ่จะตายเงียบยกแผง
 --
--- usage_date ตัดวันตาม **UTC** (ดู app/llm_quota.py) ซึ่งคลาดกับที่ Google รีเซ็ตจริง
--- (เที่ยงคืน Pacific) ได้ถึง ~8 ชม. — ยอมรับความคลาดนั้นเพื่อไม่ต้องพึ่ง tzdata
--- ในอิมเมจ แล้วกันด้วยการดัก error 429 จริงเป็น deferred_quota อีกชั้น
+-- usage_date ตัดวันตาม **รอบจริงของ Google** คือเที่ยงคืน Pacific (ดู app/llm_quota.py)
+-- ไม่ใช่ UTC: เคยใช้ UTC แล้ววัดได้ว่าตอบวันที่ผิด 30.6% ของเวลาทั้งปี และช่องว่างนั้น
+-- คร่อมเวลาทำงานช่วงเช้าของ HR พอดี ทำให้ยอดของเช้าถูกคิดเข้า "วันนี้" ทั้งที่ Google
+-- คิดเข้า "เมื่อวาน" ช่วงบ่ายจึงถูกพักงานทิ้งไว้ทั้งที่โควตาจริงรีเซ็ตไปแล้ว
+-- (ปรับเขตเวลาได้ด้วย GEMINI_QUOTA_TZ · ยังมีการดัก 429 จริงเป็น deferred_quota อีกชั้น)
 CREATE TABLE IF NOT EXISTS llm_quota_usage (
     usage_date DATE NOT NULL,
     model TEXT NOT NULL,

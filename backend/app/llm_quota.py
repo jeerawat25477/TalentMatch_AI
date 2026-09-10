@@ -14,24 +14,78 @@ agents/llm.py แก้ได้แค่ลิมิตต่อนาที (R
 """
 import logging
 import os
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone, tzinfo
+from functools import lru_cache
+from typing import Optional
+from zoneinfo import ZoneInfo
 
 log = logging.getLogger(__name__)
 
 # โควตา chat call ต่อวันต่อโมเดล — free tier ของ Gemini = 20
 GEMINI_DAILY_CHAT_QUOTA = int(os.getenv("GEMINI_DAILY_CHAT_QUOTA", "20"))
 
+# เขตเวลาที่ใช้ตัดรอบโควตา — Google รีเซ็ต RPD ตอนเที่ยงคืน Pacific
+#
+# ⚠️ **นี่เป็นสมมติฐาน ไม่ใช่สิ่งที่เราวัดเอง** เป็นพฤติกรรมที่ Google ระบุไว้ แต่โปรเจกต์นี้
+# ยังไม่เคยเฝ้าดูจังหวะที่ 429 หายไปจริง ๆ ถ้าสังเกตแล้วพบว่ามันรีเซ็ตตาม UTC ให้ตั้ง
+# GEMINI_QUOTA_TZ=UTC แล้วพฤติกรรมจะกลับไปเหมือนก่อน โดยไม่ต้องแก้โค้ด
+_QUOTA_TZ_NAME = os.getenv("GEMINI_QUOTA_TZ", "America/Los_Angeles")
+
+# ใช้เมื่ออ่านฐานข้อมูลเขตเวลาไม่ได้ — เลือก 8 (PST) ไม่ใช่ 7 (PDT) โดยตั้งใจ:
+# วัดแล้ว (สแกนปี 2026-2027 ทีละ 5 นาที) สูตรลบ 8 ไม่เคยให้วันที่ "เร็วกว่า" Pacific จริง
+# เลยสักครั้ง มีแต่ช้ากว่าหรือตรง = พลาดไปทาง "หวงโควตา" (พักงานเกินจำเป็น รอบหน้าก็รัน)
+# ไม่มีทางพลาดไปทาง "คิดว่ายังเหลือ" ซึ่งจะพาไปเจอ 429 กลางทาง · ถ้าแก้เป็น 7 คุณสมบัตินี้หาย
+_FALLBACK_OFFSET = timedelta(hours=8)
+
+
+@lru_cache(maxsize=1)
+def _quota_tz() -> Optional[tzinfo]:
+    """เขตเวลาของรอบโควตา (None = อ่านฐานข้อมูลเขตเวลาไม่ได้ ให้ใช้ทางถอย).
+
+    แคชไว้เพื่อให้ log เตือนแค่ครั้งเดียว ไม่ใช่เพื่อความเร็ว — ZoneInfo แคชอ็อบเจกต์
+    ให้ในตัวอยู่แล้ว (วัดได้ 100,000 ครั้ง = 0.011 วินาที)
+
+    ต้องดัก Exception กว้าง ๆ: ชื่อโซนที่ไม่มีจริงโยน ZoneInfoNotFoundError ก็จริง
+    แต่ชื่อที่ผิดรูป (ว่างเปล่า หรือมี ../) โยน **ValueError** ซึ่งไม่ใช่คลาสเดียวกัน
+    ดักแคบไปแล้วค่า env ที่พิมพ์ผิดจะทำให้ทั้งแอปล่มแทนที่จะถอยไปใช้ทางสำรอง
+    """
+    try:
+        return ZoneInfo(_QUOTA_TZ_NAME)
+    except Exception as exc:  # noqa: BLE001 — ดูเหตุผลใน docstring
+        log.warning(
+            "อ่านเขตเวลา %r ไม่ได้ (%s) — ใช้ทางถอย ลบ %s ชม.คงที่แทน "
+            "ตัวนับจะยังทำงาน แต่ช่วงคาบเกี่ยวอาจพักงานเกินจำเป็นราวชั่วโมงหนึ่ง",
+            _QUOTA_TZ_NAME, exc, int(_FALLBACK_OFFSET.total_seconds() // 3600),
+        )
+        return None
+
+
+def quota_date(now: datetime, tz: Optional[tzinfo]) -> date:
+    """แปลงเวลา UTC เป็น "วันที่ตามรอบโควตาของ Google" — ฟังก์ชันบริสุทธิ์.
+
+    รับ now กับ tz เข้ามาเป็นพารามิเตอร์เพื่อให้ทดสอบทุกเคส (ข้ามวัน, วันเปลี่ยน DST,
+    ทางถอย) ได้โดยไม่ต้อง mock เวลาหรือ env — แพตเทิร์นเดียวกับ rate_limit.hit_and_check
+
+    การแปลงจาก UTC ไปเป็นเวลาท้องถิ่นมีคำตอบเดียวเสมอ แม้แต่วันถอยเวลาที่มี 25 ชั่วโมง
+    (ความกำกวมของ DST เกิดตอนแปลง *ย้อนทาง* คือมีเวลาท้องถิ่นแล้วหาว่าเป็น UTC ไหน)
+    """
+    if tz is not None:
+        return now.astimezone(tz).date()
+    return (now - _FALLBACK_OFFSET).date()
+
 
 def today() -> date:
-    """วันที่ที่ใช้ตัดรอบโควตา — UTC.
+    """วันที่ที่ใช้ตัดรอบโควตา — **ตามรอบจริงของ Google ไม่ใช่ UTC**.
 
-    Google รีเซ็ต RPD ตอนเที่ยงคืน Pacific ซึ่งไม่ตรงกับ UTC (คลาดได้ ~8 ชม.)
-    เลือก UTC เพราะทั้งระบบใช้ UTC อยู่แล้วและไม่ต้องพึ่ง tzdata ในอิมเมจ
-    ผลของความคลาด: ช่วงคาบเกี่ยวอาจคิดว่าโควตาหมดทั้งที่รีเซ็ตแล้ว (งานถูกพักไว้
-    แล้วรอบถัดไปก็รันได้เอง) หรือคิดว่ายังเหลือทั้งที่หมด (เจอ 429 จริง แล้ว worker
-    ตีเป็น deferred_quota) — ทั้งสองทางไม่มีทางทำให้งานหาย
+    เดิมใช้ UTC ด้วยเหตุผลที่ผิด (คิดว่าอิมเมจไม่มีฐานข้อมูลเขตเวลา ต้องลง tzdata เพิ่ม
+    ทั้งที่ python:3.12-slim มี /usr/share/zoneinfo ติดมาอยู่แล้ว) ความคลาดที่ตามมาคือ
+    ตอบวันที่ผิดถึง 30.6% ของเวลาทั้งปี และช่องว่างนั้นคร่อมเวลาทำงานช่วงเช้าของ HR พอดี:
+    call ที่ใช้ตอนเช้าถูกคิดเข้าโควตาจริงของ "เมื่อวาน" ฝั่ง Google แต่โผล่ในยอด "วันนี้"
+    ของเรา ทำให้ช่วงบ่าย (ที่โควตาจริงรีเซ็ตไปแล้ว) ถูกพักงานทิ้งไว้ทั้งที่ยิงได้
+
+    นี่เป็นแหล่งความจริงเดียวของจุดตัดวัน — record_call กับ used_today เรียกตัวนี้ทั้งคู่
     """
-    return datetime.now(timezone.utc).date()
+    return quota_date(datetime.now(timezone.utc), _quota_tz())
 
 
 def has_room(used: int, cost: int, quota: int = GEMINI_DAILY_CHAT_QUOTA) -> bool:
