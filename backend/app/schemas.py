@@ -73,6 +73,9 @@ class CandidateSummary(BaseModel):
     # คนคะแนน 50-70 นั้นตัดสินไปแล้วหรือยัง
     graph_status: Literal["awaiting_hr", "completed", "processing"] = "processing"
     hr_decision: Optional[Literal["approved", "rejected", "pending"]] = None
+    # สถานะในคิวประมวลผล (None = ไม่มีงานค้าง) — แยกจาก stalled โดยตั้งใจ:
+    # "รอคิว" กับ "เลื่อนเพราะโควตาเต็ม" คือระบบยังดูแลอยู่ ห้ามให้ HR เข้าใจว่าพัง
+    queue_status: Optional[Literal["queued", "running", "deferred_quota"]] = None
 
 
 class CandidateDeleteOut(BaseModel):

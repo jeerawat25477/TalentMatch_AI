@@ -492,11 +492,49 @@ license ดีกว่าโดยไม่รันเทียบกับไ
 ตัวอักษร ซึ่งไม่มีในไฟล์ที่มีอยู่ (sample_data = 257/297/341 · เรซูเม่จริง = 1,924–2,870)
 — ครอบด้วย unit test 15 เคสรอบ threshold แทน
 
+### คิวงานประมวลผลที่ทนทาน + คุมโควตา Gemini (เฟส 3 งานที่ 1/3, 2026-09-10)
+
+**ปัญหาเดิม 3 ข้อ:** (1) `BackgroundTasks` อยู่ในโปรเซส รีสตาร์ต/hot-reload = งานหายถาวร
+กู้ได้ทางเดียวคือ HR เห็นป้าย stalled แล้วกดเอง (2) backoff ใน `llm.py` แก้ได้แค่ RPM
+ไม่ช่วยเรื่อง RPD (20 call/วัน/โมเดล) (3) อัปโหลด batch ใหญ่ = ยิงเข้ากราฟทั้งหมดทันที
+คนท้าย ๆ ชน RPD แล้วตายเงียบยกแผง
+
+**ที่ทำ** — ไม่เพิ่ม dependency ใหม่เลย (ไม่ Redis/Celery: Postgres มีอยู่แล้ว และ
+`FOR UPDATE SKIP LOCKED` ให้การหยิบงานแบบอะตอมมิกครบ):
+- ตาราง `processing_queue` (kind/payload/status/attempts) + `llm_quota_usage` (วัน×โมเดล)
+- `app/job_queue.py` — กฎบริสุทธิ์ (`estimate_cost`/`classify_failure`/`next_state`) แยกจาก SQL
+- `app/queue_worker.py` — daemon thread **ตัวเดียว** ใน lifespan เรียก `runner` ตัวเดิม
+- `app/llm_quota.py` — hook นับที่ `structured_invoke_once` จุดเดียว (best-effort)
+- ทุกจุดที่เคย `add_task` เปลี่ยนเป็น enqueue: upload / reprocess / decision / bulk
+- `queue_status` บน `CandidateSummary`/`Detail` + ชิปบนการ์ด (`_is_stalled` ต้องไม่ตี
+  คนที่อยู่ในคิวเป็น "ค้าง")
+
+**พิสูจน์กับ Gemini จริงครบทุกข้อ (2026-09-10):**
+- อัปโหลด 3 ไฟล์ → แถวคิว 3 แถวเกิดทันที → worker รัน **ทีละคน** (`running` = 1 เสมอ)
+  → `done` ครบ 3 พร้อม evaluation ครบ
+- **HITL invariant ยังอยู่:** approve คนที่กราฟจบไปแล้ว (เส้นทาง rewind) → ตัวนับโควตา
+  14 → 16 **พอดี +2** (planner + drafter) และ `evaluations.created_at` **ไม่เปลี่ยน**
+  (rerun จากต้นจะ DELETE+INSERT แถวนั้นและกิน 4-5 call)
+- **โควตาไม่พอ → `deferred_quota` ไม่ใช่ `failed`** และ `attempts` ยังเป็น 0
+- **กู้หลังรีสตาร์ต:** ตั้งแถวเป็น `running` แล้ว restart backend → log ขึ้น "กู้งานที่ค้าง
+  จากรอบก่อน 1 ชิ้นกลับเข้าคิว" → worker หยิบต่อเองทันที **โดยไม่ต้องกดอะไร**
+- **หลังรีสตาร์ต `_active` ว่าง** แต่ `stalled=False` — พิสูจน์ว่า `queue_status` คือตัวที่
+  กันป้ายผิดจริง ไม่ใช่ทะเบียนในโปรเซส
+- `deferred_quota` ถูกหยิบกลับมาเองเมื่อครบเวลา (ย้อน `updated_at` 20 นาที) โดยไม่ต้องมี cron
+- ลบงานทดสอบ → แถวคิว cascade หายครบ (0 แถว)
+
+**ตัวเลขที่ต้องแก้ในเอกสารเก่า:** ต้นทุนต่อผู้สมัคร **ไม่ใช่ 3 call แต่เป็น 4-5**
+(`resume_parser` ยิง 2 ครั้งตั้งแต่เฟส 1 คือโปรไฟล์ + หาหลักฐานทักษะ) วัดได้จากรันจริง:
+JD 1 ใบ + ผู้สมัคร 3 คน = 14 call พอดี → `COST_BY_KIND["process"] = 5`
+
+**เทส:** 242 ผ่าน (เดิม 204 · ใหม่ `test_queue.py` 21 เคส, `test_queue_worker.py` 10 เคส,
+`test_stalled.py` +6, `test_bulk_decision.py` ปรับให้ดักการเข้าคิวแทนการเดินกราฟ +1)
+
 ## 🔜 ค้างอยู่ / ขั้นต่อไป (เรียงลำดับแนะนำ)
 
 1. Hardening ที่เหลือก่อน deploy (ดู checklist ใน [04_security.md](04_security.md)): TLS/reverse proxy · non-root container · ย้าย rate-limit ไป Redis · secrets manager
 2. เคลียร์หนี้ dev: ~~job ที่ `parsed_criteria` เป็น NULL~~ (ปิดแล้ว), แถวอีเมลที่โดน stub ทับ (subject='s') **เหลือ 1 แถว** (Anan Sukjai ในงาน `29270baa…` — ล้างได้ด้วย `--clear-stub-drafts` ยังไม่ได้ล้าง), reducer ของ HRSystemState
-3. ปรับปรุงความทนทาน: Gemini คืน 503 เป็นระยะ (SDK retry ให้เอง) และ free tier มีโควตาต่ำมาก — ถ้าอัปโหลดทีละหลายไฟล์จะชนลิมิตแน่ ควรคุม concurrency/backoff หรืออัปเกรดแพลน
+3. ~~ปรับปรุงความทนทาน: อัปโหลดหลายไฟล์แล้วชนโควตา~~ — **ปิดแล้ว 2026-09-10** ดู "คิวงานประมวลผล + คุมโควตา" ด้านล่าง
 4. ~~ข้อมูล dev ค้าง: 2 งาน `parsed_criteria` = NULL~~ — **ปิดแล้ว 2026-09-02** ดู "เก็บกวาดข้อมูล dev" ด้านล่าง
 5. **[feature — ไอเดีย, ยังไม่สร้าง 2026-08-11] รับใบสมัครทางอีเมลอัตโนมัติ (ลดงาน HR)** — เพิ่ม "ปากทางรับอีเมล" หน้า pipeline เดิม (async อยู่แล้ว ไม่ต้องรื้อ): worker ดึงอีเมล → จับคู่ตำแหน่ง → เรียก upload ภายใน → กราฟประเมิน → หยุดรอ HR เหมือนเดิม
    - **แนวทางที่เลือก:** IMAP polling worker (self-contained, ใช้กล่องเมลจริงเช่น Gmail App Password ที่มี SMTP creds อยู่แล้ว — ไม่ต้องเปิด public URL/webhook)

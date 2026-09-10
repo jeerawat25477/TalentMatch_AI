@@ -67,18 +67,23 @@ def client() -> TestClient:
 
 @pytest.fixture
 def ran(monkeypatch) -> list:
-    """กันไม่ให้เทสยิง LLM จริง — เก็บรายชื่อคนที่ "ถูกสั่งเดินกราฟ" ไว้ตรวจแทน.
+    """ดักการ "เข้าคิว" แทนการเดินกราฟ — endpoint ไม่เรียก LLM เองอีกแล้ว.
 
-    ต้อง release เองเหมือนที่ decide_candidate ตัวจริงทำ ไม่งั้นผู้สมัครค้างในทะเบียน
-    ข้ามไปถึงเทสถัดไป
+    ตั้งแต่ย้ายไปใช้ processing_queue เราเตอร์แค่ INSERT แถวคิวแล้วตอบกลับ ส่วนการ
+    เดินกราฟเป็นหน้าที่ของ queue_worker เทสชุดนี้จึงตรวจว่า "ใครถูกส่งเข้าคิวบ้าง
+    พร้อมคำตัดสินอะไร" ซึ่งเป็นสิ่งเดียวที่ endpoint นี้รับผิดชอบจริง ๆ
+
+    ต้อง release เองเพราะตัวจริงปลดจองตอน worker รันจบ (ในเทสไม่มี worker)
     """
     calls: list[tuple] = []
 
-    def fake(cid: str, decision: str, notes):
-        calls.append((str(cid), decision, notes))
-        release_candidate(str(cid))
+    def fake(rows):
+        for cid, _job, kind, payload in rows:
+            assert kind == "resume_after_decision"
+            calls.append((str(cid), payload["decision"], payload.get("notes")))
+            release_candidate(str(cid))
 
-    monkeypatch.setattr(hr, "decide_candidate", fake)
+    monkeypatch.setattr(hr, "enqueue_many", fake)
     return calls
 
 
@@ -176,5 +181,28 @@ class TestPartialSuccess:
     def test_ไม่ทิ้งคนค้างในทะเบียนหลังจบ(self, client, ran, two_candidates):
         ok, other = two_candidates
         client.post(URL, json={"candidate_ids": [ok, other], "decision": "approved"})
-        # decide_candidate ตัวจริงปลดจองใน finally — ตัวปลอมก็ต้องเหมือนกัน
+        # ตัวจริงปลดจองตอน worker รันจบ (runner.decide_candidate ปลดใน finally)
         assert not ({ok, other} & set(active_candidates()))
+
+    def test_เข้าคิวจริงลง_db_พร้อมคำตัดสิน(self, client, two_candidates):
+        """ไม่ mock อะไรเลย — พิสูจน์ว่าแถวคิวถูกสร้างจริง ไม่ใช่แค่ตอบ 202 เปล่า ๆ.
+
+        นี่คือสิ่งที่ทำให้งานไม่หายตอนรีสตาร์ต: คำสั่งอยู่ใน DB ไม่ใช่ในหน่วยความจำ
+        """
+        ok, other = two_candidates
+        client.post(
+            URL,
+            json={"candidate_ids": [ok, other], "decision": "rejected", "notes": "ไม่ตรงสาย"},
+        )
+        with get_conn() as conn:
+            rows = conn.execute(
+                """SELECT candidate_id, kind, status, payload FROM processing_queue
+                    WHERE candidate_id = ANY(%s)""",
+                ([ok, other],),
+            ).fetchall()
+        assert len(rows) == 2
+        assert all(r["kind"] == "resume_after_decision" for r in rows)
+        assert all(r["status"] == "queued" for r in rows)
+        assert all(r["payload"] == {"decision": "rejected", "notes": "ไม่ตรงสาย"} for r in rows)
+        for cid in (ok, other):
+            release_candidate(cid)

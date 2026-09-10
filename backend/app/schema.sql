@@ -151,3 +151,52 @@ CREATE TABLE IF NOT EXISTS email_templates (
     body_template TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- ============================================================
+-- คิวงานประมวลผล (แทน BackgroundTasks ที่หายไปพร้อมโปรเซส)
+-- ============================================================
+-- BackgroundTasks อยู่ในหน่วยความจำของโปรเซส: container รีสตาร์ต / hot-reload /
+-- โควตา LLM หมด แล้วงานที่ค้างหายทันที ไม่มีอะไรรันต่อ ผู้สมัครจึงค้างเป็น
+-- "กำลังวิเคราะห์…" ตลอดกาลจนกว่า HR จะเห็นป้าย stalled แล้วกดเอง
+-- ตารางนี้ทำให้ "งานที่ต้องทำ" อยู่ใน DB — worker (app/queue_worker.py) หยิบไปทำ
+-- ทีละชิ้น และแถวที่ค้าง 'running' ตอนแอปบูตใหม่ถูกดึงกลับเป็น 'queued' อัตโนมัติ
+CREATE TABLE IF NOT EXISTS processing_queue (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- ON DELETE CASCADE ได้และควรมี (ต่างจากตาราง checkpoint ที่ไม่มี FK เลย) —
+    -- ลบผู้สมัครแล้วงานที่ค้างในคิวของเขาต้องหายตาม ไม่งั้น worker จะหยิบงาน
+    -- ของคนที่ไม่มีอยู่แล้วขึ้นมารันจนล้มทุกครั้ง
+    candidate_id UUID NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    job_id UUID,
+    -- บอก worker ว่าต้องเรียกฟังก์ชันไหนใน agents/runner.py
+    kind TEXT NOT NULL CHECK (kind IN ('process', 'resume_after_decision', 'reprocess')),
+    -- เก็บเฉพาะ arg ที่เล็กและไม่มีที่อยู่อื่น (decision/notes)
+    -- ส่วน raw_jd / analyzed_jd / resume_text ให้ worker อ่านสดจาก DB ตอนรัน:
+    -- ข้อความเรซูเม่ยาวหลักพันตัวอักษร และคิวอยู่ข้ามวันได้ สำเนาที่แช่ไว้จะเก่า
+    payload JSONB,
+    -- 'deferred_quota' = พักไว้เพราะโควตา AI วันนี้ไม่พอ **ไม่ใช่สถานะปลายทาง**
+    -- worker หยิบกลับมาเช็คใหม่เองเป็นระยะ จึงไม่ต้องมี cron รีเซ็ตตอนเที่ยงคืน
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'running', 'done', 'failed', 'deferred_quota')),
+    attempts INT NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- worker ดึงงานเก่าสุดที่ยังรอ — ดัชนีตรงกับ WHERE status ... ORDER BY created_at
+CREATE INDEX IF NOT EXISTS processing_queue_pick
+    ON processing_queue (status, created_at);
+
+-- ตัวนับ chat call รายวัน (โควตา Gemini free tier = 20 call/วัน **ต่อโมเดล**)
+-- backoff ใน agents/llm.py แก้ได้แค่ลิมิตต่อนาที (RPM) — ลิมิตต่อวัน (RPD) retry ไปก็ไม่หาย
+-- ต้องรู้ว่าวันนี้ใช้ไปเท่าไรก่อนจะยิงงานถัดไป ไม่งั้น batch ใหญ่จะตายเงียบยกแผง
+--
+-- usage_date ตัดวันตาม **UTC** (ดู app/llm_quota.py) ซึ่งคลาดกับที่ Google รีเซ็ตจริง
+-- (เที่ยงคืน Pacific) ได้ถึง ~8 ชม. — ยอมรับความคลาดนั้นเพื่อไม่ต้องพึ่ง tzdata
+-- ในอิมเมจ แล้วกันด้วยการดัก error 429 จริงเป็น deferred_quota อีกชั้น
+CREATE TABLE IF NOT EXISTS llm_quota_usage (
+    usage_date DATE NOT NULL,
+    model TEXT NOT NULL,
+    chat_calls_used INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (usage_date, model)
+);

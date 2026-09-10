@@ -10,6 +10,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import close_pool, init_db
+from app.job_queue import reclaim_running
+from app.queue_worker import start_worker, stop_worker
 from app.routers import auth, candidates, email_templates, employees, hr, jobs
 from app.tracing import tracing_status
 
@@ -25,6 +27,10 @@ log = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()          # สร้างตารางแอป + ตาราง checkpoint* (idempotent)
+    # กู้งานที่ค้างจากโปรเซสที่ตายไป **ก่อน** สตาร์ต worker — ตอนนี้ไม่มีอะไรรันจริง
+    # แถวที่ยังเป็น running จึงเป็นเศษแน่นอน (นี่คือกลไกที่ทำให้งานไม่หายตอนรีสตาร์ต)
+    reclaim_running()
+    start_worker()
     # รายงานว่า LangSmith tracing เปิดจริงไหม — ช่วยยืนยันว่า env ถูกอ่าน
     enabled, project = tracing_status()
     if enabled:
@@ -32,6 +38,7 @@ async def lifespan(app: FastAPI):
     else:
         log.info("LangSmith tracing ปิด (ตั้ง LANGCHAIN_TRACING_V2=true + LANGCHAIN_API_KEY เพื่อเปิด)")
     yield
+    stop_worker()      # หยุด worker ก่อน ไม่งั้นมันจะไปใช้ pool ที่ปิดไปแล้ว
     close_pool()       # ปิด pool และ connection ของ checkpointer
 
 

@@ -6,17 +6,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import PurePath
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
-from app.agents.runner import (
-    active_candidates,
-    get_graph_status,
-    process_candidate,
-    release_candidate,
-    reserve_candidates,
-)
+from app.agents.runner import active_candidates, get_graph_status, reserve_candidates
 from app.auth import get_current_user
 from app.database import get_checkpointer, get_conn
+from app.job_queue import PENDING_STATUSES, enqueue, enqueue_many, pending_status
 from app.schemas import (
     CandidateDeleteOut,
     CandidateDetail,
@@ -75,55 +70,28 @@ def _is_duplicate_upload(
 _STALLED_AFTER_SEC = int(os.getenv("STALLED_AFTER_SEC", "90"))
 
 
-def _is_stalled(candidate_id, has_eval: bool, created_at: datetime, active: frozenset[str]) -> bool:
+def _is_stalled(
+    candidate_id,
+    has_eval: bool,
+    created_at: datetime,
+    active: frozenset[str],
+    queue_status: str | None = None,
+) -> bool:
     """ผู้สมัครที่ไม่มีใครประมวลผลให้แล้ว และจะไม่มีวันเสร็จเองถ้าไม่สั่งใหม่.
 
-    BackgroundTasks อยู่ในโปรเซส — container รีสตาร์ต/hot-reload เมื่อไร งานที่ค้างหายทันที
-    ไม่มีกลไก resume อัตโนมัติ แถวผู้สมัครจึงค้างเป็น "กำลังวิเคราะห์…" ตลอดกาลถ้าไม่ตรวจ
+    เดิมเป็นกรณีที่เกิดบ่อยมาก เพราะ BackgroundTasks อยู่ในโปรเซส (รีสตาร์ต = งานหาย)
+    ตอนนี้งานอยู่ในตาราง processing_queue ที่ worker กู้ให้เองหลังรีสตาร์ต จึงเหลือแค่
+    เศษของเก่าและเคสที่งานตกไปจริง ๆ (failed)
+
+    **ต้องเช็คคิวก่อนเสมอ**: คนที่รอคิวอยู่ 20 นาที (หรือถูกพักเพราะโควตาถึงพรุ่งนี้)
+    ยังมีคนดูแลอยู่ ถ้าตีเป็น "ค้าง" HR จะกด "วิเคราะห์ใหม่" ซ้ำแล้วเสียโควตาฟรี ๆ
+    ทั้งที่งานเดิมกำลังจะได้รันอยู่แล้ว
     """
     if has_eval or str(candidate_id) in active:
         return False
+    if queue_status in PENDING_STATUSES:
+        return False
     return datetime.now(timezone.utc) - created_at > timedelta(seconds=_STALLED_AFTER_SEC)
-
-
-def _run_graph_for_job(job_id: str, candidate_ids: list[str]) -> None:
-    """Background task: รันกราฟทีละผู้สมัคร (thread_id = candidate_id) แล้วเขียนผลลง DB.
-
-    การไหล: jd_analyzer(ข้าม, ใช้ criteria เดิม) -> resume_parser -> matcher
-            -> bias_auditor -> route -> (auto: interview_planner+drafter | รอ HR | reject).
-    """
-    # จองทั้ง batch ทันที ไม่ใช่ทีละคนตอนถึงคิว — คนที่รอคิวต้องนับว่า "กำลังทำงาน" ด้วย
-    reserve_candidates(candidate_ids)
-    try:
-        with get_conn() as conn:
-            job = conn.execute(
-                "SELECT raw_text, parsed_criteria FROM jobs WHERE id = %s", (job_id,)
-            ).fetchone()
-        if job is None:
-            log.error("ไม่พบงาน %s ยกเลิกการประมวลผลผู้สมัคร", job_id)
-            return
-
-        for cid in candidate_ids:
-            with get_conn() as conn:
-                cand = conn.execute(
-                    "SELECT raw_resume_text FROM candidates WHERE id = %s", (cid,)
-                ).fetchone()
-            if cand is None:
-                continue
-            try:
-                process_candidate(
-                    job_id=job_id,
-                    candidate_id=cid,
-                    raw_jd=job["raw_text"],
-                    analyzed_jd=job["parsed_criteria"],
-                    resume_text=cand["raw_resume_text"] or "",
-                )
-            except Exception as exc:  # noqa: BLE001 — ผู้สมัครรายอื่นต้องไปต่อได้
-                log.exception("ประมวลผลผู้สมัคร %s ล้มเหลว: %s", cid, exc)
-    finally:
-        # ปลดจองทุกคนเสมอ รวมถึงกรณี job หายกลางทาง ไม่งั้นจะค้างในทะเบียนตลอดอายุโปรเซส
-        for cid in candidate_ids:
-            release_candidate(cid)
 
 
 @router.post(
@@ -134,7 +102,6 @@ def _run_graph_for_job(job_id: str, candidate_ids: list[str]) -> None:
 async def upload_resumes(
     job_id: str,
     files: list[UploadFile],
-    background_tasks: BackgroundTasks,
 ) -> ResumeUploadAccepted:
     """อัปโหลด PDF หลายไฟล์: สกัดข้อความ, บันทึกแถวผู้สมัคร, แล้วรันกราฟเบื้องหลัง."""
     with get_conn() as conn:
@@ -227,12 +194,15 @@ async def upload_resumes(
             candidate_ids.append(row["id"])
         conn.commit()
 
-    # เตะกราฟให้ทำงานเบื้องหลังแล้วตอบกลับทันที (frontend จะ poll เอง)
-    # ถ้าซ้ำหมดทั้งชุดก็ไม่ต้องเตะ — ไม่มีใครให้ประมวลผล
+    # เข้าคิวแล้วตอบกลับทันที (frontend poll เหมือนเดิม ไม่ต้องแก้อะไร)
+    # ต่างจากเดิมตรงที่งานอยู่ใน DB ไม่ใช่ในหน่วยความจำของโปรเซส — รีสตาร์ตแล้วไม่หาย
+    # และ worker จะทยอยรันตามโควตาที่เหลือ ไม่ยิงเข้ากราฟทั้ง 20 คนพร้อมกันจนชน RPD
     if candidate_ids:
-        background_tasks.add_task(
-            _run_graph_for_job, job_id, [str(c) for c in candidate_ids]
-        )
+        ids = [str(c) for c in candidate_ids]
+        # ยังจองทั้ง batch ไว้เหมือนเดิม: ทะเบียนในโปรเซสตอบคำถาม "ตอนนี้ใครกำลังรัน"
+        # (กันลบ/กันกดซ้ำ) ส่วนคิวตอบ "ยังมีอะไรค้างต้องทำ" — คนละคำถาม ต้องมีคู่กัน
+        reserve_candidates(ids)
+        enqueue_many([(cid, job_id, "process", None) for cid in ids])
     return ResumeUploadAccepted(
         job_id=UUID(job_id),
         accepted=len(candidate_ids),
@@ -252,20 +222,30 @@ def list_candidates(job_id: str) -> list[CandidateSummary]:
             SELECT c.id, c.job_id, c.full_name, c.email,
                    e.fit_score, e.audit_status, e.gap_analysis, c.created_at,
                    hd.decision AS hr_decision,
-                   (e.id IS NOT NULL) AS has_eval
+                   (e.id IS NOT NULL) AS has_eval,
+                   q.status AS queue_status
             FROM candidates c
             LEFT JOIN evaluations e ON e.candidate_id = c.id
             LEFT JOIN hr_decisions hd ON hd.candidate_id = c.id
+            -- สถานะคิวที่ยังทำงานอยู่ของแต่ละคน (LATERAL = query เดียวทั้งหน้า
+            -- ไม่ใช่ยิงต่อแถว — หน้านี้ poll ทุก 4 วินาที)
+            LEFT JOIN LATERAL (
+                SELECT status FROM processing_queue pq
+                 WHERE pq.candidate_id = c.id AND pq.status = ANY(%s)
+                 ORDER BY pq.created_at LIMIT 1
+            ) q ON TRUE
             WHERE c.job_id = %s
             ORDER BY e.fit_score DESC NULLS LAST, c.created_at ASC
             """,
-            (job_id,),
+            (list(PENDING_STATUSES), job_id),
         ).fetchall()
     active = active_candidates()
     return [
         CandidateSummary(
             **{k: v for k, v in r.items() if k != "has_eval"},
-            stalled=_is_stalled(r["id"], r["has_eval"], r["created_at"], active),
+            stalled=_is_stalled(
+                r["id"], r["has_eval"], r["created_at"], active, r["queue_status"]
+            ),
             # อ่าน checkpoint เฉพาะคนที่วิเคราะห์เสร็จแล้ว — คนที่ยังไม่มีผลประเมินเป็น
             # processing/stalled อยู่แล้ว ไม่ต้องเสีย query (หน้านี้ poll ทุก 4 วิ)
             graph_status=(
@@ -341,15 +321,17 @@ def delete_candidate(candidate_id: str) -> CandidateDeleteOut:
 
 
 @router.post("/candidates/{candidate_id}/reprocess", status_code=202)
-def reprocess_candidate(candidate_id: str, background_tasks: BackgroundTasks) -> dict:
+def reprocess_candidate(candidate_id: str) -> dict:
     """สั่งวิเคราะห์ผู้สมัครที่ค้างใหม่ — ใช้ `raw_resume_text` ใน DB ไม่ต้องอัปโหลด PDF ซ้ำ.
 
     เจตนาแคบ: กู้เคสที่กราฟตายกลางทาง (โควตา LLM หมด / container รีสตาร์ต) เท่านั้น
     ถ้ามีผลวิเคราะห์แล้วจะปฏิเสธ เพราะการรันซ้ำจะเสียโควตาฟรี ๆ และอาจทับผล HITL ที่ HR ตัดสินไปแล้ว
 
-    ต้นทุนโควตา: **วัดจริงได้ 3 chat call ต่อคน** (resume_parser + bias_auditor + drafter;
-    jd_analyzer ถูกข้ามเพราะส่ง analyzed_jd เข้าไปแล้ว, matcher ไม่ใช้ LLM) — checkpoint เดิม
-    ไม่ได้ช่วยประหยัดในทางปฏิบัติ เพราะเคสที่ค้างมักตายตั้งแต่โหนดแรก ๆ
+    ต้นทุนโควตา: **วัดจริง 4-5 chat call ต่อคน** (resume_parser 2 ครั้ง คือโปรไฟล์ +
+    หาหลักฐานทักษะ, bias_auditor, email_drafter และ interview_planner อีกครั้งถ้าคะแนน
+    สูงจน auto-advance; jd_analyzer ถูกข้ามเพราะส่ง analyzed_jd เข้าไปแล้ว, matcher
+    ไม่ใช้ LLM) — checkpoint เดิมไม่ได้ช่วยประหยัดในทางปฏิบัติ เพราะเคสที่ค้างมักตาย
+    ตั้งแต่โหนดแรก ๆ · ตัวเลขนี้อยู่ที่ job_queue.COST_BY_KIND เพื่อให้คิวคุมโควตาได้
     """
     with get_conn() as conn:
         row = conn.execute(
@@ -369,6 +351,10 @@ def reprocess_candidate(candidate_id: str, background_tasks: BackgroundTasks) ->
         raise HTTPException(status_code=409, detail="ผู้สมัครรายนี้วิเคราะห์เสร็จแล้ว")
     if str(candidate_id) in active_candidates():
         raise HTTPException(status_code=409, detail="กำลังวิเคราะห์อยู่แล้ว กรุณารอสักครู่")
+    # ทะเบียนในโปรเซสหายไปตอนรีสตาร์ต แต่แถวในคิวไม่หาย — ถ้าไม่เช็คตรงนี้ด้วย
+    # HR จะสั่งซ้ำเข้าคิวได้หลังรีสตาร์ต แล้วผู้สมัครคนเดียวจะถูกรันสองรอบ (เสียโควตา)
+    if pending_status(candidate_id):
+        raise HTTPException(status_code=409, detail="งานของผู้สมัครรายนี้อยู่ในคิวแล้ว กรุณารอสักครู่")
     # ใช้เกณฑ์เดียวกับด่านอัปโหลด — ไม่งั้นจะมีเคส "อัปโหลดไม่ผ่าน แต่ reprocess ปล่อยผ่าน"
     if _is_unreadable_resume(row["raw_resume_text"]):
         raise HTTPException(
@@ -377,33 +363,8 @@ def reprocess_candidate(candidate_id: str, background_tasks: BackgroundTasks) ->
         )
 
     reserve_candidates([candidate_id])  # จองทันทีในเธรด request กันกดรัว ๆ ซ้อนกัน
-    background_tasks.add_task(
-        _reprocess_one,
-        job_id=str(row["job_id"]),
-        candidate_id=candidate_id,
-        raw_jd=row["raw_text"],
-        analyzed_jd=row["parsed_criteria"],
-        resume_text=row["raw_resume_text"],
-    )
-    return {"candidate_id": candidate_id, "message": "เริ่มวิเคราะห์ใหม่แล้ว — โปรด poll รายชื่อผู้สมัคร"}
-
-
-def _reprocess_one(
-    job_id: str, candidate_id: str, raw_jd: str, analyzed_jd: dict | None, resume_text: str
-) -> None:
-    """Background task ของ reprocess — ปลดจองเสมอแม้กราฟจะพังซ้ำ."""
-    try:
-        process_candidate(
-            job_id=job_id,
-            candidate_id=candidate_id,
-            raw_jd=raw_jd,
-            analyzed_jd=analyzed_jd,
-            resume_text=resume_text,
-        )
-    except Exception as exc:  # noqa: BLE001 — ล้มซ้ำได้ (โควตายังหมดอยู่) แค่ต้องไม่ค้างในทะเบียน
-        log.exception("วิเคราะห์ผู้สมัคร %s ใหม่ล้มเหลว: %s", candidate_id, exc)
-    finally:
-        release_candidate(candidate_id)
+    enqueue(candidate_id, str(row["job_id"]), "reprocess")
+    return {"candidate_id": candidate_id, "message": "เข้าคิววิเคราะห์ใหม่แล้ว — โปรด poll รายชื่อผู้สมัคร"}
 
 
 @router.get("/candidates/search", response_model=list[CandidateSearchHit])
@@ -437,14 +398,20 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
                    e.similar_candidates, e.bias_revision, e.skill_evidence,
                    e.score_explanation, e.confidence, (e.id IS NOT NULL) AS has_eval,
                    emp.id AS employee_id, hd.decision AS hr_decision,
-                   hd.notes AS hr_notes, hd.updated_at AS hr_decided_at
+                   hd.notes AS hr_notes, hd.updated_at AS hr_decided_at,
+                   q.status AS queue_status
             FROM candidates c
             LEFT JOIN evaluations e ON e.candidate_id = c.id
             LEFT JOIN employees emp ON emp.candidate_id = c.id
             LEFT JOIN hr_decisions hd ON hd.candidate_id = c.id
+            LEFT JOIN LATERAL (
+                SELECT status FROM processing_queue pq
+                 WHERE pq.candidate_id = c.id AND pq.status = ANY(%s)
+                 ORDER BY pq.created_at LIMIT 1
+            ) q ON TRUE
             WHERE c.id = %s
             """,
-            (candidate_id,),
+            (list(PENDING_STATUSES), candidate_id),
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="ไม่พบผู้สมัครนี้")
@@ -452,5 +419,11 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
     return CandidateDetail(
         **row,
         graph_status=get_graph_status(candidate_id),
-        stalled=_is_stalled(candidate_id, has_eval, row["created_at"], active_candidates()),
+        stalled=_is_stalled(
+            candidate_id,
+            has_eval,
+            row["created_at"],
+            active_candidates(),
+            row["queue_status"],
+        ),
     )

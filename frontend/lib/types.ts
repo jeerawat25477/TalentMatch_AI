@@ -96,7 +96,39 @@ export interface CandidateSummary {
    */
   graph_status?: GraphStatus;
   hr_decision?: Decision | null;
+  /**
+   * สถานะในคิวประมวลผลฝั่ง backend (null = ไม่มีงานค้าง)
+   * คนละเรื่องกับ stalled โดยสิ้นเชิง: อยู่ในคิว = ระบบยังดูแลอยู่ ห้ามชวนให้กดซ้ำ
+   */
+  queue_status?: QueueStatus | null;
 }
+
+export type QueueStatus = "queued" | "running" | "deferred_quota";
+
+/**
+ * ข้อความ + ชิปของสถานะคิว — ใช้สูตรชิปเดิมเท่านั้น
+ * ⚠️ โทนเตือน (deferred_quota) ต้องใช้ตระกูล *-fixed ไม่งั้นสว่างบนสว่างในโหมดมืด
+ */
+export const QUEUE_STATE: Record<
+  QueueStatus,
+  { label: string; chip: string; icon: string }
+> = {
+  queued: {
+    label: "รอคิวประมวลผล",
+    chip: "bg-primary-container/40 text-on-primary-container",
+    icon: "schedule",
+  },
+  running: {
+    label: "กำลังวิเคราะห์…",
+    chip: "bg-primary-container/40 text-on-primary-container",
+    icon: "autorenew",
+  },
+  deferred_quota: {
+    label: "เลื่อนไปวันถัดไป — โควตา AI วันนี้เต็ม",
+    chip: "bg-tertiary-fixed text-on-tertiary-fixed-variant",
+    icon: "hourglass_top",
+  },
+};
 
 /** ผลการ "รับเข้าคิว" ของการตัดสินหมู่ — ไม่ใช่ผลการตัดสิน (งานจริงรันเบื้องหลัง) */
 export interface BulkDecisionResult {

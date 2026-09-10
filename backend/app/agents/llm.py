@@ -10,7 +10,9 @@
 การเรียก LLM ทุกจุดควรผ่าน structured_invoke() เพื่อได้ exponential backoff อัตโนมัติ
 เมื่อชน rate limit ชั่วคราว (429/503) — สำคัญเพราะระบบ batch อาจยิงถี่จนชนเพดาน RPM
 หมายเหตุ: backoff แก้ได้แค่ลิมิต "ต่อนาที" (RPM) — ลิมิต "ต่อวัน" (RPD, free tier = 20/วัน)
-retry ไปก็ไม่หาย ต้องสลับโมเดลหรืออัปเกรดแพลน.
+retry ไปก็ไม่หาย ต้องสลับโมเดลหรืออัปเกรดแพลน
+ลิมิตรายวันจึงถูกจัดการคนละชั้น: app/llm_quota.py นับ call ที่สำเร็จ แล้ว app/queue_worker.py
+เช็คโควตาที่เหลือ *ก่อน* หยิบงานขึ้นมารัน (พักงานไว้ ไม่ใช่ปล่อยให้ล้ม).
 """
 import logging
 import os
@@ -74,8 +76,19 @@ def structured_invoke_once(
     แต่ endpoint แบบพรีวิวที่ HR กดแล้วนั่งมอง ถ้าโควตารายวันหมดจะ retry 5 ครั้ง
     หน่วงรวมเป็นนาที กว่าจะบอกว่าล้มเหลว — รู้ผลเร็วมีประโยชน์กว่ามาก
     แลกกับการที่ชน rate limit ชั่วคราวก็ตอบล้มเหลวทันที (ผู้ใช้กดใหม่เองได้)
+
+    **จุดนับโควตาอยู่ที่นี่จุดเดียว** — structured_invoke ห่อฟังก์ชันนี้อีกที การนับที่ตัวใน
+    จึงครอบทุกทางที่แอปยิง Gemini (โหนดในกราฟ + JD Reviewer ที่เรียกแบบไม่ retry)
+    โดยไม่ต้องเขียนซ้ำสองที่ · นับหลัง invoke คืนค่าแล้วเท่านั้น = นับเฉพาะครั้งที่สำเร็จ
     """
-    return get_llm(complex).with_structured_output(schema).invoke(prompt)
+    model = COMPLEX_MODEL if complex else DEFAULT_MODEL
+    result = get_llm(complex).with_structured_output(schema).invoke(prompt)
+    # import ในฟังก์ชันกัน circular import (llm_quota -> database -> auth -> ...)
+    # แพตเทิร์นเดียวกับ database.init_db ที่ import seed_admin ข้างใน
+    from app.llm_quota import record_call
+
+    record_call(model)
+    return result
 
 
 @retry(

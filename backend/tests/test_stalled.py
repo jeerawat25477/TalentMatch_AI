@@ -7,6 +7,8 @@
 """
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from app.routers.candidates import _is_stalled
 
 CID = "11111111-1111-1111-1111-111111111111"
@@ -40,3 +42,20 @@ def test_เทียบ_candidate_id_แบบ_UUID_ได้():
     from uuid import UUID
 
     assert _is_stalled(UUID(CID), False, _ago(99999), frozenset({CID})) is False
+
+
+# ---------- ตั้งแต่มีคิวใน DB: "รอคิว" ต้องไม่ถูกตีเป็น "ค้าง" ----------
+# ก่อนมีคิว ทุกคนที่ไม่มีผลวิเคราะห์เกิน 90 วิ = ค้างแน่นอน เพราะไม่มีอะไรจะมาทำต่อ
+# ตอนนี้ worker ทยอยรันทีละคนตามโควตา คนที่ 10 ของ batch อาจรอเป็นชั่วโมงโดยที่
+# ระบบยังดูแลอยู่ — ถ้าตีเป็นค้าง HR จะกด "วิเคราะห์ใหม่" ซ้ำแล้วเสียโควตาฟรี ๆ
+
+
+@pytest.mark.parametrize("queue_status", ["queued", "running", "deferred_quota"])
+def test_อยู่ในคิวไม่ถือว่าค้างไม่ว่านานแค่ไหน(queue_status):
+    assert _is_stalled(CID, False, _ago(99999), NONE_ACTIVE, queue_status) is False
+
+
+@pytest.mark.parametrize("queue_status", [None, "done", "failed"])
+def test_ไม่มีงานค้างในคิวแล้วยังตัดสินเหมือนเดิม(queue_status):
+    """done/failed = คิวจบหน้าที่แล้ว ถ้ายังไม่มีผลวิเคราะห์ก็คือค้างจริง."""
+    assert _is_stalled(CID, False, _ago(99999), NONE_ACTIVE, queue_status) is True

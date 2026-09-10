@@ -13,7 +13,7 @@ import RadarChart from "@/components/radar-chart";
 import SkillGap from "@/components/skill-gap";
 import StatusBadge from "@/components/status-badge";
 import { fetcher, searchCandidates, sendEmail, submitDecision } from "@/lib/api";
-import { BANDS, CONFIDENCE, initials, scoreBand } from "@/lib/types";
+import { BANDS, CONFIDENCE, initials, QUEUE_STATE, scoreBand } from "@/lib/types";
 import type {
   CandidateDetail,
   CandidateSearchHit,
@@ -555,10 +555,21 @@ export default function CandidateDeepDive() {
             ระบบตัดสินอัตโนมัติไปแล้ว — คำตัดสินของคุณจะ<b>ทับผลเดิม</b>
             และสร้างคำถาม/อีเมลใหม่
           </p>
+        ) : c.queue_status === "deferred_quota" ? (
+          /* โควตา AI วันนี้เต็ม — ต้องบอกให้ชัดว่าไม่ใช่ระบบพัง และไม่ต้องกดอะไร
+             ไม่งั้น HR จะนั่งรอสิ่งที่ยังมาไม่ถึงจนกว่าโควตาจะรีเซ็ต */
+          <p className="text-label-md text-on-surface-variant flex items-center gap-xs">
+            <span className="material-symbols-outlined text-[18px] text-tertiary">
+              hourglass_top
+            </span>
+            {QUEUE_STATE.deferred_quota.label} — ระบบจะวิเคราะห์ให้เองเมื่อโควตากลับมา
+          </p>
         ) : (
           <p className="text-label-md text-outline flex items-center gap-xs">
             <span className="material-symbols-outlined text-[18px]">pending</span>
-            กำลังประมวลผล — รอสักครู่ก่อนตัดสิน
+            {c.queue_status === "queued"
+              ? "อยู่ในคิวรอประมวลผล — รอสักครู่ก่อนตัดสิน"
+              : "กำลังประมวลผล — รอสักครู่ก่อนตัดสิน"}
           </p>
           ))}
 

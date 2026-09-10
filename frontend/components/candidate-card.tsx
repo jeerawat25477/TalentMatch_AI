@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { deleteCandidate, reprocessCandidate } from "@/lib/api";
 import type { CandidateSummary } from "@/lib/types";
-import { initials } from "@/lib/types";
+import { initials, QUEUE_STATE } from "@/lib/types";
 import ConfirmDialog from "./confirm-dialog";
 import ScoreRing from "./score-ring";
 
@@ -43,6 +43,10 @@ export default function CandidateCard({
 }) {
   const [busy, setBusy] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  // งานยังอยู่ในคิวฝั่ง backend — ระบบจะรันให้เอง ไม่ต้องให้ HR กดอะไร
+  const queued = candidate.queue_status
+    ? QUEUE_STATE[candidate.queue_status]
+    : null;
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -106,6 +110,18 @@ export default function CandidateCard({
         <div className="text-label-md text-on-surface-variant mb-xs">
           {candidate.email ?? "—"}
         </div>
+        {queued && (
+          <div className="mb-xs">
+            <span
+              className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full ${queued.chip}`}
+            >
+              <span className="material-symbols-outlined text-[14px]">
+                {queued.icon}
+              </span>
+              {queued.label}
+            </span>
+          </div>
+        )}
         {candidate.stalled && (
           <div className="mb-xs space-y-0.5">
             <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-error-container/60 text-on-error-container">
@@ -144,7 +160,7 @@ export default function CandidateCard({
       <ScoreRing score={candidate.fit_score} />
 
       <div className="flex-none flex items-center gap-xs">
-        {candidate.stalled && (
+        {candidate.stalled && !queued && (
           <button
             onClick={retry}
             disabled={busy}

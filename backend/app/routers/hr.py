@@ -2,11 +2,12 @@
 import logging
 import os
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
-from app.agents.runner import active_candidates, decide_candidate, reserve_candidates
+from app.agents.runner import active_candidates, reserve_candidates
 from app.auth import get_current_user
 from app.database import get_conn
+from app.job_queue import enqueue, enqueue_many
 from app.email_sender import EmailConfigError, send_email
 from app.schemas import (
     BulkDecisionAccepted,
@@ -52,27 +53,13 @@ def _bulk_partition(
     return accepted, skipped
 
 
-def _run_bulk_decision(candidate_ids: list[str], decision: str, notes: str | None) -> None:
-    """เดินกราฟทีละคนตามลำดับใน background task เดียว (แพตเทิร์นเดียวกับ _run_graph_for_job).
-
-    ห้ามแตกเป็น task ต่อคน: จะได้กราฟรันขนานไม่จำกัด แต่ละตัวเรียก planner+drafter
-    จนชนเพดาน RPM · แต่ละคน try/except เพื่อไม่ให้คนหนึ่งล้มแล้วพาที่เหลือตายไปด้วย
-    """
-    for cid in candidate_ids:
-        try:
-            decide_candidate(cid, decision, notes)  # จอง + เข้าคิว _gate + ปลดจองให้ในตัว
-        except Exception as exc:  # noqa: BLE001 — คนอื่นในชุดต้องได้ไปต่อ
-            log.exception("ตัดสินผู้สมัคร %s ไม่สำเร็จ: %s", cid, exc)
-
 router = APIRouter(
     prefix="/api/v1/candidates", tags=["hr"], dependencies=[Depends(get_current_user)]
 )
 
 
 @router.post("/bulk-decision", response_model=BulkDecisionAccepted, status_code=202)
-def submit_bulk_decision(
-    payload: BulkDecisionIn, background_tasks: BackgroundTasks
-) -> BulkDecisionAccepted:
+def submit_bulk_decision(payload: BulkDecisionIn) -> BulkDecisionAccepted:
     """ตัดสินหลายคนด้วยผลเดียวกัน — บันทึกทันที แล้วเดินกราฟเบื้องหลัง.
 
     ⚠️ ต้องประกาศ *ก่อน* /{candidate_id}/decision ไม่งั้น FastAPI จะจับเส้นทางนี้เป็น
@@ -111,11 +98,15 @@ def submit_bulk_decision(
         conn.commit()
 
     # จองใน request thread ก่อนตอบ — กันดับเบิลคลิกยิงซ้ำ (แพตเทิร์นเดียวกับ reprocess)
+    # แล้วเข้าคิวทีละคน: worker รันตามลำดับทีละชิ้น ไม่ใช่ขนานจนชนเพดาน RPM
+    # และงานไม่หายถ้า container รีสตาร์ตกลางชุด (ต่างจาก background task เดิม)
     if accepted:
         reserve_candidates(accepted)
-        background_tasks.add_task(
-            _run_bulk_decision, accepted, payload.decision, payload.notes
-        )
+        enqueue_many([
+            (cid, None, "resume_after_decision",
+             {"decision": payload.decision, "notes": payload.notes})
+            for cid in accepted
+        ])
 
     return BulkDecisionAccepted(
         accepted=len(accepted),
@@ -125,9 +116,7 @@ def submit_bulk_decision(
 
 
 @router.post("/{candidate_id}/decision", response_model=HRDecisionOut)
-def submit_decision(
-    candidate_id: str, payload: HRDecisionIn, background_tasks: BackgroundTasks
-) -> HRDecisionOut:
+def submit_decision(candidate_id: str, payload: HRDecisionIn) -> HRDecisionOut:
     """บันทึกผลตัดสินของ HR แล้ว resume กราฟจากจุด interrupt (ไม่ใช่รันใหม่).
 
     ขั้นตอน:
@@ -156,9 +145,13 @@ def submit_decision(
         ).fetchone()
         conn.commit()
 
-    # resume กราฟจากจุด interrupt (ไม่ rerun จาก entry point) — ทำเบื้องหลังเพราะเรียก LLM
-    background_tasks.add_task(
-        decide_candidate, candidate_id, payload.decision, payload.notes
+    # resume กราฟจากจุด interrupt (ไม่ rerun จาก entry point) — เข้าคิวเพราะเรียก LLM
+    # worker จะเรียก runner.decide_candidate ตัวเดิม ทั้งการจองทะเบียน _gate และ
+    # การ resume/ย้อน state จึงเหมือนเดิมทุกอย่าง แค่ทนต่อการรีสตาร์ตขึ้น
+    reserve_candidates([candidate_id])
+    enqueue(
+        candidate_id, None, "resume_after_decision",
+        {"decision": payload.decision, "notes": payload.notes},
     )
     return HRDecisionOut(**row)
 
