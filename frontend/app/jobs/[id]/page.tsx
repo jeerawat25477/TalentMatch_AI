@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 import AiInsight from "@/components/ai-insight";
+import ApplyAddress from "@/components/apply-address";
 import Breadcrumb from "@/components/breadcrumb";
 import CandidateCard from "@/components/candidate-card";
 import ConfirmDialog from "@/components/confirm-dialog";
@@ -195,6 +196,10 @@ export default function JobDashboard() {
       ) : (
         <FileUpload jobId={id} onUploaded={() => mutate()} />
       )}
+
+      {/* ทางเข้าที่สองของเรซูเม่ — โผล่เฉพาะเมื่อปากทางรับอีเมลเปิดอยู่จริง
+          (คอมโพเนนต์ซ่อนตัวเองเมื่อปิด/ยังไม่ตั้งค่า/งานปิดรับ) */}
+      <ApplyAddress jobId={id} jobOpen={job?.status !== "closed"} />
 
       {/* Controls */}
       <div className="flex items-center justify-between gap-sm flex-wrap">

@@ -201,6 +201,30 @@ class TestExtractJobId:
         assert email_intake.extract_job_id(headers, subject) is None
 
 
+class TestTemplateMatchesMatcher:
+    """ที่อยู่ที่หน้าเว็บโชว์ กับที่อยู่ที่ตัวจับคู่รู้จัก ต้องเป็นอันเดียวกันเสมอ.
+
+    บั๊กจริงที่เทสนี้เกิดมาเพื่อกัน (เจอตอนทดสอบรวม 2026-09-10): ตัวจับคู่เคย hardcode
+    ว่าต้องเป็น `apply+<uuid>@` แต่ apply_address_template สร้างที่อยู่จาก IMAP_USER
+    พอกล่องชื่อ recruit@ หน้าเว็บก็บอกผู้สมัครว่า recruit+<uuid>@ ซึ่งตัวจับคู่ไม่รู้จัก
+    → ใบสมัครทุกฉบับที่ส่งมาตามที่ระบบบอกเองถูกตีเป็น unmatched แบบเงียบ ๆ
+    """
+
+    @pytest.mark.parametrize(
+        "mailbox",
+        ["apply@company.com", "recruit@talentmatch.local", "hr.team+x@sub.domain.co.th",
+         "jobs-2026@company.co.th"],
+    )
+    def test_ที่อยู่ที่ระบบสร้างเองต้องถูกจับคู่ได้เสมอ(self, monkeypatch, mailbox):
+        from app import email_intake as ei
+
+        monkeypatch.setattr(ei, "IMAP_USER", mailbox)
+        template = ei.apply_address_template()
+        assert template is not None
+        address = template.replace("{job_id}", JOB_UUID)
+        assert ei.extract_job_id({"To": address}, "") == JOB_UUID
+
+
 class TestProcessMessage:
     def test_จับคู่ได้ต้องสร้างผู้สมัครและเข้าคิว(self, job):
         raw = build_email(

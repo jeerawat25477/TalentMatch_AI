@@ -67,7 +67,14 @@ _TICK_SEC = min(IMAP_POLL_SECONDS, 15)
 
 # uuid ในรูปแบบมาตรฐาน 36 ตัวอักษร — ยังต้องเอาไปให้ UUID() ตรวจซ้ำอีกชั้น
 _UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-_APPLY_RE = re.compile(rf"apply\+({_UUID})@", re.I)
+
+# รับ plus-addressing ของกล่องใด ๆ ไม่ใช่เฉพาะกล่องชื่อ "apply"
+# เดิม hardcode ไว้ว่า apply+<uuid>@ ซึ่งพังทันทีถ้า IMAP_USER ไม่ได้ชื่อ apply:
+# หน้าเว็บสร้างที่อยู่จาก IMAP_USER (เช่น recruit+<uuid>@) แต่ตัวจับคู่มองหา apply+
+# → ใบสมัครที่ส่งมาตามที่หน้าเว็บบอกจะถูกตีเป็น unmatched ทั้งหมดแบบเงียบ ๆ
+# ทั้งสองฝั่งต้องผูกกันเสมอ (มีเทสล็อกไว้: ที่อยู่ที่ apply_address_template สร้าง
+# ต้องถูก extract_job_id จับได้)
+_APPLY_RE = re.compile(rf"[A-Za-z0-9._%-]+\+({_UUID})@", re.I)
 _SUBJECT_RE = re.compile(rf"\[job:\s*({_UUID})\s*\]", re.I)
 
 # header ที่อาจมีที่อยู่ปลายทางแบบ plus-addressing (Delivered-To มาก่อนเพราะเชื่อถือได้สุด:
@@ -83,6 +90,27 @@ def imap_configured() -> bool:
     return bool(IMAP_HOST and IMAP_USER and IMAP_PASSWORD)
 
 
+def apply_address_template() -> Optional[str]:
+    """ที่อยู่ที่ผู้สมัครต้องส่งเมลมา ในรูปแบบที่หน้าเว็บเติม job_id เองได้.
+
+    เช่น IMAP_USER = "recruit@company.com" → "recruit+{job_id}@company.com"
+    คืน None เมื่อยังไม่ได้ตั้ง IMAP_USER (หน้าเว็บจะซ่อนบล็อกนั้นแทนที่จะโชว์ที่อยู่พิการ)
+
+    **ต้องมาจาก IMAP_USER แหล่งเดียวเท่านั้น ห้ามตั้งเป็นค่าคนละตัว** — ถ้าหน้าเว็บโชว์
+    กล่องหนึ่งแต่ worker ดึงจากอีกกล่อง ใบสมัครจะไหลเข้ากล่องที่ไม่มีใครอ่านโดยไม่มี
+    อะไรเตือนเลย เป็นความล้มเหลวแบบเงียบที่แพงที่สุดของฟีเจอร์นี้
+
+    หมายเหตุความปลอดภัย: ที่อยู่นี้ไม่ใช่ความลับ — มันคือสิ่งที่จะถูกประกาศให้ผู้สมัคร
+    ส่งเมลเข้ามา ส่วนรหัสผ่านยังไม่วิ่งผ่าน API เหมือนเดิม (ดู routers/settings.py)
+    """
+    if "@" not in IMAP_USER:
+        return None
+    local, _, domain = IMAP_USER.partition("@")
+    if not local or not domain:
+        return None
+    return f"{local}+{{job_id}}@{domain}"
+
+
 def intake_status_line() -> str:
     """ข้อความรายงานตอนบูต — แพตเทิร์นเดียวกับ tracing_status().
 
@@ -96,7 +124,7 @@ def intake_status_line() -> str:
         )
     enabled = bool(get_setting(SETTING_KEY, DEFAULT_SETTING).get("enabled"))
     state = "เปิดอยู่" if enabled else "ปิดอยู่ (เปิดได้จากหน้าตั้งค่า ไม่ต้องรีสตาร์ต)"
-    return f"ปากทางรับอีเมลพร้อมใช้งาน {state} → {IMAP_USER}@{IMAP_HOST}:{IMAP_PORT}"
+    return f"ปากทางรับอีเมลพร้อมใช้งาน {state} → {IMAP_USER} ที่ {IMAP_HOST}:{IMAP_PORT}"
 
 
 # ---------- การจับคู่ตำแหน่งงาน (ฟังก์ชันบริสุทธิ์ ทดสอบได้โดยไม่ต้องมี IMAP) ----------

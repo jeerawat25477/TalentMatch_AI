@@ -454,3 +454,28 @@ export function initials(name: string): string {
     .slice(0, 2)
     .toUpperCase();
 }
+
+// ---------- ปากทางรับใบสมัครทางอีเมล ----------
+// มิเรอร์ EmailIntakeSettingOut ใน backend/app/schemas.py
+// ⚠️ ไม่มีฟิลด์ host/user/password โดยตั้งใจ — ความลับอ่านจาก env ฝั่ง backend เท่านั้น
+// ไม่วิ่งผ่าน API (ดู CLAUDE.md หัวข้อ Secrets)
+export interface EmailIntakeSettings {
+  enabled: boolean;
+  /** ตั้ง IMAP ครบไหม — false = กดสวิตช์ไม่ได้ ต้องให้ผู้ดูแลตั้ง env ก่อน */
+  imap_configured: boolean;
+  last_poll_at: string | null;
+  last_error: string | null;
+  /** นับจากตาราง email_intake_log จึงไม่รีเซ็ตตอน backend รีโหลด */
+  matched_count_today: number;
+  unmatched_count_today: number;
+  /** เช่น "recruit+{job_id}@company.com" — เติม job_id เองด้วย applyAddress() */
+  apply_address_template: string | null;
+}
+
+/** เติม job_id ลงในรูปแบบที่ backend คืนมา (null = ยังตั้ง IMAP_USER ไม่ครบ) */
+export function applyAddress(
+  template: string | null | undefined,
+  jobId: string,
+): string | null {
+  return template ? template.replace("{job_id}", jobId) : null;
+}

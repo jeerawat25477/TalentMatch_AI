@@ -305,3 +305,7 @@ class EmailIntakeSettingOut(BaseModel):
     # นับจาก email_intake_log ของวันนี้ ไม่ใช่ตัวแปรในหน่วยความจำที่รีเซ็ตตอนรีสตาร์ต
     matched_count_today: int = 0
     unmatched_count_today: int = 0
+    # รูปแบบที่อยู่รับสมัคร เช่น "recruit+{job_id}@company.com" — หน้าเว็บเติม job_id เอง
+    # มาจาก IMAP_USER แหล่งเดียวกับที่ worker ใช้ดึงเมล เพื่อไม่ให้โชว์กล่องหนึ่งแต่ดึงอีกกล่อง
+    # None = ยังไม่ได้ตั้ง IMAP_USER (หน้าเว็บซ่อนบล็อกนั้น) · ไม่ใช่ความลับ ต่างจากรหัสผ่าน
+    apply_address_template: Optional[str] = None

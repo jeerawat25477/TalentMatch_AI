@@ -3,6 +3,7 @@
 import { Monitor, Moon, Palette, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import Breadcrumb from "@/components/breadcrumb";
+import EmailIntakeCard from "@/components/email-intake-card";
 import {
   DARK_QUERY,
   THEME_LABELS,
@@ -94,6 +95,10 @@ export default function SettingsPage() {
           })}
         </div>
       </section>
+
+      {/* ปากทางรับใบสมัครทางอีเมล — สวิตช์เก็บใน DB ไม่ใช่เบราว์เซอร์ (ต่างจากธีมด้านบน)
+          จึงมีผลกับทั้งระบบ ไม่ใช่แค่เครื่องนี้ */}
+      <EmailIntakeCard />
     </div>
   );
 }

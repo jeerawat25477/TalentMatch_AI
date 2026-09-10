@@ -153,7 +153,15 @@ fastapi 0.139.0 · langgraph 1.2.9 · langchain 1.3.13 · pydantic 2.13.4 · psy
    `SELECT id, title, status FROM jobs;`
 4. ส่งอีเมลหา `you+<job_id>@gmail.com` พร้อมแนบไฟล์ PDF เรซูเม่
    (Gmail รองรับ plus-addressing ในตัว · ทางสำรอง: ใส่ `[job:<job_id>]` ใน subject)
-5. เปิดสวิตช์: `PATCH /api/v1/settings/email-intake` body `{"enabled": true}` (ต้องมี Bearer token)
+   💡 **ไม่ต้องประกอบที่อยู่เอง** — เปิดหน้ารายละเอียดตำแหน่งงานแล้วกดปุ่ม "คัดลอก"
+   ในกล่อง "หรือให้ผู้สมัครส่งเรซูเม่มาที่อยู่นี้ได้เลย" ได้ทันที (กล่องนี้โผล่เฉพาะเมื่อ
+   เปิดสวิตช์แล้ว ตั้ง `IMAP_USER` แล้ว และตำแหน่งงานยังเปิดรับอยู่)
+   ที่อยู่นั้นสร้างจาก `IMAP_USER` แหล่งเดียวกับที่ worker ดึงเมล จึงไม่มีทางที่หน้าเว็บ
+   จะโชว์กล่องหนึ่งแต่ระบบไปดึงอีกกล่อง
+5. เปิดสวิตช์ที่ **หน้าตั้งค่า** (`http://localhost:4000/settings` → การ์ด "รับใบสมัคร
+   ทางอีเมลอัตโนมัติ" → กดสวิตช์) — ไม่ต้องยิง curl แล้ว · ถ้าสวิตช์กดไม่ได้และขึ้นว่า
+   "ยังไม่ได้ตั้งค่า IMAP ในระบบ" แปลว่า env ยังไม่ครบ กลับไปทำข้อ 2 ใหม่
+   (ยิง API ตรงก็ยังได้: `PATCH /api/v1/settings/email-intake` body `{"enabled": true}`)
 6. รอไม่เกิน `IMAP_POLL_SECONDS` แล้วตรวจ:
    ```sql
    SELECT uid, from_addr, outcome, detail FROM email_intake_log ORDER BY created_at DESC LIMIT 5;

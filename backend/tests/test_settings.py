@@ -80,16 +80,44 @@ class TestToggle:
 
 class TestNoSecretLeak:
     def test_response_ต้องไม่มีความลับของ_imap(self, client):
-        """host/user/password อ่านจาก env เท่านั้น ห้ามวิ่งผ่าน API ไม่ว่าทางไหน."""
+        """รหัสผ่านและโฮสต์อ่านจาก env เท่านั้น ห้ามวิ่งผ่าน API ไม่ว่าทางไหน.
+
+        ⚠️ เดิมเทสนี้ห้ามอักขระ "@" ทั้ง response ซึ่งกว้างเกินไป — ตั้งแต่มี
+        apply_address_template ที่อยู่รับสมัครต้องโผล่ในนี้ได้ เพราะมันคือสิ่งที่จะถูก
+        ประกาศให้ผู้สมัครส่งเมลเข้ามาอยู่แล้ว ไม่ใช่ความลับ · สิ่งที่ยังห้ามเด็ดขาด
+        คือรหัสผ่านและที่อยู่เซิร์ฟเวอร์ IMAP
+        """
         body = client.get(URL).json()
         assert set(body) == {
             "enabled", "imap_configured", "last_poll_at", "last_error",
-            "matched_count_today", "unmatched_count_today",
+            "matched_count_today", "unmatched_count_today", "apply_address_template",
         }
         assert isinstance(body["imap_configured"], bool)
         blob = str(body).lower()
-        for banned in ("password", "imap_host", "imap_user", "@"):
+        for banned in ("password", "imap_host", "imap.", "993"):
             assert banned not in blob
+
+    def test_ที่อยู่รับสมัครต้องมาจาก_imap_user_แหล่งเดียว(self, monkeypatch):
+        """ถ้าหน้าเว็บโชว์กล่องหนึ่งแต่ worker ดึงอีกกล่อง ใบสมัครจะหายเงียบ."""
+        from app import email_intake
+
+        monkeypatch.setattr(email_intake, "IMAP_USER", "recruit@company.com")
+        assert email_intake.apply_address_template() == "recruit+{job_id}@company.com"
+
+    @pytest.mark.parametrize("bad_user", ["", "ไม่มีแอท", "@nolocal.com", "nolocal@"])
+    def test_imap_user_ไม่สมบูรณ์ต้องคืน_none_ไม่ใช่ที่อยู่พิการ(self, monkeypatch, bad_user):
+        """หน้าเว็บจะได้ซ่อนบล็อกนั้น ดีกว่าโชว์ที่อยู่ที่ส่งไปแล้วไม่ถึงใคร."""
+        from app import email_intake
+
+        monkeypatch.setattr(email_intake, "IMAP_USER", bad_user)
+        assert email_intake.apply_address_template() is None
+
+    def test_ที่อยู่รับสมัครต้องไม่มีรหัสผ่านปน(self, monkeypatch):
+        from app import email_intake
+
+        monkeypatch.setattr(email_intake, "IMAP_USER", "recruit@company.com")
+        monkeypatch.setattr(email_intake, "IMAP_PASSWORD", "hunter2")
+        assert "hunter2" not in (email_intake.apply_address_template() or "")
 
     def test_ส่ง_credential_มาก็ต้องไม่ถูกรับไว้(self, client):
         """ฟิลด์เกินถูกทิ้งโดย pydantic — ยืนยันว่าไม่มีทางแอบตั้งค่าลับผ่าน API."""

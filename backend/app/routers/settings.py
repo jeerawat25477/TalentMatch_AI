@@ -3,9 +3,13 @@
 สวิตช์อยู่ใน DB ไม่ใช่ env เพราะ HR ต้องเปิด/ปิดเองได้จากหน้าเว็บโดยไม่ต้องรีสตาร์ต
 (worker อ่านค่าทุกรอบ tick ผ่าน app/settings.py ที่แคชสั้น ๆ ให้)
 
-⚠️ **ไม่รับและไม่คืนความลับของ IMAP ผ่าน API เด็ดขาด** — host/user/password อ่านจาก env
+⚠️ **ไม่รับและไม่คืนความลับของ IMAP ผ่าน API เด็ดขาด** — host/password อ่านจาก env
 อย่างเดียว ที่นี่คืนแค่ `imap_configured: bool` ให้ HR รู้ว่ากดเปิดแล้วจะทำงานได้จริงไหม
 (ดู CLAUDE.md หัวข้อ Secrets)
+
+ข้อยกเว้นเดียวคือ `apply_address_template` ซึ่งได้มาจาก `IMAP_USER` — **ที่อยู่นั้นไม่ใช่
+ความลับ** มันคือสิ่งที่จะถูกประกาศให้ผู้สมัครส่งเมลเข้ามา และต้องมาจากแหล่งเดียวกับที่
+worker ดึงจริง ไม่งั้นหน้าเว็บจะโชว์กล่องหนึ่งแต่ระบบดึงอีกกล่อง แล้วใบสมัครหายเงียบ
 """
 import logging
 
@@ -13,7 +17,12 @@ from fastapi import APIRouter, Depends
 
 from app.auth import get_current_user
 from app.database import get_conn
-from app.email_intake import DEFAULT_SETTING, SETTING_KEY, imap_configured
+from app.email_intake import (
+    DEFAULT_SETTING,
+    SETTING_KEY,
+    apply_address_template,
+    imap_configured,
+)
 from app.schemas import EmailIntakeSettingIn, EmailIntakeSettingOut
 from app.settings import get_setting, patch_setting
 
@@ -66,6 +75,7 @@ def _status() -> EmailIntakeSettingOut:
         last_error=setting.get("last_error"),
         matched_count_today=matched,
         unmatched_count_today=unmatched,
+        apply_address_template=apply_address_template(),
     )
 
 

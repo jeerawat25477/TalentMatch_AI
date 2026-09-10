@@ -6,6 +6,7 @@ import type {
   CandidateSearchHit,
   CandidateSummary,
   Decision,
+  EmailIntakeSettings,
   EmailSendResult,
   EmailTemplate,
   EmployeeCreate,
@@ -254,3 +255,16 @@ export function uploadResumes(
     xhr.send(form);
   });
 }
+
+// ---------- ปากทางรับใบสมัครทางอีเมล ----------
+// ⚠️ ไม่มี helper ตั้งค่า IMAP credential ที่นี่โดยตั้งใจ — ค่าพวกนั้นอ่านจาก env ฝั่ง
+// backend อย่างเดียว หน้าเว็บทำได้แค่เปิด/ปิดสวิตช์
+export const getEmailIntake = () =>
+  request<EmailIntakeSettings>("/api/v1/settings/email-intake");
+
+export const setEmailIntake = (enabled: boolean) =>
+  request<EmailIntakeSettings>("/api/v1/settings/email-intake", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
