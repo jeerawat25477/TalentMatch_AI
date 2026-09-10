@@ -282,3 +282,26 @@ class EmployeeDetail(EmployeeListItem):
     probation_end_date: Optional[date] = None
     hr_notes: Optional[str] = None
     updated_at: datetime
+
+
+# ---------- ค่าตั้งค่าระบบ ----------
+class EmailIntakeSettingIn(BaseModel):
+    """สวิตช์เปิด/ปิดปากทางรับอีเมล — มีแค่ฟิลด์เดียวโดยตั้งใจ.
+
+    ⚠️ **ห้ามเพิ่มฟิลด์ IMAP host/user/password ที่นี่เด็ดขาด** ความลับต้องอยู่ใน env
+    เท่านั้น ไม่วิ่งผ่าน request/response (ดู CLAUDE.md หัวข้อ Secrets)
+    """
+    enabled: bool
+
+
+class EmailIntakeSettingOut(BaseModel):
+    """สถานะปากทางรับอีเมลสำหรับหน้าตั้งค่า."""
+    enabled: bool
+    # บอกแค่ว่า "ตั้งค่า IMAP ครบไหม" ไม่คืนค่าจริงกลับไป — HR ต้องรู้ว่ากดเปิดแล้วจะ
+    # ทำงานได้จริงไหม โดยไม่ต้องเห็นรหัสผ่าน
+    imap_configured: bool
+    last_poll_at: Optional[str] = None
+    last_error: Optional[str] = None
+    # นับจาก email_intake_log ของวันนี้ ไม่ใช่ตัวแปรในหน่วยความจำที่รีเซ็ตตอนรีสตาร์ต
+    matched_count_today: int = 0
+    unmatched_count_today: int = 0

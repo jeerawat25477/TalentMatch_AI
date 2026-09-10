@@ -10,9 +10,18 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import close_pool, init_db
+from app.email_intake import intake_status_line, start_intake_worker, stop_intake_worker
 from app.job_queue import reclaim_running
 from app.queue_worker import start_worker, stop_worker
-from app.routers import auth, candidates, email_templates, employees, hr, jobs
+from app.routers import (
+    auth,
+    candidates,
+    email_templates,
+    employees,
+    hr,
+    jobs,
+    settings,
+)
 from app.tracing import tracing_status
 
 # uvicorn ไม่ตั้ง handler ให้ root logger — ถ้าไม่ตั้งเอง log จาก background task จะหายเงียบ
@@ -31,6 +40,10 @@ async def lifespan(app: FastAPI):
     # แถวที่ยังเป็น running จึงเป็นเศษแน่นอน (นี่คือกลไกที่ทำให้งานไม่หายตอนรีสตาร์ต)
     reclaim_running()
     start_worker()
+    # ปากทางรับใบสมัครทางอีเมล — สตาร์ตเฉพาะเมื่อตั้ง IMAP_* ครบ และถึงสตาร์ตแล้วก็ยัง
+    # ไม่แตะเมลจนกว่า HR จะเปิดสวิตช์ในหน้าตั้งค่า (ดีฟอลต์ปิด)
+    log.info(intake_status_line())
+    start_intake_worker()
     # รายงานว่า LangSmith tracing เปิดจริงไหม — ช่วยยืนยันว่า env ถูกอ่าน
     enabled, project = tracing_status()
     if enabled:
@@ -38,6 +51,7 @@ async def lifespan(app: FastAPI):
     else:
         log.info("LangSmith tracing ปิด (ตั้ง LANGCHAIN_TRACING_V2=true + LANGCHAIN_API_KEY เพื่อเปิด)")
     yield
+    stop_intake_worker()
     stop_worker()      # หยุด worker ก่อน ไม่งั้นมันจะไปใช้ pool ที่ปิดไปแล้ว
     close_pool()       # ปิด pool และ connection ของ checkpointer
 
@@ -59,6 +73,7 @@ app.include_router(candidates.router)
 app.include_router(hr.router)
 app.include_router(employees.router)
 app.include_router(email_templates.router)
+app.include_router(settings.router)
 
 
 @app.get("/health", tags=["meta"])

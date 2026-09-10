@@ -202,3 +202,51 @@ CREATE TABLE IF NOT EXISTS llm_quota_usage (
     chat_calls_used INT NOT NULL DEFAULT 0,
     PRIMARY KEY (usage_date, model)
 );
+
+-- ============================================================
+-- ค่าตั้งค่าระดับระบบ (key-value ทั่วไป)
+-- ============================================================
+-- value เป็น jsonb ทั่วไป ไม่ผูกกับฟีเจอร์ใดฟีเจอร์หนึ่ง — setting ตัวถัดไปใช้ key ใหม่ได้เลย
+-- ไม่ต้องเพิ่มคอลัมน์ · อ่านผ่าน app/settings.py ซึ่งแคชสั้น ๆ ให้ (worker อ่านทุกรอบ)
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value JSONB NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- ปากทางรับใบสมัครทางอีเมล — **ดีฟอลต์ปิดเสมอ** (ปลอดภัยโดยปริยาย)
+-- DO NOTHING สำคัญ: ถ้าใช้ DO UPDATE ทุกครั้งที่บูตจะไปทับสวิตช์ที่ HR เปิดไว้ให้กลับเป็นปิด
+--
+-- uid_validity ไม่ใช่ของแถม: UID ของ IMAP มีความหมายเฉพาะคู่กับ UIDVALIDITY ของกล่องนั้น
+-- ถ้ากล่องถูกสร้างใหม่/ย้ายผู้ให้บริการ ค่านี้เปลี่ยน แล้ว last_uid_seen เดิมจะกลายเป็น
+-- เลขคนละชุด — ไม่เช็คแล้วจะข้ามเมลใหม่ทั้งกล่องเงียบ ๆ หรือดูดซ้ำทั้งกล่อง
+INSERT INTO app_settings (key, value)
+VALUES ('email_intake',
+        '{"enabled": false, "last_uid_seen": null, "uid_validity": null,
+          "last_poll_at": null, "last_error": null}')
+ON CONFLICT (key) DO NOTHING;
+
+-- บันทึกทุกฉบับที่ปากทางอีเมลเห็น — ทั้งที่รับเข้าและที่ปฏิเสธ
+-- มีไว้เพื่อสองอย่าง: (1) ให้ HR เห็นว่าเมลที่จับคู่ไม่ได้มีกี่ฉบับและเพราะอะไร
+-- โดยไม่ต้องเปิด container log (2) ให้ตัวนับรายวันคำนวณจากข้อมูลจริงด้วย GROUP BY
+-- แทนตัวแปรในหน่วยความจำที่รีเซ็ตทุกครั้งที่ backend รีโหลด (ใน dev เกิดบ่อยมาก)
+--
+-- job_id / candidate_id **ไม่มี FK โดยตั้งใจ** — log ต้องอยู่ต่อแม้ตำแหน่งงานหรือผู้สมัคร
+-- ถูกลบไปแล้ว ไม่งั้นประวัติการรับเข้าจะหายพร้อมกับสิ่งที่มันบันทึกไว้
+CREATE TABLE IF NOT EXISTS email_intake_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    uid TEXT,
+    uid_validity TEXT,
+    from_addr TEXT,
+    subject TEXT,
+    job_id UUID,
+    candidate_id UUID,
+    outcome TEXT NOT NULL CHECK (outcome IN (
+        'matched', 'unmatched', 'duplicate', 'unreadable',
+        'no_attachment', 'job_closed', 'error')),
+    detail TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS email_intake_log_recent
+    ON email_intake_log (created_at DESC);

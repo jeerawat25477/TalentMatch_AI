@@ -92,6 +92,9 @@ def _run_job(row: dict) -> None:
         raw_jd=data["raw_text"],
         analyzed_jd=data["parsed_criteria"],
         resume_text=data["raw_resume_text"] or "",
+        # ที่มาถูกฝากไว้ใน payload ตอน enqueue — ทำให้ trace ใน LangSmith แยกได้ว่า
+        # ผู้สมัครรายนี้มาจาก HR อัปเอง หรือมาจากปากทางรับอีเมล
+        source=payload.get("source") or "upload",
     )
 
 

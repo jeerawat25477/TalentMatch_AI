@@ -9,7 +9,10 @@ import hashlib
 
 import pytest
 
-from app.routers.candidates import _is_duplicate_upload, _is_unreadable_resume
+from app.resume_ingest import (
+    is_duplicate_upload as _is_duplicate_upload,
+    is_unreadable_resume as _is_unreadable_resume,
+)
 
 A = hashlib.sha256(b"resume A").hexdigest()
 B = hashlib.sha256(b"resume B").hexdigest()

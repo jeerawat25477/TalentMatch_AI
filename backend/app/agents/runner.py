@@ -50,18 +50,23 @@ def release_candidate(candidate_id: str) -> None:
         _active.discard(str(candidate_id))
 
 
-def _config(candidate_id: str) -> dict:
+def _config(candidate_id: str, source: str = "upload") -> dict:
     """config ต่อการรันกราฟ — thread_id ผูก checkpointer + ป้าย trace ให้ LangSmith.
 
     run_name/tags/metadata ทำให้หา trace ของผู้สมัครแต่ละคนใน LangSmith เจอง่าย
     (ไม่มีผลถ้าปิด tracing) และไม่กระทบ get_state/update_state ที่ใช้ config ตัวเดียวกัน
+
+    `source` บอกว่าผู้สมัครรายนี้เข้าระบบมาทางไหน ("upload" = HR ลากไฟล์เอง,
+    "email" = ปากทางรับอีเมลอัตโนมัติ) มีดีฟอลต์ไว้เพื่อให้ผู้เรียกเดิมไม่ต้องแก้
+    และเพื่อให้ get_state/update_state ที่ไม่รู้ที่มายังสร้าง config เดิมได้
+    (ค่านี้อยู่ใน tags/metadata เท่านั้น ไม่แตะ configurable จึงไม่กระทบ checkpoint)
     """
     cid = str(candidate_id)
     return {
         "configurable": {"thread_id": cid},
         "run_name": f"screen-candidate-{cid[:8]}",
-        "tags": ["talentmatch", "screening"],
-        "metadata": {"candidate_id": cid},
+        "tags": ["talentmatch", "screening", f"source:{source}"],
+        "metadata": {"candidate_id": cid, "source": source},
     }
 
 
@@ -124,22 +129,34 @@ def _persist_outputs(candidate_id: str, state: dict) -> None:
 
 
 def process_candidate(
-    job_id: str, candidate_id: str, raw_jd: str, analyzed_jd: dict | None, resume_text: str
+    job_id: str,
+    candidate_id: str,
+    raw_jd: str,
+    analyzed_jd: dict | None,
+    resume_text: str,
+    source: str = "upload",
 ) -> None:
     """รันกราฟสำหรับผู้สมัครหนึ่งคน (thread_id = candidate_id)."""
     reserve_candidates([candidate_id])  # เผื่อถูกเรียกเดี่ยว ๆ (เช่น reprocess) ที่ยังไม่ได้จอง
     try:
         with _gate:  # จำกัด concurrency กันยิง LLM ทะลุเพดาน RPM
-            _process_candidate_locked(job_id, candidate_id, raw_jd, analyzed_jd, resume_text)
+            _process_candidate_locked(
+                job_id, candidate_id, raw_jd, analyzed_jd, resume_text, source
+            )
     finally:
         release_candidate(candidate_id)
 
 
 def _process_candidate_locked(
-    job_id: str, candidate_id: str, raw_jd: str, analyzed_jd: dict | None, resume_text: str
+    job_id: str,
+    candidate_id: str,
+    raw_jd: str,
+    analyzed_jd: dict | None,
+    resume_text: str,
+    source: str = "upload",
 ) -> None:
     graph = get_graph()
-    config = _config(candidate_id)
+    config = _config(candidate_id, source)
     initial = {
         "raw_jd": raw_jd,
         "analyzed_jd": analyzed_jd,

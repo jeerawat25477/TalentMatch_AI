@@ -123,9 +123,45 @@ Invoke-RestMethod "http://localhost:8080/api/v1/jobs/$($job.id)/candidates" -Hea
   ⚠️ `models/text-embedding-004` ตามบรีฟ **เรียกไม่ได้แล้ว** (ไม่อยู่ใน ListModels ของคีย์นี้)
 - `SMTP_HOST/PORT/STARTTLS/FROM/USER/PASSWORD` — ส่งอีเมล · dev: compose ตั้งชี้ MailHog ให้แล้ว (ไม่ต้องตั้งเอง)
   prod: ใส่ค่า SMTP จริงใน `.env` (Gmail ต้องเปิด 2FA + App Password) · `USER/PASSWORD` มีเมื่อ SMTP ต้อง auth
+- `IMAP_HOST` / `IMAP_USER` / `IMAP_PASSWORD` / `IMAP_PORT` (993) / `IMAP_MAILBOX` (INBOX) / `IMAP_POLL_SECONDS` (120)
+  — ปากทางรับใบสมัครทางอีเมล ([app/email_intake.py](../backend/app/email_intake.py)) · ใช้ Gmail App Password ตัวเดียวกับ SMTP ได้
+  · **ไม่ครบ 3 ตัวแรก = ปิดถาวร** (log บอกตอนบูต) · ครบแล้วก็ยังไม่ทำงานจนกว่าจะเปิดสวิตช์ในหน้าตั้งค่า (**ดีฟอลต์ปิด**)
+  · สวิตช์เก็บใน DB (`app_settings`) ไม่ใช่ env จึงเปิด/ปิดสดได้ ไม่ต้องรีสตาร์ต (วัดจริง: มีผลใน 10 วินาที)
 - `MAX_UPLOAD_MB` (10) / `MAX_FILES` (20) — ลิมิตอัปโหลดกัน DoS
 - `JWT_SECRET` (**จำเป็น** ไม่มีดีฟอลต์) / `JWT_EXPIRE_HOURS` (12) — auth · prod ใช้ค่าสุ่มยาว (`openssl rand -hex 32`)
 - `ADMIN_USERNAME` / `ADMIN_PASSWORD` — ผู้ใช้เริ่มต้นที่ seed ตอนบูต · `LOGIN_MAX_FAILS` (5) / `LOGIN_FAIL_WINDOW_SEC` (300)
 
 ## เวอร์ชันแพ็กเกจหลัก (ยืนยันใน Docker)
 fastapi 0.139.0 · langgraph 1.2.9 · langchain 1.3.13 · pydantic 2.13.4 · psycopg 3.3.4 · pdfplumber 0.11.10 · supabase 2.31.0 · Postgres 16
+
+## ทดสอบปากทางรับอีเมลกับกล่องเมลจริง (ต้องทำเอง — อัตโนมัติไม่ได้)
+
+⚠️ **MailHog ทดสอบขั้นนี้ไม่ได้** มันเป็น SMTP ปลอมที่รับเฉพาะเมล**ขาออก** ไม่มีฝั่ง IMAP
+ให้ worker ดึง · เทสอัตโนมัติครอบได้แค่ตรรกะ (fake IMAP client ใน `tests/test_email_intake.py`)
+ส่วนการต่อของจริงต้องมีกล่องเมลจริง
+
+1. เปิด 2FA ในบัญชี Gmail แล้วสร้าง App Password (ตัวเดียวกับที่ SMTP ใช้ได้)
+2. ใส่ใน [backend/.env](../backend/.env):
+   ```
+   IMAP_HOST=imap.gmail.com
+   IMAP_USER=you@gmail.com
+   IMAP_PASSWORD=xxxxxxxxxxxxxxxx
+   ```
+   แล้ว `docker compose up -d backend` (⚠️ `restart` ไม่อ่าน `.env` ใหม่)
+   ดู log ตอนบูตต้องขึ้น "ปากทางรับอีเมลพร้อมใช้งาน ปิดอยู่ …"
+3. หา `job_id` ของตำแหน่งงานที่ **เปิดรับอยู่** (`status='open'`) จากหน้าเว็บหรือ
+   `SELECT id, title, status FROM jobs;`
+4. ส่งอีเมลหา `you+<job_id>@gmail.com` พร้อมแนบไฟล์ PDF เรซูเม่
+   (Gmail รองรับ plus-addressing ในตัว · ทางสำรอง: ใส่ `[job:<job_id>]` ใน subject)
+5. เปิดสวิตช์: `PATCH /api/v1/settings/email-intake` body `{"enabled": true}` (ต้องมี Bearer token)
+6. รอไม่เกิน `IMAP_POLL_SECONDS` แล้วตรวจ:
+   ```sql
+   SELECT uid, from_addr, outcome, detail FROM email_intake_log ORDER BY created_at DESC LIMIT 5;
+   SELECT status, kind, payload FROM processing_queue ORDER BY created_at DESC LIMIT 5;
+   ```
+   ควรเห็น `outcome='matched'` และแถวคิว `kind='process'` ที่ `payload->>'source' = 'email'`
+7. **ตรวจว่าเมลในกล่องไม่ถูกแตะ** — ยังเป็น "ยังไม่อ่าน" อยู่เหมือนเดิม (`BODY.PEEK` + readonly)
+8. ปิดสวิตช์กลับเมื่อทดสอบเสร็จ (`{"enabled": false}`) — ดีฟอลต์ของระบบคือปิด
+
+เมลที่จับคู่ไม่ได้จะถูกทิ้งไว้ในกล่องและบันทึกเป็น `outcome='unmatched'` ไม่ดึงเข้าระบบ
+**ไม่มีการตอบกลับอัตโนมัติในทุกกรณี** — อีเมลถึงผู้สมัครยังต้องให้ HR กดเองเหมือนเดิม
