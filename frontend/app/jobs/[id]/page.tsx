@@ -6,6 +6,7 @@ import useSWR from "swr";
 import AiInsight from "@/components/ai-insight";
 import ApplyAddress from "@/components/apply-address";
 import Breadcrumb from "@/components/breadcrumb";
+import JobTabs from "@/components/job-tabs";
 import CandidateCard from "@/components/candidate-card";
 import ConfirmDialog from "@/components/confirm-dialog";
 import FileUpload from "@/components/file-upload";
@@ -133,6 +134,10 @@ export default function JobDashboard() {
           />
         </div>
       </div>
+
+      {/* สลับมุมมอง — กระดานไม่ได้มาแทนหน้านี้ คนที่ยังรอตัดสิน/กำลังวิเคราะห์/ค้าง
+          อยู่ในหน้านี้เท่านั้น ไม่ขึ้นกระดาน */}
+      <JobTabs jobId={id} />
 
       {/* เกณฑ์จาก JD */}
       {criteria && (
