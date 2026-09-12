@@ -250,3 +250,26 @@ CREATE TABLE IF NOT EXISTS email_intake_log (
 
 CREATE INDEX IF NOT EXISTS email_intake_log_recent
     ON email_intake_log (created_at DESC);
+
+-- ============================================================
+-- กระดานติดตามผู้สมัครหลังผ่านการคัดกรอง
+-- ============================================================
+-- เลเยอร์บาง ๆ ทับผลของกราฟ: กราฟตัดสินว่า "ควรเชิญไหม" จบแล้วก็จบ ส่วนตารางนี้ตาม
+-- ต่อว่าคนที่เชิญไปแล้วเดินไปถึงไหน (นัดหรือยัง สัมภาษณ์แล้วหรือยัง ยื่นข้อเสนอหรือยัง)
+-- **ไม่เคยเขียนอะไรกลับเข้ากราฟ** และไม่มีการเรียก LLM ในเส้นทางนี้เลย
+--
+-- ON DELETE CASCADE ที่นี่ ต่างจาก employees.candidate_id ที่เป็น FK ธรรมดาโดยตั้งใจ:
+-- stage เป็นข้อมูลชั่วคราวระหว่างกระบวนการ ลบผู้สมัครทิ้งแล้วหายตามได้ ส่วนระเบียน
+-- พนักงานเป็นของถาวรที่ต้องกันการลบไว้ (routers คืน 409 ถ้าพยายามลบ)
+CREATE TABLE IF NOT EXISTS hiring_stage (
+    candidate_id UUID PRIMARY KEY REFERENCES candidates(id) ON DELETE CASCADE,
+    -- ⚠️ **ไม่มี 'hired' ในรายการนี้โดยตั้งใจ** — "รับเข้าแล้ว" อนุมานจากการมีแถวใน
+    -- employees (candidate_id เป็น UNIQUE อยู่แล้ว) ไม่ใช่ค่าในคอลัมน์นี้ ถ้าเก็บทั้งสองที่
+    -- จะมีวันที่สองแหล่งขัดกันเอง แล้วไม่มีใครรู้ว่าอันไหนจริง
+    stage TEXT NOT NULL DEFAULT 'invited'
+        CHECK (stage IN ('invited', 'scheduled', 'interviewed', 'offer', 'declined')),
+    -- เวลาที่ย้ายขั้นล่าสุดจริง ๆ — จึงห้ามสร้างแถวนี้ตอน GET (write-on-read) ไม่งั้น
+    -- ค่านี้จะกลายเป็น "เวลาที่ HR เปิดหน้ากระดาน" ซึ่งไม่ได้บอกอะไรเลย
+    moved_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    note TEXT
+);

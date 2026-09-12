@@ -18,6 +18,7 @@ from app.routers import (
     candidates,
     email_templates,
     employees,
+    hiring_board,
     hr,
     jobs,
     settings,
@@ -74,6 +75,7 @@ app.include_router(hr.router)
 app.include_router(employees.router)
 app.include_router(email_templates.router)
 app.include_router(settings.router)
+app.include_router(hiring_board.router)
 
 
 @app.get("/health", tags=["meta"])

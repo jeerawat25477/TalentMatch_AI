@@ -1,6 +1,8 @@
 // ตัวช่วยเรียก FastAPI backend — base URL จาก env (เบราว์เซอร์เรียกตรงที่ :8000)
 import { clearToken, getToken, setToken } from "./auth";
 import type {
+  BoardItem,
+  BoardStage,
   BulkDecisionResult,
   CandidateDetail,
   CandidateSearchHit,
@@ -267,4 +269,17 @@ export const setEmailIntake = (enabled: boolean) =>
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),
+  });
+
+// ---------- กระดานติดตามผู้สมัคร ----------
+export const getBoard = (jobId: string) =>
+  request<BoardItem[]>(`/api/v1/jobs/${jobId}/board`);
+
+// ⚠️ ส่ง stage: "hired" มาที่นี่จะได้ 400 — การรับเข้าเป็นพนักงานมีเอนด์พอยต์ของตัวเอง
+// (hireCandidate) เพราะต้องกรอกตำแหน่ง/เงินเดือน/วันเริ่มงานด้วย
+export const setStage = (candidateId: string, stage: BoardStage, note?: string) =>
+  request<BoardItem>(`/api/v1/candidates/${candidateId}/stage`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ stage, note }),
   });

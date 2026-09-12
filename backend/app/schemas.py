@@ -309,3 +309,41 @@ class EmailIntakeSettingOut(BaseModel):
     # มาจาก IMAP_USER แหล่งเดียวกับที่ worker ใช้ดึงเมล เพื่อไม่ให้โชว์กล่องหนึ่งแต่ดึงอีกกล่อง
     # None = ยังไม่ได้ตั้ง IMAP_USER (หน้าเว็บซ่อนบล็อกนั้น) · ไม่ใช่ความลับ ต่างจากรหัสผ่าน
     apply_address_template: Optional[str] = None
+
+
+# ---------- กระดานติดตามผู้สมัคร ----------
+# ค่าที่เก็บได้จริงในคอลัมน์ hiring_stage.stage (ตรงกับ CHECK ใน schema.sql)
+HiringStage = Literal["invited", "scheduled", "interviewed", "offer", "declined"]
+
+# ค่าที่ API คืน/รับ — มี "hired" เพิ่มเข้ามา แต่ **ไม่เคยถูกเก็บลงคอลัมน์**
+# ขาออก: อนุมานจากการมีแถวใน employees
+# ขาเข้า: ต้องรับไว้ให้ผ่าน validation ก่อน เพื่อจะได้ตอบ 400 พร้อมข้อความที่บอกทางออก
+#         ถ้าใช้ HiringStage (ไม่มี hired) pydantic จะตัดตั้งแต่ validation แล้วตอบ 422
+#         พร้อม error ดิบซึ่งไม่ได้บอก HR ว่าให้ไปใช้ปุ่มรับเข้าเป็นพนักงานแทน
+BoardStage = Literal[
+    "invited", "scheduled", "interviewed", "offer", "declined", "hired"
+]
+
+
+class BoardItem(BaseModel):
+    """การ์ดหนึ่งใบบนกระดานติดตามของตำแหน่งงานหนึ่ง."""
+    candidate_id: UUID
+    full_name: str
+    fit_score: Optional[int] = None
+    # ความมั่นใจของผลวิเคราะห์ — คนละมิติกับ fit_score (ดู agents/bands.py)
+    confidence: Optional[Literal["high", "medium", "low"]] = None
+    stage: BoardStage = "invited"
+    # มีค่า = ถูกรับเข้าเป็นพนักงานแล้ว (stage จะเป็น 'hired' ไปด้วยเสมอ)
+    employee_id: Optional[UUID] = None
+    # การ์ดอยู่บนกระดานแต่ตอนนี้ไม่เข้าเกณฑ์แล้ว เช่น HR กลับคำทีหลัง — UI ขึ้นป้ายเตือน
+    screening_conflict: bool = False
+    # None = ยังไม่เคยย้ายขั้น (ไม่มีแถวใน hiring_stage) ไม่ใช่ "ย้ายตอนนี้"
+    moved_at: Optional[datetime] = None
+    # ให้ HR เห็นว่าเคยส่งอีเมลเชิญไปแล้วหรือยัง โดยไม่ต้องเปิดหน้ารายละเอียด
+    email_sent_at: Optional[datetime] = None
+
+
+class StageUpdate(BaseModel):
+    """ย้ายการ์ดไปขั้นถัดไป (หรือย้อนกลับ — ไม่บังคับทิศทาง)."""
+    stage: BoardStage
+    note: Optional[str] = Field(None, max_length=2000)

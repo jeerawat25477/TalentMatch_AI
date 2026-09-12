@@ -479,3 +479,31 @@ export function applyAddress(
 ): string | null {
   return template ? template.replace("{job_id}", jobId) : null;
 }
+
+// ---------- กระดานติดตามผู้สมัคร ----------
+// มิเรอร์ BoardItem/BoardStage ใน backend/app/schemas.py
+// 'hired' อยู่ในลิสต์แต่ **ไม่เคยถูกเก็บในคอลัมน์** — ขาออกมาจากการมีระเบียนพนักงาน
+// ส่วนขาเข้า backend ตอบ 400 พร้อมบอกให้ไปใช้ปุ่มรับเข้าเป็นพนักงานแทน
+export type HiringStage =
+  | "invited"
+  | "scheduled"
+  | "interviewed"
+  | "offer"
+  | "declined";
+
+export type BoardStage = HiringStage | "hired";
+
+export interface BoardItem {
+  candidate_id: string;
+  full_name: string;
+  fit_score: number | null;
+  confidence: Confidence | null;
+  stage: BoardStage;
+  /** มีค่า = ถูกรับเข้าเป็นพนักงานแล้ว (stage จะเป็น 'hired' ไปด้วยเสมอ) */
+  employee_id: string | null;
+  /** การ์ดอยู่บนกระดานแต่ตอนนี้ไม่เข้าเกณฑ์แล้ว เช่น HR กลับคำทีหลัง — ขึ้นป้ายเตือน */
+  screening_conflict: boolean;
+  /** null = ยังไม่เคยย้ายขั้น ไม่ใช่ "ย้ายเมื่อสักครู่" */
+  moved_at: string | null;
+  email_sent_at: string | null;
+}
