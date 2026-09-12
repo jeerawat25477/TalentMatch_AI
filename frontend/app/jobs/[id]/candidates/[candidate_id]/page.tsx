@@ -9,11 +9,20 @@ import Breadcrumb from "@/components/breadcrumb";
 import EmailTemplatePicker from "@/components/email-template-picker";
 import HireEmployeeDialog from "@/components/hire-employee-dialog";
 import InterviewGuide from "@/components/interview-guide";
+import InterviewOutcomeDialog from "@/components/interview-outcome-dialog";
 import RadarChart from "@/components/radar-chart";
 import SkillGap from "@/components/skill-gap";
 import StatusBadge from "@/components/status-badge";
 import { fetcher, searchCandidates, sendEmail, submitDecision } from "@/lib/api";
-import { BANDS, CONFIDENCE, initials, QUEUE_STATE, scoreBand } from "@/lib/types";
+import {
+  BANDS,
+  CONFIDENCE,
+  initials,
+  INTERVIEW_RESULT,
+  normalizeQuestions,
+  QUEUE_STATE,
+  scoreBand,
+} from "@/lib/types";
 import type {
   CandidateDetail,
   CandidateSearchHit,
@@ -43,6 +52,7 @@ export default function CandidateDeepDive() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [showHire, setShowHire] = useState(false);
+  const [showOutcome, setShowOutcome] = useState(false);
   // ค้นหาผู้สมัครคล้ายกันแบบสั่งเอง — ยิงสดทุกครั้ง ไม่ได้บันทึกลง DB (hits = null คือยังไม่เคยค้น)
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -280,6 +290,67 @@ export default function CandidateDeepDive() {
             คำถามสัมภาษณ์
           </h3>
           <InterviewGuide plan={c.interview_plan} />
+
+          {/* บันทึกผลสัมภาษณ์จริง — โผล่เฉพาะคนที่มีคำถามให้ถาม (คนที่ถูกปฏิเสธไม่มีแผน
+              สัมภาษณ์ ปุ่มนี้จึงไม่ควรมีอยู่ในสายตาเขา) */}
+          {normalizeQuestions(c.interview_plan).length > 0 && (
+            <div className="mt-sm pt-sm border-t border-outline-variant/40">
+              {c.interview_outcome ? (
+                <div className="space-y-xs">
+                  <div className="flex items-center gap-base flex-wrap">
+                    <span
+                      className={`inline-flex items-center gap-1 text-label-sm font-semibold px-2.5 py-1 rounded-full ${
+                        INTERVIEW_RESULT[c.interview_outcome.result].chip
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[15px]">
+                        {INTERVIEW_RESULT[c.interview_outcome.result].icon}
+                      </span>
+                      {INTERVIEW_RESULT[c.interview_outcome.result].label}
+                    </span>
+                    <span className="text-label-sm text-on-surface-variant">
+                      {c.interview_outcome.interviewed_at
+                        ? `สัมภาษณ์ ${c.interview_outcome.interviewed_at}`
+                        : "ไม่ได้ระบุวันที่"}
+                      {" · "}
+                      ให้คะแนน{" "}
+                      {(c.interview_outcome.question_scores ?? []).filter(
+                        (q) => q.score !== null,
+                      ).length}{" "}
+                      ข้อ
+                    </span>
+                    <button
+                      className="btn-secondary-glass ms-auto text-label-sm py-1"
+                      onClick={() => setShowOutcome(true)}
+                    >
+                      แก้ไขผล
+                    </button>
+                  </div>
+                  {c.interview_outcome.overall_note && (
+                    <p className="text-label-md text-on-surface-variant leading-relaxed">
+                      {c.interview_outcome.overall_note}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-xs flex-wrap">
+                  <button
+                    className="btn-tonal"
+                    onClick={() => setShowOutcome(true)}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">
+                      rate_review
+                    </span>
+                    บันทึกผลสัมภาษณ์
+                  </button>
+                  <p className="text-label-sm text-outline min-w-0 flex-1">
+                    สัมภาษณ์เสร็จแล้วบันทึกผลไว้ที่นี่ — การ์ดบนกระดานจะย้ายไป
+                    “สัมภาษณ์แล้ว” ให้เอง
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
         <section className="glass-card rounded-2xl p-md">
@@ -761,6 +832,21 @@ export default function CandidateDeepDive() {
           defaultPosition={job?.title ?? ""}
           onHired={(employeeId) => router.push(`/employees/${employeeId}`)}
           onClose={() => setShowHire(false)}
+        />
+      )}
+
+      {showOutcome && (
+        <InterviewOutcomeDialog
+          candidateId={candidate_id}
+          plan={c.interview_plan}
+          existing={c.interview_outcome}
+          onSaved={() => {
+            // อยู่หน้าเดิมโดยตั้งใจ ต่างจากการรับเข้าเป็นพนักงานที่พาไปหน้าพนักงาน —
+            // HR มักบันทึกผลแล้วอ่านรายละเอียดของคนคนนั้นต่อ
+            setShowOutcome(false);
+            mutate();
+          }}
+          onClose={() => setShowOutcome(false)}
         />
       )}
 

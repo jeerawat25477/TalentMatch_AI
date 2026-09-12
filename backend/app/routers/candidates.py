@@ -340,11 +340,18 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
                    e.score_explanation, e.confidence, (e.id IS NOT NULL) AS has_eval,
                    emp.id AS employee_id, hd.decision AS hr_decision,
                    hd.notes AS hr_notes, hd.updated_at AS hr_decided_at,
-                   q.status AS queue_status
+                   q.status AS queue_status,
+                   -- CASE จำเป็น: to_jsonb(io) บน LEFT JOIN ที่ไม่แมตช์คืน
+                   -- {"candidate_id": null, ...} ไม่ใช่ NULL แล้ว Pydantic จะเจอ
+                   -- result=None ซึ่งเป็นฟิลด์บังคับ กลายเป็น 500 ของคนที่ยังไม่เคย
+                   -- บันทึกผล — คือผู้สมัครเกือบทุกคนในระบบ
+                   CASE WHEN io.candidate_id IS NOT NULL THEN to_jsonb(io) END
+                       AS interview_outcome
             FROM candidates c
             LEFT JOIN evaluations e ON e.candidate_id = c.id
             LEFT JOIN employees emp ON emp.candidate_id = c.id
             LEFT JOIN hr_decisions hd ON hd.candidate_id = c.id
+            LEFT JOIN interview_outcome io ON io.candidate_id = c.id
             LEFT JOIN LATERAL (
                 SELECT status FROM processing_queue pq
                  WHERE pq.candidate_id = c.id AND pq.status = ANY(%s)

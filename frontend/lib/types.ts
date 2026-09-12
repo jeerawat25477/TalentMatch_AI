@@ -177,6 +177,60 @@ export function normalizeQuestions(
   );
 }
 
+// ---------- ผลสัมภาษณ์จริง ----------
+// มิเรอร์ InterviewOutcome ใน backend/app/schemas.py
+// ⚠️ คนละเรื่องกับ Decision (hr_decision): อันนั้นคือ "ให้ผ่านไปสัมภาษณ์ไหม" ที่กราฟ
+// อ่านไปเลือกเส้นทาง ส่วนอันนี้คือสิ่งที่เกิดขึ้นหลังสัมภาษณ์จริง ซึ่งกราฟไม่เคยเห็น
+export type InterviewResult = "pass" | "fail" | "standby";
+
+export interface QuestionScore {
+  question: string;
+  /** 1-5 · null = ไม่ได้ถามข้อนี้ ซึ่งต่างจากถามแล้วได้ 1 คะแนน */
+  score: number | null;
+  note: string | null;
+}
+
+export interface InterviewOutcome {
+  result: InterviewResult;
+  question_scores: QuestionScore[] | null;
+  overall_note: string | null;
+  /** วันที่สัมภาษณ์จริง ไม่ใช่วันที่กรอกฟอร์ม */
+  interviewed_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** สิ่งที่ส่งขึ้นไปตอนบันทึก — ไม่มีฟิลด์เวลาที่ backend เป็นคนกำหนด */
+export interface InterviewOutcomeUpsert {
+  result: InterviewResult;
+  question_scores: QuestionScore[];
+  overall_note?: string | null;
+  interviewed_at?: string | null;
+}
+
+// สูตรชิปเดียวกับ BANDS/CONFIDENCE — โทนเตือนต้องใช้คู่ *-fixed ไม่ใช่ tertiary-container
+// (คู่ปกติกลายเป็นสว่างบนสว่างในโหมดมืด) · ห้ามยืมสีแบนด์คะแนนมาใช้ที่นี่
+export const INTERVIEW_RESULT: Record<
+  InterviewResult,
+  { label: string; chip: string; icon: string }
+> = {
+  pass: {
+    label: "ผ่าน",
+    chip: "bg-secondary-container/40 text-on-secondary-container",
+    icon: "check_circle",
+  },
+  standby: {
+    label: "สำรอง",
+    chip: "bg-tertiary-fixed text-on-tertiary-fixed-variant",
+    icon: "pause_circle",
+  },
+  fail: {
+    label: "ไม่ผ่าน",
+    chip: "bg-error-container/60 text-on-error-container",
+    icon: "cancel",
+  },
+};
+
 export interface EmailDraft {
   kind: "invitation" | "rejection";
   subject: string;
@@ -279,6 +333,8 @@ export interface CandidateDetail extends CandidateSummary {
    */
   hr_notes: string | null;
   hr_decided_at: string | null;
+  /** ผลสัมภาษณ์จริงที่ HR กรอกเอง — null = ยังไม่เคยบันทึก */
+  interview_outcome: InterviewOutcome | null;
 }
 
 export type Decision = "approved" | "rejected";
@@ -506,4 +562,6 @@ export interface BoardItem {
   /** null = ยังไม่เคยย้ายขั้น ไม่ใช่ "ย้ายเมื่อสักครู่" */
   moved_at: string | null;
   email_sent_at: string | null;
+  /** ขึ้นป้ายบนการ์ดทุกคอลัมน์ที่มีค่า ไม่ใช่เฉพาะ "สัมภาษณ์แล้ว" */
+  interview_result: InterviewResult | null;
 }

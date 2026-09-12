@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import ScoreRing from "@/components/score-ring";
-import { CONFIDENCE } from "@/lib/types";
+import { CONFIDENCE, INTERVIEW_RESULT } from "@/lib/types";
 import type { BoardItem, BoardStage } from "@/lib/types";
 
 /** ป้ายของแต่ละคอลัมน์ — ใช้ร่วมกันทั้งหัวคอลัมน์และเมนู "ย้ายไป…" */
@@ -50,6 +50,11 @@ export default function BoardCard({
   // (backend ก็ตอบ 409 อยู่แล้ว ที่นี่แค่ไม่ชวนให้กดตั้งแต่แรก)
   const locked = item.stage === "hired";
   const conf = item.confidence ? CONFIDENCE[item.confidence] : null;
+  // ขึ้นทุกคอลัมน์ที่มีผล ไม่ใช่เฉพาะ "สัมภาษณ์แล้ว" — พอย้ายไป "ยื่นข้อเสนอ" แล้ว
+  // HR ก็ยังต้องเห็นว่าผลสัมภาษณ์ออกมายังไงโดยไม่ต้องเปิดเข้าไปดู
+  const outcome = item.interview_result
+    ? INTERVIEW_RESULT[item.interview_result]
+    : null;
 
   return (
     <div
@@ -94,6 +99,16 @@ export default function BoardCard({
                   {conf.icon}
                 </span>
                 {conf.label}
+              </span>
+            )}
+            {outcome && (
+              <span
+                className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${outcome.chip}`}
+              >
+                <span className="material-symbols-outlined text-[13px]">
+                  {outcome.icon}
+                </span>
+                {outcome.label}
               </span>
             )}
             {item.email_sent_at && (

@@ -84,6 +84,41 @@ class CandidateDeleteOut(BaseModel):
     deleted_thread: bool = False
 
 
+# ---------- ผลสัมภาษณ์จริง ----------
+# ⚠️ คนละเรื่องกับ hr_decisions.decision: อันนั้นคือคำตัดสินคัดกรอง ("ให้ผ่านไปสัมภาษณ์ไหม")
+# ที่กราฟอ่านไปเลือกเส้นทาง ส่วนอันนี้คือสิ่งที่เกิดขึ้นหลังสัมภาษณ์จริง ซึ่งกราฟไม่เคยเห็น
+InterviewResult = Literal["pass", "fail", "standby"]
+
+
+class QuestionScore(BaseModel):
+    """คะแนนรายข้อ อ้างอิงคำถามจาก evaluations.interview_plan."""
+
+    question: str = Field(..., max_length=2000)
+    # 1-5 · ปล่อยว่างได้ = ไม่ได้ถามข้อนี้ ซึ่งต่างจากถามแล้วได้ 1 คะแนน
+    # ช่วงนี้บังคับที่นี่ที่เดียว — CHECK ใน Postgres ตรวจค่าข้างใน JSONB array ไม่ได้
+    score: Optional[int] = Field(None, ge=1, le=5)
+    note: Optional[str] = Field(None, max_length=2000)
+
+
+class InterviewOutcomeUpsert(BaseModel):
+    result: InterviewResult
+    question_scores: list[QuestionScore] = Field(default_factory=list)
+    overall_note: Optional[str] = Field(None, max_length=5000)
+    # วันที่สัมภาษณ์จริง ไม่ใช่วันที่กรอกฟอร์ม
+    interviewed_at: Optional[date] = None
+
+
+class InterviewOutcome(BaseModel):
+    """รูปที่คืนกลับ — ใช้ทั้งใน response ของ PUT และฝังใน CandidateDetail."""
+
+    result: InterviewResult
+    question_scores: Optional[list[QuestionScore]] = None
+    overall_note: Optional[str] = None
+    interviewed_at: Optional[date] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
 class CandidateDetail(CandidateSummary):
     raw_resume_text: Optional[str] = None
     parsed_resume: Optional[dict[str, Any]] = None
@@ -115,6 +150,9 @@ class CandidateDetail(CandidateSummary):
     # "คำตัดสินล่าสุด" ไม่ใช่ประวัติย้อนหลัง (updated_at คือคอลัมน์เวลาเดียวที่ตารางมี)
     hr_notes: Optional[str] = None
     hr_decided_at: Optional[datetime] = None
+    # ผลสัมภาษณ์จริงที่ HR กรอกเอง — None = ยังไม่เคยบันทึก (แถวเก่าทั้งหมดเป็นแบบนี้)
+    # มาพร้อม CandidateDetail เลยเพื่อไม่ให้หน้า deep dive ต้องยิงอีกรอบ
+    interview_outcome: Optional[InterviewOutcome] = None
 
 
 class CandidateSearchHit(BaseModel):
@@ -341,6 +379,9 @@ class BoardItem(BaseModel):
     moved_at: Optional[datetime] = None
     # ให้ HR เห็นว่าเคยส่งอีเมลเชิญไปแล้วหรือยัง โดยไม่ต้องเปิดหน้ารายละเอียด
     email_sent_at: Optional[datetime] = None
+    # ผลสัมภาษณ์ (ถ้าบันทึกไว้แล้ว) — ขึ้นเป็นป้ายบนการ์ดทุกคอลัมน์ ไม่ใช่เฉพาะ
+    # "สัมภาษณ์แล้ว" เพราะพอย้ายไป "ยื่นข้อเสนอ" HR ก็ยังต้องเห็นว่าผลออกมายังไง
+    interview_result: Optional[InterviewResult] = None
 
 
 class StageUpdate(BaseModel):

@@ -15,6 +15,8 @@ import type {
   EmployeeDetail,
   EmployeeListItem,
   EmployeeStatus,
+  InterviewOutcome,
+  InterviewOutcomeUpsert,
   Job,
   JDReview,
   JobDeleteResult,
@@ -282,4 +284,17 @@ export const setStage = (candidateId: string, stage: BoardStage, note?: string) 
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ stage, note }),
+  });
+
+// ---------- ผลสัมภาษณ์จริง ----------
+// PUT ไม่ใช่ POST เพราะเป็น upsert: หนึ่งคนหนึ่งผล ยิงซ้ำได้ผลเท่าเดิมเสมอ
+// ⚠️ ไม่แตะ hr_decision — ผลสัมภาษณ์กับคำตัดสินคัดกรองตอบคนละคำถาม
+export const saveInterviewOutcome = (
+  candidateId: string,
+  data: InterviewOutcomeUpsert,
+) =>
+  request<InterviewOutcome>(`/api/v1/candidates/${candidateId}/interview-outcome`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
   });

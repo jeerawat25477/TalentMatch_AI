@@ -273,3 +273,34 @@ CREATE TABLE IF NOT EXISTS hiring_stage (
     moved_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     note TEXT
 );
+
+-- ============================================================
+-- ผลสัมภาษณ์จริง — ground truth ชุดเดียวที่ระบบมี
+-- ============================================================
+-- กราฟร่างคำถามให้ HR (evaluations.interview_plan) แล้วหน้าที่ของมันจบตรงนั้น ตารางนี้
+-- เก็บสิ่งที่เกิดขึ้น "หลังจาก" คนไปสัมภาษณ์จริงมาแล้ว ซึ่งเป็นข้อมูลชุดเดียวที่บอกได้ว่า
+-- คะแนนของ AI แม่นแค่ไหน (คนคะแนน 85 สัมภาษณ์แล้วไม่ผ่านบ่อยไหม) — วัตถุดิบของเฟส 5
+-- calibration ที่ต้องรอสะสมหลายเดือน จึงต้องเริ่มเก็บตั้งแต่วันนี้ ไม่ใช่ตอนจะใช้
+--
+-- ⚠️ **ไม่มีวันถูกกราฟหรือ LLM อ่านหรือเขียน** ทางเข้าทางเดียวคือ HR กรอกฟอร์มเอง
+--
+-- ⚠️ `result` ที่นี่ **คนละเรื่องกับ hr_decisions.decision** — อันนั้นตอบว่า "ให้ผ่านไป
+-- สัมภาษณ์ไหม" (คำตัดสินคัดกรอง ที่ route_candidates อ่านไปตัดสินเส้นทางของกราฟ)
+-- ส่วนอันนี้ตอบว่า "สัมภาษณ์แล้วเป็นยังไง" ถ้าเอาผลสัมภาษณ์ไปเขียนทับ hr_decisions
+-- กราฟจะถูกปลุกให้ตัดสินใหม่โดยไม่มีใครสั่ง จากข้อมูลที่มันไม่เคยเห็น
+--
+-- ON DELETE CASCADE เหมือน hiring_stage (ข้อมูลระหว่างกระบวนการ) ไม่ใช่แบบ employees
+-- ที่เป็น FK ธรรมดาเพื่อกันการลบ
+CREATE TABLE IF NOT EXISTS interview_outcome (
+    candidate_id UUID PRIMARY KEY REFERENCES candidates(id) ON DELETE CASCADE,
+    result TEXT NOT NULL CHECK (result IN ('pass', 'fail', 'standby')),
+    -- [{question, score, note}] โดย question อ้างอิงข้อความคำถามจาก interview_plan
+    -- ช่วง score 1-5 บังคับที่ schemas.QuestionScore ไม่ใช่ที่ CHECK เพราะ Postgres
+    -- ตรวจค่าข้างใน JSONB array ไม่ได้โดยไม่เขียน expression ที่ไม่มีใครอ่านออก
+    question_scores JSONB,
+    overall_note TEXT,
+    -- วันที่สัมภาษณ์จริง ซึ่งมักไม่ใช่วันที่กรอกฟอร์ม จึงให้ HR ระบุเองแทนที่จะเดาจาก created_at
+    interviewed_at DATE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);

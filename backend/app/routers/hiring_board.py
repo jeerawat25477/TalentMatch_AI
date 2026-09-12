@@ -45,12 +45,13 @@ def get_board(job_id: str) -> list[BoardItem]:
                    e.fit_score, e.confidence, e.email_sent_at,
                    hd.decision AS hr_decision,
                    hs.stage AS stage_row, hs.moved_at,
-                   emp.id AS employee_id
+                   emp.id AS employee_id, io.result AS interview_result
               FROM candidates c
               LEFT JOIN evaluations e   ON e.candidate_id = c.id
               LEFT JOIN hr_decisions hd ON hd.candidate_id = c.id
               LEFT JOIN hiring_stage hs ON hs.candidate_id = c.id
               LEFT JOIN employees emp   ON emp.candidate_id = c.id
+              LEFT JOIN interview_outcome io ON io.candidate_id = c.id
              WHERE c.job_id = %s
              ORDER BY e.fit_score DESC NULLS LAST, c.created_at ASC
             """,
@@ -77,6 +78,7 @@ def get_board(job_id: str) -> list[BoardItem]:
                 ),
                 moved_at=r["moved_at"],
                 email_sent_at=r["email_sent_at"],
+                interview_result=r["interview_result"],
             )
         )
     return board
@@ -94,11 +96,17 @@ def update_stage(candidate_id: str, payload: StageUpdate) -> BoardItem:
         row = conn.execute(
             """
             SELECT c.id, c.full_name, e.fit_score, e.confidence, e.email_sent_at,
-                   hd.decision AS hr_decision, emp.id AS employee_id
+                   hd.decision AS hr_decision, emp.id AS employee_id,
+                   -- ⚠️ ต้องมีที่นี่ด้วย ไม่ใช่แค่ใน get_board แม้หน้ากระดานตอนนี้จะทิ้ง
+                   -- response ของ PATCH แล้ว revalidate เอาก็ตาม: ทั้งสองเส้นทางประกาศ
+                   -- response_model เดียวกันคือ BoardItem ถ้าอันหนึ่งคืนฟิลด์ไม่ครบ
+                   -- ก็เป็นกับดักรอผู้เรียกรายต่อไปที่เชื่อสัญญาแล้วเอาไปวาดการ์ดตรง ๆ
+                   io.result AS interview_result
               FROM candidates c
               LEFT JOIN evaluations e   ON e.candidate_id = c.id
               LEFT JOIN hr_decisions hd ON hd.candidate_id = c.id
               LEFT JOIN employees emp   ON emp.candidate_id = c.id
+              LEFT JOIN interview_outcome io ON io.candidate_id = c.id
              WHERE c.id = %s
             """,
             (candidate_id,),
@@ -152,4 +160,5 @@ def update_stage(candidate_id: str, payload: StageUpdate) -> BoardItem:
         ),
         moved_at=stage_row["moved_at"],
         email_sent_at=row["email_sent_at"],
+        interview_result=row["interview_result"],
     )
