@@ -529,6 +529,48 @@ export interface EmailIntakeSettings {
   apply_address_template: string | null;
 }
 
+// มิเรอร์ IntakeOutcome / EmailIntakeActivityItem ใน backend/app/schemas.py
+export type IntakeOutcome =
+  | "matched"
+  | "unmatched"
+  | "duplicate"
+  | "unreadable"
+  | "no_attachment"
+  | "job_closed"
+  | "error";
+
+export interface EmailIntakeActivityItem {
+  id: string;
+  outcome: IntakeOutcome;
+  from_addr: string | null;
+  subject: string | null;
+  detail: string | null;
+  job_id: string | null;
+  job_title: string | null;
+  /** null ได้แม้ matched — ผู้สมัครอาจถูกลบไปแล้ว */
+  candidate_id: string | null;
+  candidate_name: string | null;
+  created_at: string;
+}
+
+/**
+ * คำอธิบายผลของแต่ละฉบับ ภาษาที่ HR อ่านแล้วรู้ว่าต้องทำอะไรต่อ
+ * needsAction = ใบสมัครที่ไม่ได้เข้าระบบแต่ HR ยังแก้ได้ (ไปดูในกล่องอีเมล)
+ * duplicate ไม่นับ เพราะไฟล์นั้นอยู่ในระบบแล้ว ไม่มีอะไรต้องทำ
+ */
+export const INTAKE_OUTCOME: Record<
+  IntakeOutcome,
+  { label: string; icon: string; needsAction: boolean }
+> = {
+  matched: { label: "รับเข้าระบบแล้ว", icon: "mark_email_read", needsAction: false },
+  unmatched: { label: "ระบุตำแหน่งงานไม่ได้", icon: "help", needsAction: true },
+  no_attachment: { label: "ไม่มีไฟล์ PDF แนบมา", icon: "attach_file_off", needsAction: true },
+  unreadable: { label: "อ่านไฟล์ไม่ได้ (อาจเป็นภาพสแกน)", icon: "broken_image", needsAction: true },
+  job_closed: { label: "ตำแหน่งปิดรับแล้ว", icon: "lock", needsAction: true },
+  error: { label: "เกิดข้อผิดพลาดระหว่างรับเข้า", icon: "error", needsAction: true },
+  duplicate: { label: "ไฟล์ซ้ำ — มีในระบบแล้ว", icon: "content_copy", needsAction: false },
+};
+
 /** เติม job_id ลงในรูปแบบที่ backend คืนมา (null = ยังตั้ง IMAP_USER ไม่ครบ) */
 export function applyAddress(
   template: string | null | undefined,

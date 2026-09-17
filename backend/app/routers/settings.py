@@ -13,7 +13,7 @@ worker ดึงจริง ไม่งั้นหน้าเว็บจะ
 """
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.auth import get_current_user
 from app.database import get_conn
@@ -23,7 +23,11 @@ from app.email_intake import (
     apply_address_template,
     imap_configured,
 )
-from app.schemas import EmailIntakeSettingIn, EmailIntakeSettingOut
+from app.schemas import (
+    EmailIntakeActivityItem,
+    EmailIntakeSettingIn,
+    EmailIntakeSettingOut,
+)
 from app.settings import get_setting, patch_setting
 
 log = logging.getLogger(__name__)
@@ -83,6 +87,33 @@ def _status() -> EmailIntakeSettingOut:
 def get_email_intake() -> EmailIntakeSettingOut:
     """สถานะปากทางรับอีเมล (เปิดอยู่ไหม ตั้งค่าครบไหม ดึงล่าสุดเมื่อไร ผิดพลาดอะไร)."""
     return _status()
+
+
+@router.get("/email-intake/activity", response_model=list[EmailIntakeActivityItem])
+def get_email_intake_activity(
+    limit: int = Query(30, ge=1, le=100),
+) -> list[EmailIntakeActivityItem]:
+    """อีเมลที่ worker จัดการล่าสุด ใหม่สุดก่อน — ป้อนฟีดในหน้ารับสมัครและการแจ้งเตือน.
+
+    สถานะ "อ่านแล้ว" ไม่ได้เก็บที่นี่ หน้าเว็บจำเวลาที่เปิดดูล่าสุดไว้เอง (ตอนนี้มีผู้ใช้
+    HR คนเดียว ถ้าวันหนึ่งมีหลายคนค่อยย้ายมาเก็บต่อผู้ใช้)
+
+    LEFT JOIN ทั้งสองตาราง เพราะ log ไม่มี FK — ผู้สมัครหรือตำแหน่งอาจถูกลบไปแล้ว
+    แถวนั้นยังต้องโผล่ในฟีดได้ แค่ไม่มีชื่อให้กด
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT l.id, l.outcome, l.from_addr, l.subject, l.detail, l.created_at,
+                      j.id AS job_id, j.title AS job_title,
+                      c.id AS candidate_id, c.full_name AS candidate_name
+                 FROM email_intake_log l
+                 LEFT JOIN jobs j       ON j.id = l.job_id
+                 LEFT JOIN candidates c ON c.id = l.candidate_id
+                ORDER BY l.created_at DESC
+                LIMIT %s""",
+            (limit,),
+        ).fetchall()
+    return [EmailIntakeActivityItem(**r) for r in rows]
 
 
 @router.patch("/email-intake", response_model=EmailIntakeSettingOut)

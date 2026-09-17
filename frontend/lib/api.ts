@@ -8,6 +8,7 @@ import type {
   CandidateSearchHit,
   CandidateSummary,
   Decision,
+  EmailIntakeActivityItem,
   EmailIntakeSettings,
   EmailSendResult,
   EmailTemplate,
@@ -273,6 +274,11 @@ export function uploadResumes(
 // backend อย่างเดียว หน้าเว็บทำได้แค่เปิด/ปิดสวิตช์
 export const getEmailIntake = () =>
   request<EmailIntakeSettings>("/api/v1/settings/email-intake");
+
+export const getEmailIntakeActivity = (limit = 30) =>
+  request<EmailIntakeActivityItem[]>(
+    `/api/v1/settings/email-intake/activity?limit=${limit}`,
+  );
 
 export const setEmailIntake = (enabled: boolean) =>
   request<EmailIntakeSettings>("/api/v1/settings/email-intake", {

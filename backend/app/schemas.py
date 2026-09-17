@@ -351,6 +351,29 @@ class EmailIntakeSettingOut(BaseModel):
     apply_address_template: Optional[str] = None
 
 
+IntakeOutcome = Literal[
+    "matched", "unmatched", "duplicate", "unreadable", "no_attachment", "job_closed", "error"
+]
+
+
+class EmailIntakeActivityItem(BaseModel):
+    """อีเมลหนึ่งฉบับ (หรือไฟล์แนบหนึ่งไฟล์) ที่ worker จัดการไปแล้ว — ป้อนฟีดและการแจ้งเตือน.
+
+    ⚠️ ไม่มี uid/uid_validity — เป็นเคอร์เซอร์ภายในของ worker ไม่มีความหมายกับ HR
+    """
+    id: UUID
+    outcome: IntakeOutcome
+    from_addr: Optional[str] = None
+    subject: Optional[str] = None
+    detail: Optional[str] = None
+    job_id: Optional[UUID] = None
+    job_title: Optional[str] = None
+    # null ได้แม้ outcome = matched: ผู้สมัครอาจถูกลบไปแล้ว (log ไม่มี FK โดยตั้งใจ)
+    candidate_id: Optional[UUID] = None
+    candidate_name: Optional[str] = None
+    created_at: datetime
+
+
 # ---------- กระดานติดตามผู้สมัคร ----------
 # ค่าที่เก็บได้จริงในคอลัมน์ hiring_stage.stage (ตรงกับ CHECK ใน schema.sql)
 HiringStage = Literal["invited", "scheduled", "interviewed", "offer", "declined"]

@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getMe } from "@/lib/api";
 import { clearToken, isAuthed } from "@/lib/auth";
+import { IntakeNotificationsProvider } from "./intake-notifications";
 import SideNav from "./side-nav";
 
 const COLLAPSE_KEY = "tm-sidebar-collapsed";
@@ -95,8 +96,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
+  // provider อยู่หลัง guard — poll ฟีดเฉพาะเมื่อล็อกอินแล้ว (หน้า login จะไม่ยิง 401 วน)
   return (
-    <>
+    <IntakeNotificationsProvider>
       <SideNav
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed((v) => !v)}
@@ -134,6 +136,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       >
         <div className="max-w-6xl mx-auto relative z-10">{children}</div>
       </main>
-    </>
+    </IntakeNotificationsProvider>
   );
 }

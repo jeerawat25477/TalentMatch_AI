@@ -47,12 +47,8 @@ export default function EmailIntakeCard() {
     <section className="glass-card rounded-2xl p-md space-y-sm">
       <div className="flex items-center gap-xs text-on-surface">
         <Mail className="w-5 h-5 text-primary" />
-        <h2 className="text-headline-md">รับใบสมัครทางอีเมลอัตโนมัติ</h2>
+        <h2 className="text-headline-md">การเชื่อมต่อกล่องอีเมล</h2>
       </div>
-      <p className="text-body-md text-on-surface-variant">
-        ให้ระบบอ่านกล่องอีเมลรับสมัครเป็นระยะ แล้วดึงเรซูเม่ที่แนบมาเข้าคิววิเคราะห์ให้เอง
-        โดยไม่ต้องดาวน์โหลดมาอัปโหลดเองทีละไฟล์
-      </p>
 
       {/* สวิตช์ */}
       <div className="flex items-center justify-between gap-sm p-sm rounded-xl border border-outline/30">
@@ -132,18 +128,24 @@ export default function EmailIntakeCard() {
         </Notice>
       )}
 
-      {/* คำเตือนสองข้อที่ต้องเห็นชัด */}
-      <Notice tone="tertiary" icon="mark_email_read" title="ระบบจะไม่ตอบกลับผู้สมัครอัตโนมัติ">
-        <p className="text-on-surface-variant text-label-sm leading-snug mt-0.5">
-          ปากทางนี้ทำหน้าที่ <b>รับเข้า</b> อย่างเดียว อีเมลตอบกลับทุกฉบับยังต้องให้คุณ
-          ตรวจเนื้อหาและกดยืนยันส่งเองเหมือนเดิม
-        </p>
-      </Notice>
-      <Notice tone="tertiary" icon="toggle_off" title="ค่าเริ่มต้นคือปิด">
-        <p className="text-on-surface-variant text-label-sm leading-snug mt-0.5">
-          เปิดเฉพาะตอนที่ต้องการใช้งาน ปิดไว้เมื่อไม่ใช้ ระบบจะไม่แตะกล่องอีเมลเลย
-        </p>
-      </Notice>
+      {/* ข้อควรรู้ — เดิมเป็นกล่องเตือนสีเหลืองสองกล่องใหญ่ ซึ่งแย่งสายตาจากสวิตช์
+          ทั้งที่ไม่ใช่ปัญหาที่ต้องแก้ เป็นแค่ข้อเท็จจริงของระบบ ยุบเป็นรายการเล็กบรรทัดเดียวต่อข้อ */}
+      <ul className="space-y-1 text-label-sm text-on-surface-variant">
+        <li className="flex gap-xs items-start">
+          <span className="material-symbols-outlined text-[16px] text-outline flex-none mt-0.5">
+            mark_email_read
+          </span>
+          <span>
+            ระบบ<b className="text-on-surface">ไม่ตอบกลับผู้สมัครเอง</b> — อีเมลตอบกลับทุกฉบับยังต้องให้คุณตรวจและกดส่ง
+          </span>
+        </li>
+        <li className="flex gap-xs items-start">
+          <span className="material-symbols-outlined text-[16px] text-outline flex-none mt-0.5">
+            toggle_off
+          </span>
+          <span>ค่าเริ่มต้นคือปิด — ขณะปิด ระบบไม่เชื่อมต่อกล่องอีเมลเลย</span>
+        </li>
+      </ul>
     </section>
   );
 }

@@ -1,9 +1,9 @@
 "use client";
 
-import { Monitor, Moon, Palette, Sun } from "lucide-react";
+import { Inbox, Monitor, Moon, Palette, Sun } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import Breadcrumb from "@/components/breadcrumb";
-import EmailIntakeCard from "@/components/email-intake-card";
 import {
   DARK_QUERY,
   THEME_LABELS,
@@ -96,9 +96,22 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* ปากทางรับใบสมัครทางอีเมล — สวิตช์เก็บใน DB ไม่ใช่เบราว์เซอร์ (ต่างจากธีมด้านบน)
-          จึงมีผลกับทั้งระบบ ไม่ใช่แค่เครื่องนี้ */}
-      <EmailIntakeCard />
+      {/* การรับสมัครทางอีเมลย้ายไปเป็นเมนูหลัก /intake แล้ว — ทิ้งทางลัดไว้ให้คนที่เคยหาที่นี่ */}
+      <Link
+        href="/intake"
+        className="glass-card rounded-2xl p-md flex items-center gap-sm hover:bg-glass/40 transition-colors"
+      >
+        <Inbox className="w-5 h-5 text-primary flex-none" />
+        <div className="min-w-0 flex-1">
+          <p className="text-label-md font-semibold text-on-surface">รับสมัครทางอีเมล</p>
+          <p className="text-label-sm text-on-surface-variant">
+            สวิตช์เปิด/ปิดและรายการที่เข้ามา ย้ายไปอยู่ที่เมนูด้านซ้ายแล้ว
+          </p>
+        </div>
+        <span className="material-symbols-outlined text-outline" aria-hidden>
+          chevron_right
+        </span>
+      </Link>
     </div>
   );
 }

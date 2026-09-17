@@ -155,6 +155,39 @@ class TestCounts:
                 conn.commit()
 
 
+class TestActivity:
+    ACT = URL + "/activity"
+
+    def test_ต้องล็อกอินก่อน(self, anon):
+        assert anon.get(self.ACT).status_code == 401
+
+    def test_ใหม่สุดก่อน_และไม่มี_uid_หลุดออกไป(self, client):
+        with get_conn() as conn:
+            conn.execute(
+                """INSERT INTO email_intake_log (uid, outcome, detail, created_at) VALUES
+                   ('7', 'unmatched', 'เทสฟีดเก่า', timezone('utc'::text, now()) - interval '1 minute'),
+                   ('8', 'matched',   'เทสฟีดใหม่', timezone('utc'::text, now()))"""
+            )
+            conn.commit()
+        try:
+            body = client.get(self.ACT, params={"limit": 100}).json()
+            mine = [r for r in body if r["detail"] in ("เทสฟีดเก่า", "เทสฟีดใหม่")]
+            assert [r["detail"] for r in mine] == ["เทสฟีดใหม่", "เทสฟีดเก่า"]
+            # ผู้สมัคร/ตำแหน่งที่ไม่มี (หรือถูกลบ) ต้องได้ null ไม่ใช่ทำทั้งฟีดพัง
+            assert mine[0]["candidate_name"] is None and mine[0]["job_title"] is None
+            assert "uid" not in mine[0] and "uid_validity" not in mine[0]
+        finally:
+            with get_conn() as conn:
+                conn.execute(
+                    "DELETE FROM email_intake_log WHERE detail IN ('เทสฟีดเก่า', 'เทสฟีดใหม่')"
+                )
+                conn.commit()
+
+    @pytest.mark.parametrize("limit", [0, 101])
+    def test_limit_นอกช่วงต้อง_422(self, client, limit):
+        assert client.get(self.ACT, params={"limit": limit}).status_code == 422
+
+
 class TestSettingsHelper:
     def test_patch_แก้เฉพาะฟิลด์ที่ส่งมา(self):
         set_setting("เทสคีย์", {"a": 1, "b": 2})

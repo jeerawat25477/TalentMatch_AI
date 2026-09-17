@@ -2,6 +2,7 @@
 
 import {
   Briefcase,
+  Inbox,
   LogOut,
   Monitor,
   Moon,
@@ -25,10 +26,12 @@ import {
   readStoredTheme,
   type Theme,
 } from "@/lib/theme";
+import { useIntakeFeed } from "./intake-notifications";
 import Tooltip from "./tooltip";
 
 const LINKS = [
   { href: "/", icon: Briefcase, label: "ตำแหน่งงาน" },
+  { href: "/intake", icon: Inbox, label: "รับสมัครทางอีเมล", badge: true },
   { href: "/search", icon: Search, label: "ค้นหาผู้สมัคร" },
   { href: "/employees", icon: Users, label: "พนักงาน" },
 ];
@@ -71,6 +74,7 @@ export default function SideNav({
   onLogout: () => void;
 }) {
   const pathname = usePathname();
+  const { unreadCount } = useIntakeFeed();
   const slide = mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0";
   const width = collapsed ? "md:w-16" : "md:w-64";
   // ข้อความจะถูกซ่อนเฉพาะตอนหุบและอยู่บนจอ md+ (มือถือ drawer โชว์ข้อความเสมอ)
@@ -138,20 +142,38 @@ export default function SideNav({
           const active =
             l.href === "/" ? pathname === "/" : pathname.startsWith(l.href);
           const Icon = l.icon;
+          const count = l.badge ? unreadCount : 0;
+          const countText = count > 99 ? "99+" : String(count);
+          const tip = count ? `${l.label} (ใหม่ ${countText})` : l.label;
           return (
-            <Tooltip key={l.href} label={l.label} show={collapsed}>
+            <Tooltip key={l.href} label={tip} show={collapsed}>
               <Link
                 href={l.href}
                 aria-current={active ? "page" : undefined}
+                aria-label={count ? `${l.label} — ใหม่ ${countText} รายการ` : undefined}
                 className={rowClass(collapsed, active)}
               >
-                <Icon
-                  className="w-5 h-5 flex-none"
-                  strokeWidth={active ? 2.5 : 2}
-                />
+                <span className="relative flex-none">
+                  <Icon className="w-5 h-5" strokeWidth={active ? 2.5 : 2} />
+                  {/* ตอนหุบไม่มีที่ให้ตัวเลข — เหลือจุดบนไอคอนแทน */}
+                  {count > 0 && collapsed && (
+                    <span
+                      aria-hidden
+                      className="hidden md:block absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-surface"
+                    />
+                  )}
+                </span>
                 <span className={`text-body-md truncate ${labelHidden}`}>
                   {l.label}
                 </span>
+                {count > 0 && (
+                  <span
+                    aria-hidden
+                    className={`ml-auto min-w-[1.5rem] h-6 px-1.5 rounded-full bg-primary text-on-primary text-label-sm font-bold flex items-center justify-center ${labelHidden}`}
+                  >
+                    {countText}
+                  </span>
+                )}
               </Link>
             </Tooltip>
           );
