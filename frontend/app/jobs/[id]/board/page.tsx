@@ -4,8 +4,14 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import useSWR from "swr";
-import BoardCard, { STAGE_LABEL, STAGE_ORDER } from "@/components/board-card";
+import BoardCard, {
+  STAGE_HINT,
+  STAGE_LABEL,
+  STAGE_ORDER,
+  stageMoveWarning,
+} from "@/components/board-card";
 import Breadcrumb from "@/components/breadcrumb";
+import ConfirmDialog from "@/components/confirm-dialog";
 import HireEmployeeDialog from "@/components/hire-employee-dialog";
 import JobTabs from "@/components/job-tabs";
 import { fetcher, getBoard, setStage } from "@/lib/api";
@@ -29,10 +35,17 @@ export default function HiringBoard() {
   const [moveError, setMoveError] = useState<string | null>(null);
   // ผู้สมัครที่กำลังจะรับเข้าเป็นพนักงาน — การ์ดยังไม่ย้ายจนกว่าจะกดยืนยันสำเร็จ
   const [hiring, setHiring] = useState<BoardItem | null>(null);
+  // การย้ายที่รอ HR ยืนยัน (ขัดกับผลสัมภาษณ์) — การ์ดยังไม่ขยับจนกว่าจะกดยืนยัน
+  const [pendingMove, setPendingMove] = useState<{
+    item: BoardItem;
+    next: BoardStage;
+    title: string;
+    body: string;
+  } | null>(null);
 
   const items = data ?? [];
 
-  async function move(item: BoardItem, next: BoardStage) {
+  function move(item: BoardItem, next: BoardStage) {
     if (next === item.stage) return;
     setMoveError(null);
 
@@ -43,6 +56,16 @@ export default function HiringBoard() {
       return;
     }
 
+    // ย้ายที่ขัดกับผลสัมภาษณ์ → ถามก่อน (กฎชุดเดียวกับแถบขั้นตอนในหน้ารายละเอียด)
+    const warn = stageMoveWarning(item.stage, next, item.interview_result != null);
+    if (warn) {
+      setPendingMove({ item, next, ...warn });
+      return;
+    }
+    commitMove(item, next);
+  }
+
+  async function commitMove(item: BoardItem, next: BoardStage) {
     // optimistic: ย้ายการ์ดให้เห็นทันที แล้วค่อยยืนยันกับ server
     const before = items;
     setBusyId(item.candidate_id);
@@ -77,10 +100,13 @@ export default function HiringBoard() {
       />
 
       <div>
-        <p className="text-label-sm text-on-surface-variant uppercase tracking-wide">
-          กระดานติดตาม
-        </p>
         <h1 className="text-headline-lg text-on-surface">{job?.title ?? "…"}</h1>
+        {/* เดิมมีแค่คำว่า "กระดานติดตาม" ซ้ำกับ breadcrumb และแท็บ โดยไม่บอกว่ากระดานนี้มีไว้ทำอะไร */}
+        <p className="text-body-md text-on-surface-variant mt-1 max-w-3xl">
+          ติดตามผู้สมัครที่ผ่านคัดกรองแล้วว่าไปถึงขั้นไหน ทุกคนเริ่มที่ “รอติดต่อ”
+          เมื่อคุณนัดหรือสัมภาษณ์แล้ว ให้ลากการ์ดไปคอลัมน์ถัดไป หรือเลือกจากเมนูบนการ์ด
+          <span className="text-outline"> — ระบบไม่ได้ส่งอีเมลหรือนัดให้เอง</span>
+        </p>
       </div>
 
       <JobTabs jobId={id} />
@@ -152,13 +178,18 @@ export default function HiringBoard() {
                 >
                   {/* หัวคอลัมน์ใช้โทนกลางล้วน — สีแบนด์คะแนนสงวนไว้ให้คะแนนเท่านั้น
                       ถ้าเอามาแต่งคอลัมน์ ตาจะอ่านสีผิดว่าเป็นคุณภาพของผู้สมัคร */}
-                  <header className="sticky top-0 z-10 flex items-center justify-between gap-base px-xs py-xs mb-xs rounded-xl bg-surface-container-high/80 backdrop-blur-sm">
-                    <h2 className="text-label-md font-semibold text-on-surface">
-                      {STAGE_LABEL[stage]}
-                    </h2>
-                    <span className="text-label-sm text-on-surface-variant tabular-nums">
-                      {cards.length}
-                    </span>
+                  <header className="sticky top-0 z-10 px-xs py-xs mb-xs rounded-xl bg-surface-container-high/80 backdrop-blur-sm">
+                    <div className="flex items-center justify-between gap-base">
+                      <h2 className="text-label-md font-semibold text-on-surface">
+                        {STAGE_LABEL[stage]}
+                      </h2>
+                      <span className="text-label-sm text-on-surface-variant tabular-nums">
+                        {cards.length}
+                      </span>
+                    </div>
+                    <p className="text-label-sm text-on-surface-variant leading-snug">
+                      {STAGE_HINT[stage]}
+                    </p>
                   </header>
 
                   <div className="space-y-xs max-h-[calc(100vh-320px)] overflow-y-auto pe-0.5">
@@ -183,6 +214,20 @@ export default function HiringBoard() {
             })}
           </div>
         </div>
+      )}
+
+      {pendingMove && (
+        <ConfirmDialog
+          title={pendingMove.title}
+          body={<p>{pendingMove.body}</p>}
+          confirmLabel={`ย้ายไป “${STAGE_LABEL[pendingMove.next]}”`}
+          onConfirm={() => {
+            const { item, next } = pendingMove;
+            setPendingMove(null);
+            commitMove(item, next); // optimistic เดิม — ล้มเหลวก็คืนการ์ดและขึ้นข้อความ
+          }}
+          onClose={() => setPendingMove(null)}
+        />
       )}
 
       {hiring && (

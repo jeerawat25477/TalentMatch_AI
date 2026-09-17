@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import get_current_user
 from app.database import get_conn
-from app.hiring_board import has_screening_conflict, is_board_eligible
+from app.hiring_board import board_stage, has_screening_conflict, is_board_eligible
 from app.schemas import BoardItem, StageUpdate
 
 log = logging.getLogger(__name__)
@@ -61,7 +61,13 @@ def get_board(job_id: str) -> list[BoardItem]:
     board: list[BoardItem] = []
     for r in rows:
         has_row = r["stage_row"] is not None
-        if not is_board_eligible(has_row, r["hr_decision"], r["fit_score"]):
+        # "รับเข้าแล้ว" มาจากการมีระเบียนพนักงาน ไม่ใช่ค่าในคอลัมน์ stage —
+        # board_stage ทับค่าเดิมเสมอ ไม่มีทางที่สองแหล่งจะขัดกัน
+        stage = board_stage(
+            r["stage_row"], r["employee_id"] is not None, r["hr_decision"], r["fit_score"]
+        )
+        # ⚠️ คงพฤติกรรมเดิม: ไม่เข้าเกณฑ์ = ไม่ขึ้นกระดาน แม้จะมีระเบียนพนักงาน
+        if not is_board_eligible(has_row, r["hr_decision"], r["fit_score"]) or stage is None:
             continue
         board.append(
             BoardItem(
@@ -69,9 +75,7 @@ def get_board(job_id: str) -> list[BoardItem]:
                 full_name=r["full_name"],
                 fit_score=r["fit_score"],
                 confidence=r["confidence"],
-                # "รับเข้าแล้ว" มาจากการมีระเบียนพนักงาน ไม่ใช่ค่าในคอลัมน์ stage —
-                # จึงทับค่าเดิมเสมอ ไม่มีทางที่สองแหล่งจะขัดกัน
-                stage="hired" if r["employee_id"] else (r["stage_row"] or "invited"),
+                stage=stage,
                 employee_id=r["employee_id"],
                 screening_conflict=has_screening_conflict(
                     has_row, r["hr_decision"], r["fit_score"]

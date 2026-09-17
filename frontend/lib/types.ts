@@ -335,6 +335,10 @@ export interface CandidateDetail extends CandidateSummary {
   hr_decided_at: string | null;
   /** ผลสัมภาษณ์จริงที่ HR กรอกเอง — null = ยังไม่เคยบันทึก */
   interview_outcome: InterviewOutcome | null;
+  /** ขั้นบนกระดานติดตาม (คำนวณตัวเดียวกับหน้ากระดาน) — null = ไม่อยู่บนกระดาน */
+  board_stage: BoardStage | null;
+  /** null = ยังไม่เคยย้ายขั้นจริง (อยู่ "รอติดต่อ" แบบค่าเริ่มต้น) */
+  stage_moved_at: string | null;
 }
 
 export type Decision = "approved" | "rejected";

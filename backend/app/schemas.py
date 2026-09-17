@@ -73,7 +73,6 @@ class CandidateSummary(BaseModel):
     # คนคะแนน 50-70 นั้นตัดสินไปแล้วหรือยัง
     # "interrupted" = ค้างกลางทาง (ตัดสินแล้วแต่ไม่เดินต่อ / auto-advance ล้ม) ดู runner.resolve_graph_status
     graph_status: Literal["awaiting_hr", "completed", "processing", "interrupted"] = "processing"
-
     hr_decision: Optional[Literal["approved", "rejected", "pending"]] = None
     # สถานะในคิวประมวลผล (None = ไม่มีงานค้าง) — แยกจาก stalled โดยตั้งใจ:
     # "รอคิว" กับ "เลื่อนเพราะโควตาเต็ม" คือระบบยังดูแลอยู่ ห้ามให้ HR เข้าใจว่าพัง
@@ -155,6 +154,11 @@ class CandidateDetail(CandidateSummary):
     # ผลสัมภาษณ์จริงที่ HR กรอกเอง — None = ยังไม่เคยบันทึก (แถวเก่าทั้งหมดเป็นแบบนี้)
     # มาพร้อม CandidateDetail เลยเพื่อไม่ให้หน้า deep dive ต้องยิงอีกรอบ
     interview_outcome: Optional[InterviewOutcome] = None
+    # ขั้นบนกระดานติดตาม คำนวณด้วย hiring_board.board_stage ตัวเดียวกับหน้ากระดาน
+    # None = ไม่อยู่บนกระดาน (ยังไม่ผ่านคัดกรอง / ไม่ผ่าน / รอ HR)
+    # forward ref: BoardStage ประกาศไว้ด้านล่าง — มี model_rebuild() ต่อท้ายไฟล์
+    board_stage: Optional["BoardStage"] = None
+    stage_moved_at: Optional[datetime] = None
 
 
 class CandidateSearchHit(BaseModel):
@@ -386,6 +390,10 @@ HiringStage = Literal["invited", "scheduled", "interviewed", "offer", "declined"
 BoardStage = Literal[
     "invited", "scheduled", "interviewed", "offer", "declined", "hired"
 ]
+
+# CandidateDetail.board_stage อ้าง BoardStage ก่อนประกาศ — resolve ที่นี่ทันที
+# ไม่ปล่อยให้ pydantic ไป resolve เองตอน validate ครั้งแรก (พังตอนรันจริงแทนตอน import)
+CandidateDetail.model_rebuild()
 
 
 class BoardItem(BaseModel):

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from app.agents.runner import active_candidates, get_graph_status, reserve_candidates
 from app.auth import get_current_user
 from app.database import get_checkpointer, get_conn
+from app.hiring_board import board_stage
 from app.job_queue import PENDING_STATUSES, enqueue, enqueue_many, pending_status
 from app.resume_ingest import (
     MAX_FILES,
@@ -212,7 +213,6 @@ def list_candidates(job_id: str) -> list[CandidateSummary]:
                 if r["has_eval"]
                 else "processing"
             ),
-
         )
         for r in rows
     ]
@@ -416,12 +416,14 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
                    -- result=None ซึ่งเป็นฟิลด์บังคับ กลายเป็น 500 ของคนที่ยังไม่เคย
                    -- บันทึกผล — คือผู้สมัครเกือบทุกคนในระบบ
                    CASE WHEN io.candidate_id IS NOT NULL THEN to_jsonb(io) END
-                       AS interview_outcome
+                       AS interview_outcome,
+                   hs.stage AS stage_row, hs.moved_at AS stage_moved_at
             FROM candidates c
             LEFT JOIN evaluations e ON e.candidate_id = c.id
             LEFT JOIN employees emp ON emp.candidate_id = c.id
             LEFT JOIN hr_decisions hd ON hd.candidate_id = c.id
             LEFT JOIN interview_outcome io ON io.candidate_id = c.id
+            LEFT JOIN hiring_stage hs ON hs.candidate_id = c.id
             LEFT JOIN LATERAL (
                 SELECT status FROM processing_queue pq
                  WHERE pq.candidate_id = c.id AND pq.status = ANY(%s)
@@ -434,9 +436,13 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
     if row is None:
         raise HTTPException(status_code=404, detail="ไม่พบผู้สมัครนี้")
     has_eval = row.pop("has_eval")
+    stage_row = row.pop("stage_row")
     active = active_candidates()
     return CandidateDetail(
         **row,
+        board_stage=board_stage(
+            stage_row, row["employee_id"] is not None, row["hr_decision"], row["fit_score"]
+        ),
         graph_status=_effective_graph_status(
             get_graph_status(candidate_id, row["hr_decision"], row["fit_score"]),
             candidate_id, active, row["queue_status"],

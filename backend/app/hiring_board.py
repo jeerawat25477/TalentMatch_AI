@@ -54,3 +54,26 @@ def has_screening_conflict(
     การ์ดที่มีอยู่ คนนี้ยังเข้าเกณฑ์ไหม" — กฎเกณฑ์จึงมีชุดเดียว ไม่ใช่สองสำเนาที่หลุดกันได้
     """
     return has_stage_row and not is_board_eligible(False, hr_decision, fit_score)
+
+
+def board_stage(
+    stage_row: Optional[str],
+    has_employee: bool,
+    hr_decision: Optional[str],
+    fit_score: Optional[int],
+) -> Optional[str]:
+    """ขั้นบนกระดานของผู้สมัครหนึ่งคน หรือ None ถ้าไม่อยู่บนกระดาน.
+
+    แหล่งเดียวที่ทั้ง GET /jobs/{id}/board และหน้ารายละเอียดผู้สมัครใช้ — ก่อนหน้านี้
+    หน้ารายละเอียดไม่รู้ขั้นเลย HR จึงเห็นแค่ "อนุมัติแล้ว" ค้างไว้ ขณะที่กระดานบอกว่า
+    ยื่นข้อเสนอไปแล้ว ถ้าสองหน้าคำนวณกันเองก็จะหลุดไม่ตรงกันอีกแบบหนึ่ง
+
+    - มีระเบียนพนักงาน -> 'hired' เสมอ (มาก่อน stage_row ดูเหตุผลใน get_board)
+    - ไม่มีแถวและไม่เข้าเกณฑ์ -> None
+    - เข้าเกณฑ์แต่ยังไม่เคยย้าย -> 'invited' แบบคำนวณ ไม่ใช่แถวจริง
+    """
+    if has_employee:
+        return "hired"
+    if not is_board_eligible(stage_row is not None, hr_decision, fit_score):
+        return None
+    return stage_row or "invited"

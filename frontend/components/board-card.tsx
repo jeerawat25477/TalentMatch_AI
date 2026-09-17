@@ -6,9 +6,12 @@ import { CONFIDENCE, INTERVIEW_RESULT } from "@/lib/types";
 import type { BoardItem, BoardStage } from "@/lib/types";
 
 /** ป้ายของแต่ละคอลัมน์ — ใช้ร่วมกันทั้งหัวคอลัมน์และเมนู "ย้ายไป…" */
+// ⚠️ ป้ายต้องบอก "สถานะที่เป็นจริงแน่ ๆ" เท่านั้น — เดิม invited ชื่อ "เชิญแล้ว"
+// ทั้งที่ไม่มีใครเชิญใคร: backend ใส่ทุกคนที่ผ่านคัดกรองไว้ขั้นนี้แบบคำนวณเอง
+// (ดู hiring_board.py::get_board) HR อ่านแล้วเข้าใจว่าระบบส่งคำเชิญไปแล้ว
 export const STAGE_LABEL: Record<BoardStage, string> = {
-  invited: "เชิญแล้ว",
-  scheduled: "นัดสัมภาษณ์",
+  invited: "รอติดต่อ",
+  scheduled: "นัดสัมภาษณ์แล้ว",
   interviewed: "สัมภาษณ์แล้ว",
   offer: "ยื่นข้อเสนอ",
   hired: "รับเข้าแล้ว",
@@ -16,6 +19,49 @@ export const STAGE_LABEL: Record<BoardStage, string> = {
   // อันนี้คือหลุดระหว่างกระบวนการ เช่นผู้สมัครปฏิเสธข้อเสนอ หรือ HR ยุติการติดต่อ
   declined: "ไม่ไปต่อ",
 };
+
+/** คำอธิบายใต้หัวคอลัมน์ — ตอบว่า "คนในคอลัมน์นี้คือใคร" ให้ HR ไม่ต้องเดา */
+export const STAGE_HINT: Record<BoardStage, string> = {
+  invited: "ผ่านคัดกรองแล้ว ยังไม่ได้นัด",
+  scheduled: "มีวันนัดแล้ว รอสัมภาษณ์",
+  interviewed: "สัมภาษณ์เสร็จ รอตัดสินใจ",
+  offer: "ส่งข้อเสนอแล้ว รอตอบรับ",
+  hired: "ย้ายมาที่นี่เพื่อบันทึกการจ้าง",
+  declined: "ถอนตัวหรือยุติระหว่างทาง",
+};
+
+/**
+ * ด่านถามยืนยันเฉพาะการย้ายที่ "ขัดกับข้อมูลที่บันทึกไว้" — ถามแต่ไม่บล็อก
+ *
+ * ไม่ล็อกให้เดินทีละขั้นโดยตั้งใจ: งานจริงข้ามขั้นได้ (ลงข้อมูลย้อนหลัง, สัมภาษณ์ก่อนเข้าระบบ)
+ * และต้องย้อนได้เพื่อแก้การลากผิด ถ้าล็อกแข็ง HR จะลากผ่านทีละคอลัมน์ให้ครบ
+ * ซึ่งทำให้ moved_at เพี้ยนกว่าเดิม · ถามเฉพาะสองกรณีที่การ์ดจะบอกข้อมูลขัดกันเอง
+ *
+ * ใช้ร่วมกันทั้งหน้ากระดานและแถบขั้นตอนในหน้ารายละเอียด ให้กฎมีชุดเดียว
+ */
+export function stageMoveWarning(
+  current: BoardStage,
+  next: BoardStage,
+  hasInterviewResult: boolean,
+): { title: string; body: string } | null {
+  if (hasInterviewResult && (next === "invited" || next === "scheduled")) {
+    return {
+      title: `ย้อนกลับไป “${STAGE_LABEL[next]}”?`,
+      body:
+        "ผู้สมัครรายนี้มีผลสัมภาษณ์บันทึกไว้แล้ว ถ้าย้อนขั้น การ์ดจะบอกว่ายังไม่ได้สัมภาษณ์ " +
+        "ทั้งที่มีผลอยู่ (ผลสัมภาษณ์จะไม่ถูกลบ)",
+    };
+  }
+  if (!hasInterviewResult && next === "offer" && (current === "invited" || current === "scheduled")) {
+    return {
+      title: "ข้ามไป “ยื่นข้อเสนอ” โดยยังไม่มีผลสัมภาษณ์?",
+      body:
+        "ยังไม่มีผลสัมภาษณ์บันทึกไว้ ถ้าสัมภาษณ์ไปแล้ว แนะนำให้บันทึกผลในหน้ารายละเอียดก่อน " +
+        "เพื่อให้ย้อนดูเหตุผลที่ยื่นข้อเสนอได้",
+    };
+  }
+  return null;
+}
 
 export const STAGE_ORDER: BoardStage[] = [
   "invited",
@@ -119,7 +165,9 @@ export default function BoardCard({
             )}
           </div>
         </div>
-        <ScoreRing score={item.fit_score} size={44} />
+        {/* ไม่โชว์ป้ายแบนด์ใต้วง: คนบนกระดานผ่านคัดกรองมาแล้วทุกคน ป้าย "NEEDS REVIEW"
+            ของคนที่ HR อนุมัติไปแล้วอ่านเหมือนยังค้างรอตัดสิน */}
+        <ScoreRing score={item.fit_score} size={44} showLabel={false} />
       </div>
 
       <div className="flex items-center gap-base flex-wrap pt-1">

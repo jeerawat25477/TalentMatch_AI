@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from app.agents import bands
 from app.auth import get_current_user
 from app.database import get_conn
-from app.hiring_board import has_screening_conflict, is_board_eligible
+from app.hiring_board import board_stage, has_screening_conflict, is_board_eligible
 from app.main import app
 
 PASS_SCORE = 85     # > AUTO_ADVANCE_ABOVE
@@ -83,6 +83,23 @@ class TestHasScreeningConflict:
     def test_คะแนนตกเกณฑ์หลังมีการ์ดแล้วก็ถือว่าขัดแย้ง(self):
         """เช่นถูกคำนวณคะแนนใหม่ด้วย recompute_scores แล้วตกลงมา."""
         assert has_screening_conflict(True, None, FAIL_SCORE) is True
+
+
+class TestBoardStage:
+    def test_ไม่เข้าเกณฑ์และไม่มีแถวคือไม่อยู่บนกระดาน(self):
+        assert board_stage(None, False, None, FAIL_SCORE) is None
+        assert board_stage(None, False, "rejected", PASS_SCORE) is None
+
+    def test_เข้าเกณฑ์แต่ยังไม่ย้ายคือ_invited(self):
+        assert board_stage(None, False, None, PASS_SCORE) == "invited"
+        assert board_stage(None, False, "approved", REVIEW_SCORE) == "invited"
+
+    def test_มีแถวใช้ค่าในแถว_แม้ตกเกณฑ์ทีหลัง(self):
+        assert board_stage("offer", False, "rejected", PASS_SCORE) == "offer"
+
+    def test_มีระเบียนพนักงานคือ_hired_เสมอ(self):
+        assert board_stage("interviewed", True, "approved", PASS_SCORE) == "hired"
+        assert board_stage(None, True, None, None) == "hired"
 
 
 # ---------- ฝั่ง endpoint (ใช้ DB จริงในคอนเทนเนอร์) ----------
@@ -162,6 +179,20 @@ class TestGetBoard:
         for _ in range(3):
             client.get(f"/api/v1/jobs/{job_id}/board")
         assert _stage_rows(cid) == before == 0
+
+
+class TestDetailSeesSameStage:
+    def test_หน้ารายละเอียดเห็นขั้นเดียวกับกระดาน(self, client, job_and_candidate):
+        """เดิมหน้ารายละเอียดไม่รู้ขั้นเลย — HR ต้องสลับสองหน้าแล้วต่อภาพเอง."""
+        job_id, cid = job_and_candidate
+        detail = client.get(f"/api/v1/candidates/{cid}").json()
+        assert detail["board_stage"] == "invited" and detail["stage_moved_at"] is None
+
+        client.patch(f"/api/v1/candidates/{cid}/stage", json={"stage": "offer"})
+        detail = client.get(f"/api/v1/candidates/{cid}").json()
+        board = client.get(f"/api/v1/jobs/{job_id}/board").json()
+        assert detail["board_stage"] == board[0]["stage"] == "offer"
+        assert detail["stage_moved_at"] is not None
 
 
 class TestPatchStage:
