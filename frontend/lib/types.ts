@@ -349,7 +349,8 @@ export interface UserInfo {
 }
 
 /** สถานะกราฟของผู้สมัคร — บอกว่าการกดปุ่ม HR จะ "เดินต่อ" หรือ "ตัดสินใหม่ทับของเดิม" */
-export type GraphStatus = "awaiting_hr" | "completed" | "processing";
+// "interrupted" = กราฟหยุดกลางทาง (เช่น HR อนุมัติแล้วแต่ร่างอีเมลล้ม) — มีปุ่มทำต่อในหน้ารายละเอียด
+export type GraphStatus = "awaiting_hr" | "completed" | "processing" | "interrupted";
 
 // แบนด์คะแนน → ป้ายสถานะ (ตรงกับ router ของ backend และ DESIGN.md)
 export type ScoreBand = "pass" | "review" | "fail" | "pending";

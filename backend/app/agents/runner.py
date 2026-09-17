@@ -128,6 +128,59 @@ def _persist_outputs(candidate_id: str, state: dict) -> None:
         conn.commit()
 
 
+def _persist_plan(candidate_id: str, plan: dict) -> None:
+    """บันทึกคำถามสัมภาษณ์ทันทีที่ planner เสร็จ — ไม่รอจนกราฟเดินจบ.
+
+    เดิมคำถามถูกเขียนพร้อมร่างอีเมลตอนท้ายรอบเท่านั้น ถ้า email_drafter ล้ม (เช่นโควตา
+    หมด) คำถามที่ planner สร้างเสร็จแล้วและจ่ายโควตาไปแล้วจะค้างอยู่ใน checkpoint
+    โดยไม่เคยถึงหน้าเว็บ — เคยเกิดจริงกับผู้สมัครที่ HR อนุมัติไปแล้ว
+
+    ล้าง email_draft ไปพร้อมกัน เพราะร่างเดิม (ถ้ามี) เป็นของเส้นทางรอบก่อน ถ้าคงไว้แล้ว
+    drafter รอบนี้ล้ม หน้าเว็บจะโชว์คำถามสัมภาษณ์คู่กับอีเมลปฏิเสธเก่า · ไม่แตะ
+    email_sent_at/email_sent_to ซึ่งเป็นร่องรอยการส่งจริง
+    """
+    with get_conn() as conn:
+        conn.execute(
+            """UPDATE evaluations
+               SET interview_plan = %s, email_draft = NULL
+               WHERE candidate_id = %s""",
+            (Json(plan), candidate_id),
+        )
+        conn.commit()
+
+
+def _has_evaluation(candidate_id: str) -> bool:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM evaluations WHERE candidate_id = %s", (candidate_id,)
+        ).fetchone()
+    return row is not None
+
+
+# โหนดหลังจุดตัดสิน — checkpoint ที่ค้างที่โหนดเหล่านี้ (หรือจบแล้ว) แปลว่าช่วงคัดกรอง
+# เสร็จครบอยู่ใน state แล้ว
+_AFTER_SCREENING = frozenset({"interview_planner", "email_drafter"})
+
+
+def _resume_point(has_checkpoint: bool, next_nodes: tuple) -> str:
+    """งาน process รอบนี้ควรเริ่มตรงไหน — ฟังก์ชันบริสุทธิ์ ทดสอบได้โดยไม่ต้องมีกราฟ.
+
+    - "fresh"            : ไม่เคยรัน → รันจากต้นด้วยข้อมูลตั้งต้น
+    - "resume_screening" : ล้มกลางช่วงคัดกรอง → เดินต่อจากโหนดที่ล้ม
+    - "after_screening"  : คัดกรองเสร็จแล้ว → ข้ามไปช่วงหลังเลย
+
+    ⚠️ ห้าม invoke(ข้อมูลตั้งต้น) บน thread ที่มี checkpoint อยู่แล้ว LangGraph จะเริ่มใหม่
+    จาก entry (พิสูจน์ด้วยกราฟจำลอง 2026-09-17) = จ่าย resume_parser กับ bias_auditor ซ้ำ
+    และ _persist_evaluation ลบแถว evaluations ทิ้งสร้างใหม่ · เดิมเกิดทุกครั้งที่คิวลองงาน
+    process ใหม่หลัง auto-advance ล้ม
+    """
+    if not has_checkpoint:
+        return "fresh"
+    if not next_nodes or any(n in _AFTER_SCREENING for n in next_nodes):
+        return "after_screening"
+    return "resume_screening"
+
+
 def process_candidate(
     job_id: str,
     candidate_id: str,
@@ -157,6 +210,16 @@ def _process_candidate_locked(
 ) -> None:
     graph = get_graph()
     config = _config(candidate_id, source)
+    snapshot = graph.get_state(config)
+    point = _resume_point(bool(snapshot.created_at), tuple(snapshot.next or ()))
+    if point != "fresh":
+        log.info(
+            "candidate %s มี checkpoint อยู่แล้ว (%s) — เดินต่อ ไม่รันใหม่จากต้น",
+            candidate_id, point,
+        )
+        _continue_candidate(graph, config, job_id, candidate_id, resume_text, point)
+        return
+
     initial = {
         "raw_jd": raw_jd,
         "analyzed_jd": analyzed_jd,
@@ -175,6 +238,12 @@ def _process_candidate_locked(
         "bias_exclusions": {},
     }
     state = graph.invoke(initial, config)
+    _save_screening(job_id, candidate_id, state, resume_text)
+    _after_screening(graph, config, candidate_id, state)
+
+
+def _save_screening(job_id: str, candidate_id: str, state: dict, resume_text: str) -> None:
+    """เขียนผลช่วงคัดกรองลง DB + index เวกเตอร์ (ครั้งเดียวต่อผู้สมัคร)."""
     evaluation = state["evaluations"][0]
     similar = (state.get("similar_candidates") or {}).get(str(candidate_id)) or []
     _persist_evaluation(job_id, candidate_id, evaluation, state["parsed_resumes"][0], similar)
@@ -186,34 +255,85 @@ def _process_candidate_locked(
     except Exception as exc:  # noqa: BLE001
         log.warning("index เวกเตอร์ของผู้สมัคร %s ไม่สำเร็จ: %s", candidate_id, exc)
 
-    snapshot = graph.get_state(config)
-    if snapshot.next:
+
+def _after_screening(graph, config, candidate_id: str, state: dict) -> None:
+    """ช่วงหลังคัดกรอง: auto-advance / รอ HR / เดินต่อจากที่ค้าง / บันทึกผลที่จบแล้ว."""
+    next_nodes = tuple(graph.get_state(config).next or ())
+    evaluation = state["evaluations"][0]
+    if next_nodes == ("interview_planner",):
         # พักก่อน interview_planner: auto-resume ถ้าคะแนนสูง, ไม่งั้นรอ HR
         if should_auto_advance(evaluation["fit_score"]):
-            state = graph.invoke(None, config)
+            state = _drive_to_end(graph, config)
             _persist_outputs(candidate_id, state)
         else:
             log.info("candidate %s (fit=%s) รอ HR ตัดสิน", candidate_id, evaluation["fit_score"])
+    elif next_nodes:
+        # ค้างหลัง planner (เช่น drafter ล้มรอบก่อน) — เดินต่อจากตรงนั้น
+        state = _drive_to_end(graph, config)
+        _persist_outputs(candidate_id, state)
     else:
-        # จบแล้ว (เส้นทางปฏิเสธ fit<50) — มีอีเมลปฏิเสธพร้อมเขียนลง DB
+        # จบแล้ว (เส้นทางปฏิเสธ fit<50 หรือรอบก่อนจบแต่ยังไม่ได้บันทึก)
         _persist_outputs(candidate_id, state)
 
 
-def get_graph_status(candidate_id: str) -> str:
-    """สถานะกราฟของผู้สมัคร — ให้ frontend บอก HR ได้ว่าการกดปุ่มจะทำอะไร.
+def _continue_candidate(
+    graph, config, job_id: str, candidate_id: str, resume_text: str, point: str
+) -> None:
+    """งาน process ที่ถูกลองใหม่ — เดินต่อจาก checkpoint ไม่ใช่รันจากต้น."""
+    if point == "resume_screening":
+        # เดินต่อจากโหนดคัดกรองที่ล้ม — invoke(None) หยุดเองที่ interrupt หรือจบ
+        graph.invoke(None, config)
+    state = graph.get_state(config).values
+    # มีแถว evaluations แล้ว = บันทึกไปแล้ว ห้ามเรียกซ้ำ: _persist_evaluation ลบแถวเดิม
+    # ทิ้งสร้างใหม่ ซึ่งพาคอลัมน์อย่าง email_sent_at หายไปด้วย
+    if not _has_evaluation(candidate_id):
+        _save_screening(job_id, candidate_id, state, resume_text)
+    _after_screening(graph, config, candidate_id, state)
 
-    - "awaiting_hr" : ค้างอยู่ที่ interrupt รอคำตัดสิน (กดแล้วเดินต่อทันที)
-    - "completed"   : จบแล้ว (กดแล้วจะ "ตัดสินใหม่" — สร้างคำถาม/อีเมลทับของเดิม)
-    - "processing"  : ยังไม่มี checkpoint (กราฟกำลังรันหรือยังไม่เริ่ม)
+
+def resolve_graph_status(
+    has_checkpoint: bool,
+    next_nodes: tuple,
+    hr_decision: str | None,
+    fit_score: int | None,
+) -> str:
+    """แปลง checkpoint เป็นสถานะที่ UI ใช้ — ฟังก์ชันบริสุทธิ์ ทดสอบได้โดยไม่ต้องมีกราฟ.
+
+    - "processing"  : ยังไม่มี checkpoint
+    - "completed"   : กราฟเดินจบแล้ว (กดตัดสินแล้วจะ "ตัดสินใหม่" ทับของเดิม)
+    - "awaiting_hr" : พักที่ interrupt จริง ยังไม่มีคำตัดสิน และคะแนนไม่อยู่ช่วงผ่านอัตโนมัติ
+    - "interrupted" : ค้างกลางทาง — ตัดสินแล้วแต่ไม่เดินต่อ, คะแนนผ่านแต่ auto-advance ล้ม,
+                      หรือค้างที่โหนดอื่นที่ไม่ใช่จุดพักรอ HR
+
+    เดิมถือว่ากราฟที่ยังไม่จบทุกตัวคือ "รอ HR" ผู้สมัครที่ HR อนุมัติไปแล้วแต่ drafter ล้ม
+    จึงถูกบอกว่ายังรอคำตัดสิน และไม่มีใครรู้ว่าต้องสั่งทำต่อ
+
+    ⚠️ ผู้เรียกที่รู้ว่ากราฟกำลังรันหรือรอคิวอยู่ต้องทับ "interrupted" เป็น "processing" เอง —
+    checkpoint ถูกบันทึกทุกขั้น ระหว่างเดินจึงดูเหมือนค้างชั่วขณะ
     """
+    if not has_checkpoint:
+        return "processing"
+    if not next_nodes:
+        return "completed"
+    undecided = hr_decision in (None, "pending")
+    auto = fit_score is not None and should_auto_advance(fit_score)
+    if tuple(next_nodes) == ("interview_planner",) and undecided and not auto:
+        return "awaiting_hr"
+    return "interrupted"
+
+
+def get_graph_status(
+    candidate_id: str, hr_decision: str | None = None, fit_score: int | None = None
+) -> str:
+    """สถานะกราฟของผู้สมัคร — ให้ frontend บอก HR ว่าการกดปุ่มจะทำอะไร (ดู resolve_graph_status)."""
     try:
         snapshot = get_graph().get_state(_config(candidate_id))
     except Exception as exc:  # noqa: BLE001 — สถานะเป็นข้อมูลเสริม ห้ามทำให้ API ล้ม
         log.warning("อ่านสถานะกราฟของ %s ไม่ได้: %s", candidate_id, exc)
         return "processing"
-    if snapshot.next:
-        return "awaiting_hr"
-    return "completed" if snapshot.created_at else "processing"
+    return resolve_graph_status(
+        bool(snapshot.created_at), tuple(snapshot.next or ()), hr_decision, fit_score
+    )
 
 
 def _drive_to_end(graph, config, max_steps: int = 4) -> dict:
@@ -224,11 +344,28 @@ def _drive_to_end(graph, config, max_steps: int = 4) -> dict:
     """
     state: dict = {}
     for _ in range(max_steps):
-        state = graph.invoke(None, config)
+        state = _advance(graph, config)
         if not graph.get_state(config).next:
             return state
     log.warning("กราฟของ %s ยังไม่จบหลังเดิน %s ครั้ง", config, max_steps)
     return state
+
+
+def _advance(graph, config) -> dict:
+    """เดินกราฟหนึ่งช่วง (ถึง interrupt หรือจบ) และบันทึกคำถามทันทีที่ planner เสร็จ.
+
+    ใช้ stream แทน invoke เพื่อเห็นผลของแต่ละโหนดตอนที่มันเสร็จ ไม่ใช่ตอนทั้งช่วงจบ ·
+    ถ้าโหนดถัดไปล้ม exception ยังหลุดออกไปตามเดิม (คิวต้องรู้เพื่อลองใหม่) แต่คำถามที่
+    จ่ายโควตาไปแล้วถูกบันทึกไว้ก่อนแล้ว
+    """
+    cid = config["configurable"]["thread_id"]
+    for chunk in graph.stream(None, config, stream_mode="updates"):
+        update = chunk.get("interview_planner") if isinstance(chunk, dict) else None
+        plan = ((update or {}).get("interview_plans") or {}).get(cid)
+        # แผนว่าง = คนที่ถูกปฏิเสธ ไม่บันทึกกลางทาง ปล่อยให้ _persist_outputs ท้ายรอบล้างตามเดิม
+        if plan and plan.get("questions"):
+            _persist_plan(cid, plan)
+    return graph.get_state(config).values
 
 
 def decide_candidate(candidate_id: str, decision: str, notes: str | None) -> None:
@@ -270,11 +407,24 @@ def resume_after_decision(candidate_id: str, decision: str, notes: str | None) -
     cid = str(candidate_id)
     values = {"hr_decision": {cid: decision}, "hr_notes": {cid: notes or ""}}
 
-    if graph.get_state(config).next:
-        graph.update_state(config, values)
-    else:
-        log.info("กราฟของ %s จบไปแล้ว — ย้อนกลับไปที่ router เพื่อรับคำตัดสินของ HR", cid)
+    # ⚠️ ระบุ as_node เองทุกกรณี ห้ามปล่อยให้ LangGraph เดาจาก checkpoint ล่าสุด:
+    # ถ้า checkpoint นั้นเกิดจาก update_state (เช่นรอบก่อน rewind แล้ว planner ล้ม) มันเดาผิด
+    # แล้ว next กลายเป็นว่าง = กราฟ "จบ" ทั้งที่ยังไม่ได้ทำอะไร คิวจะนับว่าสำเร็จแบบเงียบ ๆ
+    # (พิสูจน์ด้วยกราฟจำลอง 2026-09-17)
+    next_nodes = tuple(graph.get_state(config).next or ())
+    if not next_nodes or "interview_planner" in next_nodes:
+        # จบแล้ว หรือพัก/ล้มที่ interview_planner — ย้อนไปหลัง auditor ให้ router ตัดสินใหม่
+        # โดยมีคำตัดสินของ HR อยู่ในมือ (ไม่มี LLM ในช่วงนี้ ต้นทุนเท่าเดิม)
+        if not next_nodes:
+            log.info("กราฟของ %s จบไปแล้ว — ย้อนกลับไปที่ router เพื่อรับคำตัดสินของ HR", cid)
         graph.update_state(config, values, as_node="bias_auditor")
+    elif "email_drafter" in next_nodes:
+        # planner เสร็จแล้วแต่ drafter ล้ม — ต่อที่ drafter ไม่สร้างคำถามใหม่ (ประหยัด 1 call)
+        graph.update_state(config, values, as_node="interview_planner")
+    else:
+        # ค้างกลางช่วงคัดกรองทั้งที่มีคำตัดสินแล้ว — ไม่ควรเกิด เพราะ HR ตัดสินได้หลังมีผล
+        log.warning("กราฟของ %s ค้างที่ %s ขณะมีคำตัดสินของ HR", cid, next_nodes)
+        graph.update_state(config, values)
 
     state = _drive_to_end(graph, config)
     _persist_outputs(candidate_id, state)

@@ -127,6 +127,14 @@ export const reprocessCandidate = (candidateId: string) =>
     { method: "POST" },
   );
 
+// คู่กับ reprocess แต่คนละเคส: ตัวนี้สำหรับคนที่คัดกรองเสร็จแล้วแต่กราฟหยุดกลางทาง
+// (graph_status = "interrupted") — เดินต่อจากจุดที่ค้าง ไม่รันใหม่จากต้น
+export const resumeCandidate = (candidateId: string) =>
+  request<{ candidate_id: string; message: string }>(
+    `/api/v1/candidates/${candidateId}/resume`,
+    { method: "POST" },
+  );
+
 export const getCandidate = (candidateId: string) =>
   request<CandidateDetail>(`/api/v1/candidates/${candidateId}`);
 

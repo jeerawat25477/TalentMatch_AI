@@ -740,6 +740,49 @@ seed คำถามมาจาก `evaluations.interview_plan` ให้ HR �
 
 **เทส:** 376 ผ่าน (เดิม 347 · เพิ่ม 29 เทสของผลสัมภาษณ์)
 
+### กราฟหยุดกลางทางแล้วงานที่จ่ายโควตาไปแล้วหาย + กู้ Jeerawat Sakwong (2026-09-17)
+
+**อาการที่ผู้ใช้เจอ:** Jeerawat Sakwong (`6fbb13db…`, คะแนน 60) ถูก HR อนุมัติเมื่อ 3 ก.ย.
+แต่หน้ารายละเอียดไม่มีคำถามสัมภาษณ์และร่างอีเมล ผู้ใช้สงสัยว่าเป็นเพราะฟีเจอร์สร้างทีหลัง —
+**ไม่ใช่** ตรวจ checkpoint แล้ว planner สร้างคำถาม 7 ข้อสำเร็จ แต่กราฟล้มก่อน `email_drafter`
+(น่าจะโควตาหมด · log วันนั้นหายไปพร้อมคอนเทนเนอร์เก่า ยืนยันไม่ได้ 100%) ค้างที่
+`next=('email_drafter',)` สมัยนั้นยังเป็น BackgroundTasks จึงไม่มีอะไรกลับมาทำต่อ
+
+**ต้นเหตุในโค้ด (ทั้งหมดอยู่ใน `agents/runner.py`) และที่แก้:**
+1. **คำถามลง DB ตอนกราฟจบเท่านั้น** → `_advance` เดินด้วย `stream(stream_mode="updates")`
+   แล้ว `_persist_plan` ทันทีที่ planner เสร็จ (ล้าง `email_draft` เก่าไปด้วย ไม่แตะ
+   `email_sent_at`) · แผนว่างของคนถูกปฏิเสธไม่บันทึกกลางทาง
+2. **งาน `process` ที่คิวลองใหม่ รันกราฟใหม่จากต้น** — `invoke(ข้อมูลตั้งต้น)` บน thread ที่มี
+   checkpoint = LangGraph เริ่มจาก entry จ่าย parser/auditor ซ้ำ และ `_persist_evaluation`
+   ลบแถว evaluations ทิ้ง → `_resume_point` (บริสุทธิ์) ตัดสินว่าเริ่มใหม่ / เดินต่อกลาง
+   ช่วงคัดกรอง / ข้ามไปช่วงหลัง และไม่ persist evaluation ซ้ำถ้ามีแถวแล้ว
+3. **`update_state` ไม่ระบุ `as_node` เดาผิด** — เจอระหว่างเขียนเทส ไม่ได้อยู่ในแผนแรก:
+   ถ้า checkpoint ล่าสุดเกิดจาก `update_state` (เช่น ย้อนแล้ว planner ล้ม) การลองใหม่ทำให้
+   `next` ว่าง กราฟ "จบ" ทั้งที่ไม่ได้ทำอะไร **คิวนับว่าสำเร็จแบบเงียบ** → ระบุ `as_node` เอง
+   ทุกกรณีใน `resume_after_decision`
+4. **สถานะรายงานว่า "รอ HR" ทั้งที่ตัดสินแล้ว** → `resolve_graph_status` (บริสุทธิ์) เพิ่ม
+   `interrupted` · router ทับเป็น `processing` เมื่อกำลังรัน/รอคิว (`_effective_graph_status`)
+   กันปุ่มกะพริบ · เส้นคะแนนเรียก `bands.should_auto_advance`
+5. **ไม่มีทางสั่งทำต่อ** → `POST /api/v1/candidates/{id}/resume` (404 → 409 กำลังรัน →
+   409 มีคิว → 409 ไม่ได้ค้าง) เข้าคิวด้วย kind เดิม: มีคำตัดสิน = `resume_after_decision`
+   ไม่มี = `process` · หน้า deep dive มีแถบเตือน + ปุ่ม "ทำต่อจากจุดที่ค้าง" วาง**นอก**
+   เงื่อนไขที่ซ่อนข้อความเมื่อตัดสินแล้ว (ไม่งั้นคนที่ต้องใช้มันที่สุดจะไม่เห็น)
+
+**พิสูจน์พฤติกรรม LangGraph ด้วยกราฟจำลองก่อนลงมือ** (InMemorySaver ไม่เรียก LLM):
+stream คืนก้อน planner ก่อน drafter ล้ม · `update_state` ตอนค้างที่ drafter ต่อที่ drafter
+ได้ · `invoke(initial)` บนกราฟค้าง = รันจากต้น · ย้อนแล้วล้มแล้ว `update_state` ไม่ระบุ
+`as_node` = `next` ว่าง
+
+**เทส:** `tests/test_graph_recovery.py` ใช้ `build_graph()` จริง + InMemorySaver + mock LLM
+และให้ parser/auditor/jd_analyzer **โยน AssertionError ถ้าถูกเรียก** เพื่อจับการรันจากต้น ·
+เทส endpoint **จับ `enqueue` ไว้ ไม่ insert แถวคิวจริง** เพราะ worker ใน backend กำลังทำงาน
+ถ้าหยิบแถวของเทสไปได้จะเรียก Gemini จริง · รวม 415 ผ่าน (เดิม 385)
+
+**กู้ Jeerawat ผ่านปุ่มจริงบนเบราว์เซอร์:** โควตาวันนั้น 0 → **1 พอดี** (drafter อย่างเดียว) ·
+คำถาม 7 ข้อใน DB **ข้อความตรงกับใน checkpoint** (ไม่ได้สร้างใหม่) · ร่างอีเมลเป็น invitation ·
+สถานะ `completed` · `hr_decisions` และ `evaluations.created_at` เหมือนเดิมทุกค่า · คิว `done`
+attempts 0 · แถว `a8ce77b3` ไม่ถูกแตะ ขึ้น `interrupted`
+
 ## 🔜 ค้างอยู่ / ขั้นต่อไป (เรียงลำดับแนะนำ)
 
 1. Hardening ที่เหลือก่อน deploy (ดู checklist ใน [04_security.md](04_security.md)): TLS/reverse proxy · non-root container · ย้าย rate-limit ไป Redis · secrets manager
@@ -758,6 +801,9 @@ seed คำถามมาจาก `evaluations.interview_plan` ให้ HR �
    ติดบั๊ก stacking context เดียวกับที่แก้ไปแล้วในโมดัลผลสัมภาษณ์ แต่ยังไม่แสดงอาการ
    เพราะกว้างแค่ `max-w-lg` — จะโผล่เมื่อจอแคบกว่า 1024px หรือมีใครขยายความกว้างมัน
    ทางแก้เดียวกัน คือ `createPortal` ไป `document.body`
+10. **แถว `a8ce77b3` (Jeerawat Sakwong อีกแถว คะแนน 100) ค้างกลางทาง** — ไฟล์อัปซ้ำช่วงทดสอบ
+    auto-advance ล้มสมัยก่อนมีคิว ผู้ใช้เลือก**ไม่แตะ** (2026-09-17) ตอนนี้หน้าเว็บขึ้นแถบ
+    "หยุดกลางทาง" พร้อมปุ่มทำต่อ ถ้ากดจะกินราว 2 call · หรือลบทิ้งเป็นแถวซ้ำก็ได้
 
 ## ⚠️ กับดัก / บันทึกการตัดสินใจ
 - **ต้องรัน/ทดสอบใน Docker เสมอ** (Smart App Control บล็อก binary wheels บน Windows — ดู 01)

@@ -13,7 +13,13 @@ import InterviewOutcomeDialog from "@/components/interview-outcome-dialog";
 import RadarChart from "@/components/radar-chart";
 import SkillGap from "@/components/skill-gap";
 import StatusBadge from "@/components/status-badge";
-import { fetcher, searchCandidates, sendEmail, submitDecision } from "@/lib/api";
+import {
+  fetcher,
+  resumeCandidate,
+  searchCandidates,
+  sendEmail,
+  submitDecision,
+} from "@/lib/api";
 import {
   BANDS,
   CONFIDENCE,
@@ -53,6 +59,8 @@ export default function CandidateDeepDive() {
   const [sendError, setSendError] = useState<string | null>(null);
   const [showHire, setShowHire] = useState(false);
   const [showOutcome, setShowOutcome] = useState(false);
+  const [resuming, setResuming] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
   // ค้นหาผู้สมัครคล้ายกันแบบสั่งเอง — ยิงสดทุกครั้ง ไม่ได้บันทึกลง DB (hits = null คือยังไม่เคยค้น)
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -606,6 +614,48 @@ export default function CandidateDeepDive() {
       {/* Human-in-the-Loop */}
       <div className="glass-card rounded-2xl p-md space-y-sm">
         <h3 className="text-headline-md text-on-surface">การตัดสินใจของ HR</h3>
+
+        {/* กราฟหยุดกลางทาง — วางไว้นอกเงื่อนไขด้านล่างโดยตั้งใจ: คนที่เจอเคสนี้มักตัดสิน
+            ไปแล้ว (อนุมัติแล้วแต่ร่างอีเมลล้ม) ซึ่งข้อความด้านล่างถูกซ่อนเมื่อมีคำตัดสิน
+            ถ้าวางข้างในแถบนี้จะไม่โผล่ให้คนที่ต้องการมันที่สุดเห็นเลย */}
+        {c.graph_status === "interrupted" && (
+          <div className="rounded-xl border border-tertiary/40 bg-tertiary-container/10 p-sm flex flex-wrap items-center gap-xs">
+            <span
+              className="material-symbols-outlined text-tertiary text-[20px] flex-none"
+              style={{ fontVariationSettings: "'FILL' 1" }}
+            >
+              warning
+            </span>
+            <p className="text-label-md text-on-surface min-w-0 flex-1">
+              การประมวลผลหยุดกลางทาง — ผลที่ทำเสร็จแล้วเก็บไว้ครบ
+              กดเพื่อทำขั้นที่เหลือต่อ ระบบจะไม่เริ่มวิเคราะห์ใหม่ตั้งแต่ต้น
+            </p>
+            <button
+              className="btn-tonal"
+              disabled={resuming}
+              onClick={async () => {
+                setResuming(true);
+                setResumeError(null);
+                try {
+                  await resumeCandidate(candidate_id);
+                  mutate();
+                } catch (e) {
+                  setResumeError(e instanceof Error ? e.message : "สั่งทำต่อไม่สำเร็จ");
+                } finally {
+                  setResuming(false);
+                }
+              }}
+            >
+              <span className="material-symbols-outlined text-[18px]">play_arrow</span>
+              {resuming ? "กำลังสั่ง…" : "ทำต่อจากจุดที่ค้าง"}
+            </button>
+            {resumeError && (
+              <p className="text-error text-label-md w-full" role="alert">
+                {resumeError}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* บอกให้ชัดว่าการกดปุ่มจะทำอะไร — เดิมหน้านี้บอกว่า "กำลังสร้างผลลัพธ์ต่อ"
             ทุกกรณี ทั้งที่คนที่กราฟจบไปแล้วกดแล้วไม่มีอะไรเกิดขึ้นเลย

@@ -70,6 +70,21 @@ def _is_stalled(
     return datetime.now(timezone.utc) - created_at > timedelta(seconds=_STALLED_AFTER_SEC)
 
 
+def _effective_graph_status(
+    raw_status: str, candidate_id, active: frozenset[str], queue_status: str | None
+) -> str:
+    """ทับ "interrupted" เป็น "processing" เมื่อมีคนดูแลงานนี้อยู่ — ฟังก์ชันบริสุทธิ์.
+
+    checkpoint ถูกบันทึกทุกขั้น ระหว่างกราฟเดินหรือรอคิว มันจึงดูเหมือนค้างกลางทางชั่วขณะ
+    ถ้าไม่ทับ ป้าย "หยุดกลางทาง" กับปุ่มทำต่อจะกะพริบขึ้นมาให้ HR กดซ้ำ ทั้งที่งานกำลังเดินอยู่
+    """
+    if raw_status == "interrupted" and (
+        str(candidate_id) in active or queue_status in PENDING_STATUSES
+    ):
+        return "processing"
+    return raw_status
+
+
 @router.post(
     "/jobs/{job_id}/resumes",
     response_model=ResumeUploadAccepted,
@@ -190,8 +205,14 @@ def list_candidates(job_id: str) -> list[CandidateSummary]:
             # อ่าน checkpoint เฉพาะคนที่วิเคราะห์เสร็จแล้ว — คนที่ยังไม่มีผลประเมินเป็น
             # processing/stalled อยู่แล้ว ไม่ต้องเสีย query (หน้านี้ poll ทุก 4 วิ)
             graph_status=(
-                get_graph_status(str(r["id"])) if r["has_eval"] else "processing"
+                _effective_graph_status(
+                    get_graph_status(str(r["id"]), r["hr_decision"], r["fit_score"]),
+                    r["id"], active, r["queue_status"],
+                )
+                if r["has_eval"]
+                else "processing"
             ),
+
         )
         for r in rows
     ]
@@ -308,6 +329,55 @@ def reprocess_candidate(candidate_id: str) -> dict:
     return {"candidate_id": candidate_id, "message": "เข้าคิววิเคราะห์ใหม่แล้ว — โปรด poll รายชื่อผู้สมัคร"}
 
 
+@router.post("/candidates/{candidate_id}/resume", status_code=202)
+def resume_candidate(candidate_id: str) -> dict:
+    """สั่งกราฟที่หยุดกลางทางให้เดินต่อจากจุดที่ค้าง — ไม่รันใหม่ตั้งแต่ต้น.
+
+    คู่กับ reprocess แต่คนละเคส: reprocess กู้คนที่ **ยังไม่มีผลวิเคราะห์เลย** ส่วนตัวนี้กู้คน
+    ที่คัดกรองเสร็จแล้วแต่ขั้นหลังจากนั้นไม่จบ เช่น HR อนุมัติแล้ว planner สร้างคำถามเสร็จ
+    แต่ drafter ล้มเพราะโควตา · งานที่คิวลองใหม่เองได้อยู่แล้วไม่ต้องใช้ปุ่มนี้ มันมีไว้สำหรับ
+    งานที่คิวยอมแพ้ (failed) และของค้างจากยุคก่อนมีคิว
+
+    ไม่มี kind ใหม่: มีคำตัดสินของ HR → resume_after_decision (update_state แล้วเดินต่อ
+    จากโหนดที่ค้าง) · ไม่มี → process ซึ่งเดินต่อจาก checkpoint ผ่าน runner._resume_point
+    ต้นทุนจริงคือเฉพาะโหนดที่ยังไม่ได้รัน เช่นค้างที่ drafter = 1 call
+    """
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT c.job_id, e.fit_score, hd.decision, hd.notes
+              FROM candidates c
+              LEFT JOIN evaluations e ON e.candidate_id = c.id
+              LEFT JOIN hr_decisions hd ON hd.candidate_id = c.id
+             WHERE c.id = %s
+            """,
+            (candidate_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="ไม่พบผู้สมัครนี้")
+    if str(candidate_id) in active_candidates():
+        raise HTTPException(status_code=409, detail="กำลังประมวลผลอยู่แล้ว กรุณารอสักครู่")
+    if pending_status(candidate_id):
+        raise HTTPException(status_code=409, detail="งานของผู้สมัครรายนี้อยู่ในคิวแล้ว กรุณารอสักครู่")
+    status = get_graph_status(candidate_id, row["decision"], row["fit_score"])
+    if status != "interrupted":
+        raise HTTPException(
+            status_code=409,
+            detail="ผู้สมัครรายนี้ไม่ได้หยุดกลางทาง — ไม่มีขั้นที่ต้องทำต่อ",
+        )
+
+    reserve_candidates([candidate_id])
+    if row["decision"] in ("approved", "rejected"):
+        enqueue(
+            candidate_id, str(row["job_id"]), "resume_after_decision",
+            {"decision": row["decision"], "notes": row["notes"]},
+        )
+    else:
+        enqueue(candidate_id, str(row["job_id"]), "process")
+    log.info("สั่งทำต่อผู้สมัคร %s (คำตัดสิน=%s)", candidate_id, row["decision"])
+    return {"candidate_id": candidate_id, "message": "เข้าคิวทำต่อจากจุดที่ค้างแล้ว"}
+
+
 @router.get("/candidates/search", response_model=list[CandidateSearchHit])
 def search_candidates(q: str, limit: int = 10) -> list[CandidateSearchHit]:
     """ค้นหาผู้สมัครเก่าด้วยความหมายของข้อความ (ไม่ใช่การจับคำ).
@@ -364,14 +434,18 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
     if row is None:
         raise HTTPException(status_code=404, detail="ไม่พบผู้สมัครนี้")
     has_eval = row.pop("has_eval")
+    active = active_candidates()
     return CandidateDetail(
         **row,
-        graph_status=get_graph_status(candidate_id),
+        graph_status=_effective_graph_status(
+            get_graph_status(candidate_id, row["hr_decision"], row["fit_score"]),
+            candidate_id, active, row["queue_status"],
+        ),
         stalled=_is_stalled(
             candidate_id,
             has_eval,
             row["created_at"],
-            active_candidates(),
+            active,
             row["queue_status"],
         ),
     )

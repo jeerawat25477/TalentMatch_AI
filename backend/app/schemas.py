@@ -71,7 +71,9 @@ class CandidateSummary(BaseModel):
     # สองฟิลด์นี้ให้หน้ารายชื่อรู้ว่าใคร "รอ HR ตัดสิน" จริง ๆ (ใช้เปิด/ปิดติ๊กเลือกของ bulk)
     # เดิมมีแต่บน CandidateDetail ทำให้ dashboard เดาจากคะแนนอย่างเดียว ซึ่งแยกไม่ออกว่า
     # คนคะแนน 50-70 นั้นตัดสินไปแล้วหรือยัง
-    graph_status: Literal["awaiting_hr", "completed", "processing"] = "processing"
+    # "interrupted" = ค้างกลางทาง (ตัดสินแล้วแต่ไม่เดินต่อ / auto-advance ล้ม) ดู runner.resolve_graph_status
+    graph_status: Literal["awaiting_hr", "completed", "processing", "interrupted"] = "processing"
+
     hr_decision: Optional[Literal["approved", "rejected", "pending"]] = None
     # สถานะในคิวประมวลผล (None = ไม่มีงานค้าง) — แยกจาก stalled โดยตั้งใจ:
     # "รอคิว" กับ "เลื่อนเพราะโควตาเต็ม" คือระบบยังดูแลอยู่ ห้ามให้ HR เข้าใจว่าพัง
