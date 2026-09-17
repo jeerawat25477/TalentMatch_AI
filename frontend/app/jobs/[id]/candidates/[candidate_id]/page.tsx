@@ -9,6 +9,7 @@ import Breadcrumb from "@/components/breadcrumb";
 import EmailTemplatePicker from "@/components/email-template-picker";
 import HireEmployeeDialog from "@/components/hire-employee-dialog";
 import InterviewGuide from "@/components/interview-guide";
+import { InterviewScheduleSummary } from "@/components/interview-schedule";
 import InterviewOutcomeDialog from "@/components/interview-outcome-dialog";
 import RadarChart from "@/components/radar-chart";
 import SkillGap from "@/components/skill-gap";
@@ -298,6 +299,18 @@ export default function CandidateDeepDive() {
             <span className="material-symbols-outlined text-primary">quiz</span>
             คำถามสัมภาษณ์
           </h3>
+          {/* วันนัดอยู่เหนือคำถาม: HR เปิดหน้านี้ก่อนเข้าห้องสัมภาษณ์ สิ่งแรกที่ต้องรู้คือนัดกี่โมงที่ไหน
+              แก้วันนัดทำที่หน้ากระดาน ที่นี่แสดงอย่างเดียว */}
+          {c.scheduled_at && (
+            <div className="mb-sm">
+              <InterviewScheduleSummary
+                scheduledAt={c.scheduled_at}
+                location={c.location}
+                candidateName={c.full_name}
+                jobTitle={job?.title}
+              />
+            </div>
+          )}
           <InterviewGuide plan={c.interview_plan} />
 
           {/* บันทึกผลสัมภาษณ์จริง — โผล่เฉพาะคนที่มีคำถามให้ถาม (คนที่ถูกปฏิเสธไม่มีแผน

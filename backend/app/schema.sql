@@ -273,6 +273,14 @@ CREATE TABLE IF NOT EXISTS hiring_stage (
     moved_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     note TEXT
 );
+-- วันเวลานัดสัมภาษณ์ — NULL = ยังไม่ได้ตั้ง · ไม่ผูกกับ stage: HR ย้ายขั้นโดยไม่ใส่เวลา
+-- หรือใส่เวลาโดยไม่ย้ายขั้นก็ได้ · เก็บเป็น TIMESTAMPTZ เพราะ HR กรอกเป็นเวลาท้องถิ่น
+-- แต่ลิงก์ Google Calendar ต้องการเวลา UTC ถ้าเก็บแบบไม่มีโซนจะแปลงผิดเงียบ ๆ
+ALTER TABLE hiring_stage ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMP WITH TIME ZONE;
+-- สถานที่หรือลิงก์ประชุม ข้อความอิสระ ไม่ validate รูปแบบโดยตั้งใจ
+-- ⚠️ ไม่มีคอลัมน์อีเมลผู้เข้าร่วม และห้ามเพิ่ม: ลิงก์ปฏิทินต้องไม่ทำให้ Google ส่งคำเชิญ
+-- ถึงผู้สมัครเองโดยที่ HR ยังไม่ได้ยืนยันเนื้อหา (ดู "Email send is synchronous and HR-gated")
+ALTER TABLE hiring_stage ADD COLUMN IF NOT EXISTS location TEXT;
 
 -- ============================================================
 -- ผลสัมภาษณ์จริง — ground truth ชุดเดียวที่ระบบมี

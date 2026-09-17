@@ -13,6 +13,7 @@ import BoardCard, {
 import Breadcrumb from "@/components/breadcrumb";
 import ConfirmDialog from "@/components/confirm-dialog";
 import HireEmployeeDialog from "@/components/hire-employee-dialog";
+import { InterviewScheduleDialog } from "@/components/interview-schedule";
 import JobTabs from "@/components/job-tabs";
 import { fetcher, getBoard, setStage } from "@/lib/api";
 import type { BoardItem, BoardStage, Job } from "@/lib/types";
@@ -35,6 +36,8 @@ export default function HiringBoard() {
   const [moveError, setMoveError] = useState<string | null>(null);
   // ผู้สมัครที่กำลังจะรับเข้าเป็นพนักงาน — การ์ดยังไม่ย้ายจนกว่าจะกดยืนยันสำเร็จ
   const [hiring, setHiring] = useState<BoardItem | null>(null);
+  // การ์ดที่กำลังกรอกวันนัด
+  const [scheduling, setScheduling] = useState<BoardItem | null>(null);
   // การย้ายที่รอ HR ยืนยัน (ขัดกับผลสัมภาษณ์) — การ์ดยังไม่ขยับจนกว่าจะกดยืนยัน
   const [pendingMove, setPendingMove] = useState<{
     item: BoardItem;
@@ -198,9 +201,11 @@ export default function HiringBoard() {
                         key={c.candidate_id}
                         item={c}
                         jobId={id}
+                        jobTitle={job?.title}
                         busy={busyId === c.candidate_id}
                         onDragStart={() => setDragging(c.candidate_id)}
                         onMove={(next) => move(c, next)}
+                        onSchedule={() => setScheduling(c)}
                       />
                     ))}
                     {cards.length === 0 && (
@@ -227,6 +232,25 @@ export default function HiringBoard() {
             commitMove(item, next); // optimistic เดิม — ล้มเหลวก็คืนการ์ดและขึ้นข้อความ
           }}
           onClose={() => setPendingMove(null)}
+        />
+      )}
+
+      {scheduling && (
+        <InterviewScheduleDialog
+          candidateName={scheduling.full_name}
+          initialScheduledAt={scheduling.scheduled_at}
+          initialLocation={scheduling.location}
+          onSave={async (scheduledAt, location) => {
+            // ส่ง stage เดิม = ไม่ย้ายขั้น (backend ไม่ขยับ moved_at) · ไม่ optimistic
+            // เพราะโมดัลรอผลอยู่แล้ว ล้มเหลวก็ขึ้นข้อความในโมดัลโดยการ์ดไม่เคยเปลี่ยน
+            await setStage(scheduling.candidate_id, scheduling.stage, undefined, {
+              scheduled_at: scheduledAt,
+              location,
+            });
+            await mutate();
+            setScheduling(null);
+          }}
+          onClose={() => setScheduling(null)}
         />
       )}
 

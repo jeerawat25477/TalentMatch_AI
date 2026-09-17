@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { InterviewScheduleSummary } from "@/components/interview-schedule";
 import ScoreRing from "@/components/score-ring";
 import { CONFIDENCE, INTERVIEW_RESULT } from "@/lib/types";
 import type { BoardItem, BoardStage } from "@/lib/types";
@@ -82,14 +83,20 @@ export const STAGE_ORDER: BoardStage[] = [
 export default function BoardCard({
   item,
   jobId,
+  jobTitle,
   onMove,
   onDragStart,
+  onSchedule,
   busy = false,
 }: {
   item: BoardItem;
   jobId: string;
+  /** ใช้ตั้งหัวข้อ event ในปฏิทิน */
+  jobTitle?: string | null;
   onMove: (stage: BoardStage) => void;
   onDragStart: () => void;
+  /** เปิดโมดัลกรอกวันนัด — โผล่เฉพาะการ์ดในคอลัมน์ "นัดสัมภาษณ์แล้ว" */
+  onSchedule?: () => void;
   busy?: boolean;
 }) {
   // คนที่รับเข้าเป็นพนักงานแล้วย้ายขั้นไม่ได้ — ถ้าจะแก้ต้องไปที่ระเบียนพนักงาน
@@ -169,6 +176,32 @@ export default function BoardCard({
             ของคนที่ HR อนุมัติไปแล้วอ่านเหมือนยังค้างรอตัดสิน */}
         <ScoreRing score={item.fit_score} size={44} showLabel={false} />
       </div>
+
+      {/* วันนัดโชว์เฉพาะคอลัมน์ "นัดสัมภาษณ์แล้ว" — ขั้นอื่นวันนัดไม่ใช่สิ่งที่ต้องทำต่อแล้ว
+          (ข้อมูลยังเก็บไว้ ย้ายขั้นไม่ลบวันนัด และยังเห็นได้ในหน้ารายละเอียด) */}
+      {item.stage === "scheduled" &&
+        (item.scheduled_at ? (
+          <InterviewScheduleSummary
+            compact
+            scheduledAt={item.scheduled_at}
+            location={item.location}
+            candidateName={item.full_name}
+            jobTitle={jobTitle}
+            onEdit={busy ? undefined : onSchedule}
+          />
+        ) : (
+          onSchedule && (
+            <button
+              type="button"
+              className="btn-tonal w-full justify-center text-label-sm"
+              onClick={onSchedule}
+              disabled={busy}
+            >
+              <span className="material-symbols-outlined text-[16px]">edit_calendar</span>
+              ตั้งวันเวลานัด
+            </button>
+          )
+        ))}
 
       <div className="flex items-center gap-base flex-wrap pt-1">
         <Link

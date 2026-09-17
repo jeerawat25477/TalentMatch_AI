@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:unit": "tsc lib/calendar-link.ts lib/calendar-link.test.ts --outDir /tmp/unit-test --module commonjs --target es2020 --types node --esModuleInterop --skipLibCheck && node --test /tmp/unit-test/"
   },
   "dependencies": {
     "lucide-react": "^1.28.0",

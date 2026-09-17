@@ -25,6 +25,30 @@ router = APIRouter(
 )
 
 
+def _schedule_patch(payload: StageUpdate) -> dict:
+    """แยกว่าฟิลด์นัดสัมภาษณ์ตัวไหน "ถูกส่งมา" — ฟังก์ชันบริสุทธิ์ ทดสอบได้โดยไม่ต้องมี DB.
+
+    partial update ต้องแยกสามกรณีออกจากกัน:
+      - ไม่ส่งฟิลด์มาเลย   → คงค่าเดิม (การลากการ์ดย้ายขั้นต้องไม่ลบวันนัดทิ้ง)
+      - ส่ง null มาตรง ๆ   → ล้างค่า (ยกเลิกนัด)
+      - ส่งค่ามา            → เขียนค่าใหม่
+    None ตัวเดียวแยกสองกรณีแรกไม่ได้ จึงดูจาก model_fields_set ของ Pydantic
+    · ใช้ COALESCE แทนไม่ได้ เพราะจะล้างวันนัดที่กรอกผิดไม่ได้เลย
+
+    สถานที่ที่เป็นช่องว่างล้วนนับเป็นการล้างค่า ไม่ใช่เก็บสตริงว่างไว้โชว์เป็นบรรทัดเปล่า
+    """
+    sent = payload.model_fields_set
+    location = payload.location
+    if location is not None and not location.strip():
+        location = None
+    return {
+        "set_scheduled_at": "scheduled_at" in sent,
+        "scheduled_at": payload.scheduled_at,
+        "set_location": "location" in sent,
+        "location": location.strip() if location else None,
+    }
+
+
 @router.get("/jobs/{job_id}/board", response_model=list[BoardItem])
 def get_board(job_id: str) -> list[BoardItem]:
     """การ์ดทั้งหมดบนกระดานของตำแหน่งงานนี้ เรียงตามคะแนนมาก -> น้อย.
@@ -44,7 +68,7 @@ def get_board(job_id: str) -> list[BoardItem]:
             SELECT c.id AS candidate_id, c.full_name,
                    e.fit_score, e.confidence, e.email_sent_at,
                    hd.decision AS hr_decision,
-                   hs.stage AS stage_row, hs.moved_at,
+                   hs.stage AS stage_row, hs.moved_at, hs.scheduled_at, hs.location,
                    emp.id AS employee_id, io.result AS interview_result
               FROM candidates c
               LEFT JOIN evaluations e   ON e.candidate_id = c.id
@@ -83,6 +107,8 @@ def get_board(job_id: str) -> list[BoardItem]:
                 moved_at=r["moved_at"],
                 email_sent_at=r["email_sent_at"],
                 interview_result=r["interview_result"],
+                scheduled_at=r["scheduled_at"],
+                location=r["location"],
             )
         )
     return board
@@ -138,15 +164,30 @@ def update_stage(candidate_id: str, payload: StageUpdate) -> BoardItem:
 
         stage_row = conn.execute(
             """
-            INSERT INTO hiring_stage (candidate_id, stage, note)
-            VALUES (%s, %s, %s)
+            INSERT INTO hiring_stage (candidate_id, stage, note, scheduled_at, location)
+            VALUES (%(cid)s, %(stage)s, %(note)s, %(scheduled_at)s, %(location)s)
             ON CONFLICT (candidate_id) DO UPDATE
                SET stage = EXCLUDED.stage,
                    note = EXCLUDED.note,
-                   moved_at = timezone('utc'::text, now())
-            RETURNING stage, moved_at
+                   -- ขยับเฉพาะเมื่อย้ายขั้นจริง: บันทึกวันนัดโดยไม่ย้ายขั้นต้องไม่ทำให้
+                   -- moved_at กลายเป็น "เวลาที่กรอกวันนัด" ซึ่งไม่ใช่ความหมายของคอลัมน์นี้
+                   moved_at = CASE
+                       WHEN hiring_stage.stage IS DISTINCT FROM EXCLUDED.stage
+                       THEN timezone('utc'::text, now())
+                       ELSE hiring_stage.moved_at
+                   END,
+                   scheduled_at = CASE WHEN %(set_scheduled_at)s
+                       THEN EXCLUDED.scheduled_at ELSE hiring_stage.scheduled_at END,
+                   location = CASE WHEN %(set_location)s
+                       THEN EXCLUDED.location ELSE hiring_stage.location END
+            RETURNING stage, moved_at, scheduled_at, location
             """,
-            (candidate_id, payload.stage, payload.note),
+            {
+                "cid": candidate_id,
+                "stage": payload.stage,
+                "note": payload.note,
+                **_schedule_patch(payload),
+            },
         ).fetchone()
         conn.commit()
 
@@ -165,4 +206,6 @@ def update_stage(candidate_id: str, payload: StageUpdate) -> BoardItem:
         moved_at=stage_row["moved_at"],
         email_sent_at=row["email_sent_at"],
         interview_result=row["interview_result"],
+        scheduled_at=stage_row["scheduled_at"],
+        location=stage_row["location"],
     )

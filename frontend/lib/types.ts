@@ -339,6 +339,9 @@ export interface CandidateDetail extends CandidateSummary {
   board_stage: BoardStage | null;
   /** null = ยังไม่เคยย้ายขั้นจริง (อยู่ "รอติดต่อ" แบบค่าเริ่มต้น) */
   stage_moved_at: string | null;
+  /** วันเวลานัดสัมภาษณ์จาก hiring_stage — null = ยังไม่ได้ตั้ง */
+  scheduled_at: string | null;
+  location: string | null;
 }
 
 export type Decision = "approved" | "rejected";
@@ -611,4 +614,24 @@ export interface BoardItem {
   email_sent_at: string | null;
   /** ขึ้นป้ายบนการ์ดทุกคอลัมน์ที่มีค่า ไม่ใช่เฉพาะ "สัมภาษณ์แล้ว" */
   interview_result: InterviewResult | null;
+  /** วันเวลานัดสัมภาษณ์ (ISO มีโซนเวลา) — null = ยังไม่ได้ตั้ง */
+  scheduled_at: string | null;
+  /** สถานที่หรือลิงก์ประชุม ข้อความอิสระ */
+  location: string | null;
+}
+
+/**
+ * มิเรอร์ StageUpdate ใน backend/app/schemas.py
+ *
+ * ⚠️ scheduled_at/location เป็น partial update ต้องแยก "ไม่ส่ง" กับ "ส่ง null" ให้ออก:
+ * - ไม่ใส่คีย์ (undefined) → backend คงค่าเดิม เช่นตอนลากการ์ดย้ายขั้น
+ * - ใส่ null            → backend ล้างค่า เช่นยกเลิกนัด
+ * JSON.stringify ทิ้งคีย์ที่เป็น undefined ให้เอง จึงแยกสองกรณีนี้ได้โดยไม่ต้องทำอะไรเพิ่ม
+ */
+export interface StageUpdate {
+  stage: BoardStage;
+  note?: string;
+  /** ต้องมีโซนเวลา เช่น toISOString() — เวลาไม่มีโซนได้ 422 */
+  scheduled_at?: string | null;
+  location?: string | null;
 }

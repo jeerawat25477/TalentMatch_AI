@@ -417,7 +417,8 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
                    -- บันทึกผล — คือผู้สมัครเกือบทุกคนในระบบ
                    CASE WHEN io.candidate_id IS NOT NULL THEN to_jsonb(io) END
                        AS interview_outcome,
-                   hs.stage AS stage_row, hs.moved_at AS stage_moved_at
+                   hs.stage AS stage_row, hs.moved_at AS stage_moved_at,
+                   hs.scheduled_at, hs.location
             FROM candidates c
             LEFT JOIN evaluations e ON e.candidate_id = c.id
             LEFT JOIN employees emp ON emp.candidate_id = c.id

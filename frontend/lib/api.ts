@@ -3,6 +3,7 @@ import { clearToken, getToken, setToken } from "./auth";
 import type {
   BoardItem,
   BoardStage,
+  StageUpdate,
   BulkDecisionResult,
   CandidateDetail,
   CandidateSearchHit,
@@ -293,11 +294,17 @@ export const getBoard = (jobId: string) =>
 
 // ⚠️ ส่ง stage: "hired" มาที่นี่จะได้ 400 — การรับเข้าเป็นพนักงานมีเอนด์พอยต์ของตัวเอง
 // (hireCandidate) เพราะต้องกรอกตำแหน่ง/เงินเดือน/วันเริ่มงานด้วย
-export const setStage = (candidateId: string, stage: BoardStage, note?: string) =>
+// schedule: ไม่ส่ง = คงวันนัดเดิม · ส่ง null ในฟิลด์ใด = ล้างฟิลด์นั้น (ดู StageUpdate)
+export const setStage = (
+  candidateId: string,
+  stage: BoardStage,
+  note?: string,
+  schedule?: Pick<StageUpdate, "scheduled_at" | "location">,
+) =>
   request<BoardItem>(`/api/v1/candidates/${candidateId}/stage`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ stage, note }),
+    body: JSON.stringify({ stage, note, ...schedule } satisfies StageUpdate),
   });
 
 // ---------- ผลสัมภาษณ์จริง ----------

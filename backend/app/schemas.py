@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Any, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import AwareDatetime, BaseModel, EmailStr, Field
 
 
 # ---------- Jobs ----------
@@ -159,6 +159,9 @@ class CandidateDetail(CandidateSummary):
     # forward ref: BoardStage ประกาศไว้ด้านล่าง — มี model_rebuild() ต่อท้ายไฟล์
     board_stage: Optional["BoardStage"] = None
     stage_moved_at: Optional[datetime] = None
+    # นัดสัมภาษณ์จาก hiring_stage — None = ยังไม่ได้ตั้ง (หน้า deep dive ซ่อนบล็อกนัด)
+    scheduled_at: Optional[datetime] = None
+    location: Optional[str] = None
 
 
 class CandidateSearchHit(BaseModel):
@@ -415,9 +418,22 @@ class BoardItem(BaseModel):
     # ผลสัมภาษณ์ (ถ้าบันทึกไว้แล้ว) — ขึ้นเป็นป้ายบนการ์ดทุกคอลัมน์ ไม่ใช่เฉพาะ
     # "สัมภาษณ์แล้ว" เพราะพอย้ายไป "ยื่นข้อเสนอ" HR ก็ยังต้องเห็นว่าผลออกมายังไง
     interview_result: Optional[InterviewResult] = None
+    # นัดสัมภาษณ์ — None = ยังไม่ได้ตั้ง
+    scheduled_at: Optional[datetime] = None
+    location: Optional[str] = None
 
 
 class StageUpdate(BaseModel):
-    """ย้ายการ์ดไปขั้นถัดไป (หรือย้อนกลับ — ไม่บังคับทิศทาง)."""
+    """ย้ายการ์ดไปขั้นถัดไป (หรือย้อนกลับ — ไม่บังคับทิศทาง).
+
+    `scheduled_at`/`location` เป็น **partial update**: ไม่ส่งฟิลด์มา = คงค่าเดิม ·
+    ส่ง null มาตรง ๆ = ล้างค่า (ยกเลิกนัด) · router แยกสองกรณีนี้ด้วย model_fields_set
+    ถ้าใช้ COALESCE แทน HR จะล้างวันนัดที่กรอกผิดไม่ได้เลย
+    """
     stage: BoardStage
     note: Optional[str] = Field(None, max_length=2000)
+    # AwareDatetime: ต้องมีโซนเวลาเสมอ เวลาแบบไม่มีโซนถูกปฏิเสธ (422) — ถ้ารับไว้ Postgres
+    # จะตีความเป็น UTC แล้วนัดบ่ายสองโมงของ HR ในไทยจะกลายเป็นสามทุ่มในปฏิทินแบบเงียบ ๆ
+    scheduled_at: Optional[AwareDatetime] = None
+    # ข้อความอิสระ ไม่ validate รูปแบบ มีแค่เพดานความยาวกันข้อมูลขยะ
+    location: Optional[str] = Field(None, max_length=500)
