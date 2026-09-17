@@ -12,6 +12,7 @@ import InterviewGuide from "@/components/interview-guide";
 import InterviewOutcomeDialog from "@/components/interview-outcome-dialog";
 import RadarChart from "@/components/radar-chart";
 import SkillGap from "@/components/skill-gap";
+import StageStepper from "@/components/stage-stepper";
 import StatusBadge from "@/components/status-badge";
 import {
   fetcher,
@@ -472,63 +473,55 @@ export default function CandidateDeepDive() {
         </section>
       </div>
 
-      {/* ผู้สมัครที่โปรไฟล์คล้ายกัน (RAG retrieval agent) — โชว์เฉพาะเมื่อมีผล */}
-      {c.similar_candidates && c.similar_candidates.length > 0 && (
-        <section className="glass-card rounded-2xl p-md">
-          <h3 className="text-headline-md text-on-surface flex items-center gap-xs mb-sm">
-            <span className="material-symbols-outlined text-primary">group</span>
-            ผู้สมัครที่โปรไฟล์คล้ายกัน
-            <span className="text-label-sm text-outline font-normal">
-              (จากคลังผู้สมัครเก่า — ใช้เป็นบริบทเทียบเคียง)
-            </span>
-          </h3>
-          <ul className="space-y-xs">
-            {c.similar_candidates.map((s) => (
-              <li
-                key={s.id}
-                className="flex items-center justify-between gap-sm p-sm rounded-lg bg-glass/30"
-              >
-                <div className="min-w-0">
-                  <p className="text-label-md text-on-surface truncate">
-                    {s.full_name ?? "—"}
-                  </p>
-                  <p className="text-label-sm text-outline truncate">
-                    {s.job_title ?? "—"}
-                  </p>
-                </div>
-                <div className="flex items-center gap-sm flex-none">
-                  {s.fit_score != null && (
-                    <span className="text-label-md text-on-surface-variant">
-                      {s.fit_score}%
-                    </span>
-                  )}
-                  {s.distance != null && (
-                    <span className="text-label-sm text-outline">
-                      ใกล้เคียง {Math.round((1 - s.distance) * 100)}%
-                    </span>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* ค้นหาคล้ายกันแบบสั่งเอง (ad-hoc) — คนละที่มากับ section ด้านบน:
-          อันบนมาจาก retrieve_similar node ตอนรันกราฟ บันทึกผูกกับผู้สมัครคนนี้ไว้แล้ว
-          ส่วนอันนี้ยิง GET /candidates/search สดทุกครั้ง ไม่ persist */}
+      {/* ผู้สมัครคล้ายกัน — การ์ดเดียว สองแหล่ง:
+          (1) similar_candidates มาจาก retrieve_similar node ตอนรันกราฟ บันทึกผูกกับผู้สมัครคนนี้
+          (2) ค้นเพิ่มเอง ยิง GET /candidates/search สดทุกครั้ง ไม่ persist
+          เดิมแยกสองการ์ด ทั้งที่ตอบคำถามเดียวกัน ("มีใครคล้ายคนนี้") */}
       <section className="glass-card rounded-2xl p-md">
-        <h3 className="text-headline-md text-on-surface flex items-center gap-xs mb-xs">
-          <span className="material-symbols-outlined text-primary">
-            travel_explore
-          </span>
-          ค้นหาผู้สมัครคล้ายกันเพิ่มเติม
-          <span className="text-label-sm text-outline font-normal">
-            (ค้นสดจากคลังเวกเตอร์ — ไม่ได้บันทึกไว้)
-          </span>
+        <h3 className="text-headline-md text-on-surface flex items-center gap-xs">
+          <span className="material-symbols-outlined text-primary">group</span>
+          ผู้สมัครที่โปรไฟล์คล้ายกัน
         </h3>
         <p className="text-label-sm text-outline mb-sm">
-          แก้คำค้นได้ตามต้องการ — ค่าเริ่มต้นมาจากตำแหน่งงานและทักษะของผู้สมัครรายนี้
+          จากคลังผู้สมัครเก่า — ใช้เป็นบริบทเทียบเคียง ไม่มีผลต่อคะแนนของผู้สมัครรายนี้
+        </p>
+
+        {c.similar_candidates && c.similar_candidates.length > 0 ? (
+          <>
+            <p className="text-label-sm text-on-surface-variant mb-xs">
+              ระบบแนะนำตอนวิเคราะห์
+            </p>
+            <ul className="space-y-xs">
+              {c.similar_candidates.map((s) => (
+                <li
+                  key={s.id}
+                  className="flex items-center justify-between gap-sm p-sm rounded-lg bg-glass/30"
+                >
+                  <div className="min-w-0">
+                    <p className="text-label-md text-on-surface truncate">
+                      {s.full_name ?? "—"}
+                    </p>
+                    <p className="text-label-sm text-outline truncate">
+                      {s.job_title ?? "—"}
+                    </p>
+                  </div>
+                  <SimilarityMeta fitScore={s.fit_score} distance={s.distance} />
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="text-label-md text-outline">
+            ตอนวิเคราะห์ระบบไม่พบผู้สมัครที่คล้ายกัน — ลองค้นเองด้านล่าง
+          </p>
+        )}
+
+        <div className="border-t border-outline-variant/40 mt-md pt-md">
+        <p className="text-label-sm text-on-surface-variant mb-xs">
+          ค้นเพิ่มเติม{" "}
+          <span className="text-outline">
+            — คำค้นเริ่มต้นมาจากตำแหน่งงานและทักษะของผู้สมัครรายนี้ แก้ได้ (ผลไม่ถูกบันทึก)
+          </span>
         </p>
 
         <div className="flex flex-col md:flex-row gap-xs">
@@ -577,17 +570,7 @@ export default function CandidateDeepDive() {
                         {h.job_title ?? "—"}
                       </p>
                     </div>
-                    <div className="flex items-center gap-sm flex-none">
-                      {h.fit_score != null && (
-                        <span className="text-label-md text-on-surface-variant">
-                          {h.fit_score}%
-                        </span>
-                      )}
-                      {/* สูตรเดียวกับ section ด้านบน ตัวเลขจะได้อ่านเทียบกันได้ */}
-                      <span className="text-label-sm text-outline">
-                        ใกล้เคียง {Math.round((1 - h.distance) * 100)}%
-                      </span>
-                    </div>
+                    <SimilarityMeta fitScore={h.fit_score} distance={h.distance} />
                   </>
                 );
                 const cls =
@@ -609,11 +592,12 @@ export default function CandidateDeepDive() {
               })}
             </ul>
           ))}
+        </div>
       </section>
 
       {/* Human-in-the-Loop */}
       <div className="glass-card rounded-2xl p-md space-y-sm">
-        <h3 className="text-headline-md text-on-surface">การตัดสินใจของ HR</h3>
+        <h3 className="text-headline-md text-on-surface">ผลคัดกรองโดย HR</h3>
 
         {/* กราฟหยุดกลางทาง — วางไว้นอกเงื่อนไขด้านล่างโดยตั้งใจ: คนที่เจอเคสนี้มักตัดสิน
             ไปแล้ว (อนุมัติแล้วแต่ร่างอีเมลล้ม) ซึ่งข้อความด้านล่างถูกซ่อนเมื่อมีคำตัดสิน
@@ -721,7 +705,9 @@ export default function CandidateDeepDive() {
                     >
                       {approved ? "check_circle" : "cancel"}
                     </span>
-                    {approved ? "อนุมัติให้สัมภาษณ์แล้ว" : "ปฏิเสธแล้ว"}
+                    {/* เดิม "อนุมัติให้สัมภาษณ์แล้ว" — อ่านเหมือนนัดไปแล้ว ทั้งที่แค่ผ่านคัดกรอง
+                        ความคืบหน้าจริงอยู่ในการ์ด "ความคืบหน้าหลังผ่านคัดกรอง" ด้านล่าง */}
+                    {approved ? "ผ่านคัดกรองแล้ว" : "ไม่ผ่านคัดกรอง"}
                   </div>
                   <button
                     onClick={() => {
@@ -799,7 +785,7 @@ export default function CandidateDeepDive() {
                   >
                     check_circle
                   </span>
-                  {busy === "approved" ? "กำลังส่ง…" : "อนุมัติให้สัมภาษณ์"}
+                  {busy === "approved" ? "กำลังส่ง…" : "ผ่านคัดกรอง"}
                 </button>
                 <button
                   onClick={() => decide("rejected")}
@@ -807,7 +793,7 @@ export default function CandidateDeepDive() {
                   className="flex-1 py-sm px-md bg-glass/80 text-error border-2 border-error/50 rounded-xl text-body-lg font-semibold flex items-center justify-center gap-xs hover:bg-error/5 active:scale-95 duration-200 disabled:opacity-50"
                 >
                   <span className="material-symbols-outlined text-[26px]">cancel</span>
-                  {busy === "rejected" ? "กำลังส่ง…" : "ปฏิเสธ"}
+                  {busy === "rejected" ? "กำลังส่ง…" : "ไม่ผ่านคัดกรอง"}
                 </button>
                 {editing && (
                   <button
@@ -826,6 +812,19 @@ export default function CandidateDeepDive() {
           );
         })()}
       </div>
+
+      {/* ขั้นบนกระดานติดตาม — โผล่เฉพาะคนที่อยู่บนกระดาน (อ่านจาก board_stage ตัวเดียวกับกระดาน) */}
+      {c.board_stage && (
+        <StageStepper
+          candidateId={candidate_id}
+          jobId={id}
+          stage={c.board_stage}
+          movedAt={c.stage_moved_at}
+          hasInterviewResult={c.interview_outcome != null}
+          onChanged={() => mutate()}
+          onHire={() => setShowHire(true)}
+        />
+      )}
 
       {/* รับเข้าเป็นพนักงาน — โผล่เมื่อไม่ใช่สายปฏิเสธ · ถ้าจ้างแล้วสลับเป็นลิงก์ไปทะเบียน */}
       {c.employee_id ? (
@@ -933,6 +932,30 @@ function InfoRow({
       <span className="text-on-surface text-label-md text-right break-words">
         {children}
       </span>
+    </div>
+  );
+}
+
+/** ป้ายตัวเลขของแถวผู้สมัครคล้ายกัน — ติดคำกำกับทั้งสองค่า
+ *  (เดิมแสดง "70%" ลอย ๆ ไม่รู้ว่าเป็นคะแนนหรือความคล้าย)
+ *  ใช้สูตรเดียวกันทั้งรายการที่บันทึกไว้และผลค้นสด ตัวเลขจะได้อ่านเทียบกันได้ */
+function SimilarityMeta({
+  fitScore,
+  distance,
+}: {
+  fitScore: number | null;
+  distance: number | null;
+}) {
+  return (
+    <div className="flex items-center gap-sm flex-none text-right">
+      {distance != null && (
+        <span className="text-label-md text-on-surface">
+          คล้าย {Math.round((1 - distance) * 100)}%
+        </span>
+      )}
+      {fitScore != null && (
+        <span className="text-label-sm text-outline">คะแนนเดิม {fitScore}</span>
+      )}
     </div>
   );
 }
