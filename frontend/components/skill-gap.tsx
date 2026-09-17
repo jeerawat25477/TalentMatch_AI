@@ -63,7 +63,7 @@ function Panel({
   const head = tone === "secondary" ? "text-secondary" : "text-error";
   const chip =
     tone === "secondary"
-      ? "bg-secondary-fixed/60 text-on-secondary-container"
+      ? "bg-secondary-fixed text-on-secondary-fixed-variant"
       : "bg-error/10 text-on-error-container";
 
   return (

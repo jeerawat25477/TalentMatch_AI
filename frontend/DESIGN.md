@@ -48,42 +48,43 @@ colors:
   background: '#f8f9ff'
   on-background: '#0b1c30'
   surface-variant: '#d3e4fe'
+# โหมดมืด = "Obsidian Cybernetic Glass" (ดูหัวข้อ Dark Mode ท้ายไฟล์)
 colors-dark:
-  surface: '#0d1526'
-  surface-dim: '#0a1120'
-  surface-bright: '#22304a'
-  surface-container-lowest: '#080e1a'
-  surface-container-low: '#141d2e'
-  surface-container: '#182238'
-  surface-container-high: '#222d45'
-  surface-container-highest: '#2c3852'
-  surface-variant: '#414859'
-  surface-tint: '#adc6ff'
-  on-surface: '#e3e9f5'
-  on-surface-variant: '#c2c7d6'
-  inverse-surface: '#e3e9f5'
-  inverse-on-surface: '#0b1c30'
-  outline: '#8c92a3'
-  outline-variant: '#424859'
-  primary: '#adc6ff'
-  on-primary: '#002e69'
-  primary-container: '#00458f'
-  on-primary-container: '#d8e2ff'
-  inverse-primary: '#0058be'
-  secondary: '#4edea3'
+  surface: '#0f131d'
+  surface-dim: '#0b0f19'
+  surface-bright: '#353944'
+  surface-container-lowest: '#0a0e18'
+  surface-container-low: '#171b26'
+  surface-container: '#1c1f2a'
+  surface-container-high: '#262a35'
+  surface-container-highest: '#313540'
+  surface-variant: '#313540'
+  surface-tint: '#7bd0ff'
+  on-surface: '#dfe2f1'
+  on-surface-variant: '#bdc8d1'
+  inverse-surface: '#dfe2f1'
+  inverse-on-surface: '#2c303b'
+  outline: '#87929a'
+  outline-variant: '#3e484f'
+  primary: '#8ed5ff'
+  on-primary: '#00354a'
+  primary-container: '#38bdf8'
+  on-primary-container: '#004965'
+  inverse-primary: '#00668a'
+  secondary: '#4ee6aa'
   on-secondary: '#003825'
-  secondary-container: '#005236'
-  on-secondary-container: '#6ffbbe'
-  tertiary: '#ffb95f'
+  secondary-container: '#005237'
+  on-secondary-container: '#68fcbf'
+  tertiary: '#fbbf24'
   on-tertiary: '#452b00'
-  tertiary-container: '#653e00'
+  tertiary-container: '#8a5f08'
   on-tertiary-container: '#ffddb8'
   error: '#ffb4ab'
   on-error: '#690005'
   error-container: '#93000a'
   on-error-container: '#ffdad6'
-  background: '#0d1526'
-  on-background: '#e3e9f5'
+  background: '#0f131d'
+  on-background: '#dfe2f1'
 typography:
   headline-xl:
     fontFamily: Inter
@@ -175,16 +176,26 @@ Depth is created through **Glassmorphism** rather than traditional opaque shadow
 
 The use of a subtle white inner-stroke (border) on cards is critical to simulate light hitting the edge of the glass, separating the element from the background.
 
-### Dark Mode
-The palette above has a dark counterpart (`colors-dark`) in the same Navy family, so the "Trustworthy Blue" brand character survives the switch. Every token is exposed as a CSS variable in `app/globals.css` (`:root` = light, `.dark` = dark) and consumed through Tailwind — never hardcode a hex in a component.
+### Dark Mode — "Obsidian Cybernetic Glass"
 
-Two rules govern the dark surfaces:
-- **Glass must be more opaque in the dark.** Surface Level 1 becomes `rgba(30, 45, 72, 0.55)` and Level 2 `rgba(34, 50, 80, 0.75)`. A dark glass as transparent as the light one lets the background gradient bleed through and text loses contrast.
-- **The inner-stroke inverts its job.** Instead of white light hitting the edge, the border is a low-opacity primary (`rgba(173, 198, 255, 0.12)`) that reads as a rim highlight against the darker page.
+Dark mode is **not** a dimmed version of Luminous HR. It is its own identity: deep obsidian and midnight slate substrates under frosted vitreous planes, with high-frequency luminescent accents. The emotional tone is decisive, elite, and objective — a command deck rather than a lit room. Light mode stays warm and approachable; dark mode is where the product looks like precision instrumentation.
 
-The `*-fixed` token family (`primary-fixed`, `on-primary-fixed-variant`, `secondary-fixed`, `tertiary-fixed`, …) is deliberately **identical in both themes**, per the Material 3 spec. Tonal buttons and skill chips are built from these pairs, so their contrast is guaranteed without a dark-mode override.
+Every token is a CSS variable in `app/globals.css` (`:root` = light, `.dark` = dark) and consumed through Tailwind — never hardcode a hex in a component.
 
-Background blobs drop to roughly half their opacity in the dark, and the radar chart swaps its series colors to the light pair (`#adc6ff` / `#ffb95f`) — the original dark blue and amber disappear against a dark surface. The swapped pair keeps the same CVD separation as the original.
+**Accents.** Electric cyan `#38bdf8` is the primary active state, focus halo, and interactive focal point. Hyper-blue `#60a5fa` is the supporting structural accent and appears in the primary-button gradient and the AI Insights border. Emerald `#4ee6aa` signals affirmative match validation, amber `#fbbf24` signals scrutiny — anomaly checks, missing credentials, low confidence.
+
+⚠️ **Token families are mapped by role, not by name.** In this codebase `secondary` is the success/emerald role and `tertiary` is the warning/amber role, in both themes. A source palette that puts emerald in `tertiary` and blue in `secondary` must be re-mapped before it lands here, or the "ผ่านเกณฑ์" chip turns blue while its score ring stays emerald — and score bands own the only saturated non-blue colors in the app.
+
+Three rules govern the dark surfaces:
+- **Glass must be more opaque in the dark.** Surface Level 1 is `rgba(20, 24, 35, 0.68)`, Level 2 `rgba(38, 42, 53, 0.78)`. A dark glass as transparent as the light one lets the background bleed through and text loses contrast.
+- **The two borders do different jobs.** Level 1 keeps a hairline of white light catching the edge (`rgba(255, 255, 255, 0.08)`). Level 2 switches to cyan (`rgba(56, 189, 248, 0.28)`) so a floating or interactive layer announces itself chromatically, not just by shadow.
+- **Depth is luminous, not heavy.** Level 2's shadow pairs a deep drop (`0 16px 48px rgba(0,0,0,0.6)`) with a soft electric flare (`0 0 24px rgba(56,189,248,0.12)`).
+
+The primary button becomes a **Cybernetic Action**: a `135deg` cyan→hyper-blue gradient with obsidian text and a `0 0 16px rgba(56,189,248,0.3)` glow that expands on hover. The secondary glass button trades its neutral hover for a cyan rim.
+
+The `*-fixed` token family (`primary-fixed`, `on-primary-fixed-variant`, `secondary-fixed`, `tertiary-fixed`, …) is deliberately **identical in both themes**, per the Material 3 spec. Tonal buttons and skill chips are built from these pairs, so their contrast is guaranteed without a dark-mode override. Pair a `*-fixed` background only with its own `on-*-fixed-variant` text — mixing it with a theme-switching text token (e.g. `bg-secondary-fixed/60 text-on-secondary-container`) reads as light-on-light in the dark.
+
+Background blobs shift to cyan and emerald at low opacity. The radar chart uses cyan `#38bdf8` against amber `#fbbf24` — the design's own benchmark suggestion of a second blue would collapse against the cyan for colour-vision-deficient users, so amber keeps the pair separable.
 
 ## Shapes
 To complement the glass aesthetic, the design system uses significant rounding. Main containers and cards use a **2xl** (1.5rem / 24px) corner radius. This softness reduces the "industrial" feel of HR software, making the AI interactions feel more organic and less rigid. 

@@ -141,7 +141,7 @@ export default function CandidateCard({
           {matched.slice(0, 4).map((s) => (
             <span
               key={s}
-              className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-secondary-fixed/60 text-on-secondary-container"
+              className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-secondary-fixed text-on-secondary-fixed-variant"
             >
               {s}
             </span>
