@@ -32,5 +32,14 @@ backup_*.sql
 Thumbs.db
 
 # เครื่องมือ/บันทึกส่วนตัว (ไม่ต้องขึ้น GitHub)
-.claude/
+# .claude/ ส่วนใหญ่เป็นของส่วนตัว (เช่น settings.local.json) แต่ skill สามตัวของโปรเจกต์
+# ต้องอยู่ใน git: CLAUDE.md ย้ายรายละเอียดของกราฟ การให้คะแนน และ endpoint ไปไว้ในนั้น
+# ถ้า ignore ทั้งโฟลเดอร์ ความรู้พวกนั้นจะมีอยู่แค่ในเครื่องเดียว
+# (git ดึงไฟล์กลับไม่ได้ถ้าโฟลเดอร์แม่ถูก ignore ทั้งก้อน จึงต้องไล่ปลดทีละชั้น)
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/api-endpoint/
+!.claude/skills/graph-node/
+!.claude/skills/scoring-change/
 PRESENTATION.md
