@@ -12,6 +12,7 @@ import InterviewGuide from "@/components/interview-guide";
 import { InterviewScheduleSummary } from "@/components/interview-schedule";
 import InterviewOutcomeDialog from "@/components/interview-outcome-dialog";
 import RadarChart from "@/components/radar-chart";
+import ScoreBreakdown from "@/components/score-breakdown";
 import SkillGap from "@/components/skill-gap";
 import StageStepper from "@/components/stage-stepper";
 import StatusBadge from "@/components/status-badge";
@@ -286,6 +287,11 @@ export default function CandidateDeepDive() {
                 </h3>
                 <RadarChart gap={c.gap_analysis} />
               </div>
+              {/* คู่กับเรดาร์: เรดาร์บอกว่าทักษะไหนตรง แท่งนี้บอกว่าแปลงเป็นคะแนนยังไง
+                  ไม่มีผลวิเคราะห์ (gap_analysis เป็น null) = ไม่แสดง */}
+              {c.gap_analysis && c.score_breakdown && c.fit_score != null && (
+                <ScoreBreakdown breakdown={c.score_breakdown} fitScore={c.fit_score} />
+              )}
               <SkillGap gap={c.gap_analysis} evidence={c.skill_evidence} />
             </div>
           </div>

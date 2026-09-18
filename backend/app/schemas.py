@@ -85,6 +85,28 @@ class CandidateDeleteOut(BaseModel):
     deleted_thread: bool = False
 
 
+# ---------- องค์ประกอบของ fit score ----------
+# มาจาก agents/nodes/matcher.py::score_breakdown ที่เดียว (สูตรเดียวกับ compute_fit_score)
+# หน้าเว็บแสดงผลตัวเลขเหล่านี้ตรง ๆ ห้ามคำนวณน้ำหนัก 60/40 เองฝั่ง frontend
+class ScoreSide(BaseModel):
+    matched: int
+    total: int
+    # น้ำหนักหลังเฉลี่ยใหม่ เป็นส่วนของ 100 (สองฝั่ง 60/40 · ฝั่งเดียว 100)
+    weight: float
+    points: float
+
+
+class ScoreBreakdown(BaseModel):
+    # None = JD ไม่ได้ระบุทักษะฝั่งนั้น (ไม่ใช่ 0/0 ที่ดูเหมือนเสียคะแนน)
+    required: Optional[ScoreSide] = None
+    preferred: Optional[ScoreSide] = None
+    total: float
+    # JD ไม่มีทักษะให้เทียบเลย → คะแนนถูกบังคับเป็นค่ากลาง ไม่ได้มาจากการเทียบ
+    no_criteria: bool = False
+    # False = คะแนนที่บันทึกไว้คำนวณด้วยสูตรเดิม (รวมแล้วไม่เท่า fit_score) ให้ UI เตือน
+    matches_stored_score: bool = True
+
+
 # ---------- ผลสัมภาษณ์จริง ----------
 # ⚠️ คนละเรื่องกับ hr_decisions.decision: อันนั้นคือคำตัดสินคัดกรอง ("ให้ผ่านไปสัมภาษณ์ไหม")
 # ที่กราฟอ่านไปเลือกเส้นทาง ส่วนอันนี้คือสิ่งที่เกิดขึ้นหลังสัมภาษณ์จริง ซึ่งกราฟไม่เคยเห็น
@@ -162,6 +184,9 @@ class CandidateDetail(CandidateSummary):
     # นัดสัมภาษณ์จาก hiring_stage — None = ยังไม่ได้ตั้ง (หน้า deep dive ซ่อนบล็อกนัด)
     scheduled_at: Optional[datetime] = None
     location: Optional[str] = None
+    # องค์ประกอบคะแนนทีละฝั่ง คำนวณตอนอ่านจาก gap_analysis (ไม่ได้เก็บลง DB)
+    # None = ยังไม่มีผลวิเคราะห์ (gap_analysis เป็น null)
+    score_breakdown: Optional[ScoreBreakdown] = None
 
 
 class CandidateSearchHit(BaseModel):

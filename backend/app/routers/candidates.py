@@ -6,6 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
+from app.agents.nodes.matcher import score_breakdown
 from app.agents.runner import active_candidates, get_graph_status, reserve_candidates
 from app.auth import get_current_user
 from app.database import get_checkpointer, get_conn
@@ -455,4 +456,24 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
             active,
             row["queue_status"],
         ),
+        score_breakdown=_breakdown_for(row["gap_analysis"], row["fit_score"]),
     )
+
+
+def _breakdown_for(gap: dict | None, fit_score: int | None) -> dict | None:
+    """องค์ประกอบคะแนนจาก gap_analysis ที่บันทึกไว้ — ฟังก์ชันบริสุทธิ์ ทดสอบได้ไม่ต้องมี DB.
+
+    เรียก matcher.score_breakdown ซึ่งเป็นสูตรเดียวกับที่ให้คะแนนจริง ไม่ได้คำนวณเองที่นี่
+    · matches_stored_score จับแถวที่คะแนนถูกบันทึกด้วยสูตรเก่า (ก่อนเฉลี่ยน้ำหนักใหม่)
+    ถ้าไม่บอก หน้าเว็บจะโชว์ผลรวมที่ไม่เท่า fit_score บนการ์ดเดียวกันโดยไม่มีคำอธิบาย
+    """
+    if not gap:
+        return None
+    b = score_breakdown(
+        gap.get("matched_required") or [],
+        gap.get("missing_required") or [],
+        gap.get("matched_preferred") or [],
+        gap.get("missing_preferred") or [],
+    )
+    b["matches_stored_score"] = fit_score is not None and round(b["total"]) == fit_score
+    return b

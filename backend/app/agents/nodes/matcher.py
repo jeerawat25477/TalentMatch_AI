@@ -57,6 +57,30 @@ def compute_fit_score(
     ถ้ารันจะเอาบั๊กกลับมาทับคะแนนที่ถูกต้อง) — ห้ามคำนวณคะแนนที่อื่นอีก
 
     ตัวหารคือจำนวนทักษะ "จริง" หลังกรองคำที่ไม่ใช่ทักษะออกแล้ว (เช่น "product owners")
+
+    คำนวณผ่าน score_breakdown ซึ่งเป็นที่เดียวที่มีน้ำหนักและการเฉลี่ยใหม่ — ที่นี่แค่ปัดเศษ
+    """
+    return round(score_breakdown(matched_req, missing_req, matched_pref, missing_pref)["total"])
+
+
+def score_breakdown(
+    matched_req: list[str],
+    missing_req: list[str],
+    matched_pref: list[str],
+    missing_pref: list[str],
+) -> dict:
+    """องค์ประกอบของ fit score ทีละฝั่ง — ที่มาของทั้งคะแนนและแท่งบนหน้ารายละเอียด.
+
+    หน้าเว็บแสดง "ฝั่งไหนได้กี่คะแนน" จากผลของฟังก์ชันนี้ตรง ๆ โดยไม่มีสูตรของตัวเอง
+    ถ้าให้ frontend คูณ 60/40 เอง จะเกิดสำเนาสูตรชุดที่สองแบบเดียวกับที่
+    scripts/recompute_scores.py เคยหลุดไม่ตรงกันมาแล้ว
+
+    คืน:
+      required / preferred : {matched, total, weight, points} หรือ None ถ้า JD ไม่ระบุฝั่งนั้น
+                             (None ไม่ใช่ 0/0 — ฝั่งที่ว่างต้องไม่ดูเหมือนผู้สมัครเสียคะแนน)
+                             weight คือน้ำหนักหลังเฉลี่ยใหม่เป็นส่วนของ 100 จึงรวมกันได้ 100 เสมอ
+      total                : ผลรวม points (ยังไม่ปัด) หรือ REVIEW_FROM ถ้าไม่มีเกณฑ์เลย
+      no_criteria          : JD ไม่มีทักษะให้เทียบทั้งสองฝั่ง
     """
     n_req = len(matched_req) + len(missing_req)
     n_pref = len(matched_pref) + len(missing_pref)
@@ -65,7 +89,7 @@ def compute_fit_score(
         # JD ไม่มีทักษะให้เทียบเลย (LLM วิเคราะห์ล้มเหลว หรือสกัดได้แต่ชื่อบทบาท) —
         # สูตรปกติจะให้ 100 ทุกคน แล้ว router จะ auto-advance ไปเชิญสัมภาษณ์ยกแผง
         # จึงบังคับให้ตกแบนด์ "รอ HR" เพื่อให้มนุษย์ตัดสินแทนการเดา
-        return REVIEW_FROM
+        return {"required": None, "preferred": None, "total": REVIEW_FROM, "no_criteria": True}
 
     # เฉลี่ยน้ำหนักใหม่ตามฝั่งที่ JD ระบุจริง: 60/40 คือความสำคัญ "เชิงเปรียบเทียบ"
     # ซึ่งมีความหมายก็ต่อเมื่อมีทั้งสองฝั่ง
@@ -74,12 +98,23 @@ def compute_fit_score(
     # และไม่มีทางอธิบายให้สมเหตุสมผลได้ เพราะคะแนนนั้นไม่ควรมีตั้งแต่แรก
     w_req = REQUIRED_WEIGHT if n_req else 0
     w_pref = PREFERRED_WEIGHT if n_pref else 0
-    earned = 0.0
-    if n_req:
-        earned += w_req * len(matched_req) / n_req
-    if n_pref:
-        earned += w_pref * len(matched_pref) / n_pref
-    return round(100 * earned / (w_req + w_pref))
+    scale = 100 / (w_req + w_pref)
+
+    def side(matched: list[str], n: int, w: int) -> dict | None:
+        if not n:
+            return None
+        weight = w * scale
+        return {
+            "matched": len(matched),
+            "total": n,
+            "weight": weight,
+            "points": weight * len(matched) / n,
+        }
+
+    required = side(matched_req, n_req, w_req)
+    preferred = side(matched_pref, n_pref, w_pref)
+    total = sum(s["points"] for s in (required, preferred) if s)
+    return {"required": required, "preferred": preferred, "total": total, "no_criteria": False}
 
 
 def match_candidates(state: HRSystemState) -> dict:

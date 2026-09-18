@@ -157,6 +157,28 @@ export interface GapAnalysis {
   missing_preferred: string[];
 }
 
+// มิเรอร์ ScoreSide / ScoreBreakdown ใน backend/app/schemas.py
+// ⚠️ ตัวเลขทุกตัวมาจาก backend (matcher.py::score_breakdown สูตรเดียวกับ fit_score)
+// ห้ามคำนวณน้ำหนัก 60/40 เองที่ frontend — สำเนาสูตรคือสิ่งที่เคยหลุดไม่ตรงกันมาแล้ว
+export interface ScoreSide {
+  matched: number;
+  total: number;
+  /** น้ำหนักหลังเฉลี่ยใหม่ เป็นส่วนของ 100 (สองฝั่ง 60/40 · ฝั่งเดียว 100) */
+  weight: number;
+  points: number;
+}
+
+export interface ScoreBreakdown {
+  /** null = JD ไม่ได้ระบุทักษะฝั่งนี้ */
+  required: ScoreSide | null;
+  preferred: ScoreSide | null;
+  total: number;
+  /** JD ไม่มีทักษะให้เทียบเลย คะแนนถูกบังคับเป็นค่ากลาง */
+  no_criteria: boolean;
+  /** false = คะแนนที่บันทึกไว้คำนวณด้วยสูตรเดิม */
+  matches_stored_score: boolean;
+}
+
 export interface InterviewQuestion {
   question: string;
   expected_answer: string;
@@ -342,6 +364,8 @@ export interface CandidateDetail extends CandidateSummary {
   /** วันเวลานัดสัมภาษณ์จาก hiring_stage — null = ยังไม่ได้ตั้ง */
   scheduled_at: string | null;
   location: string | null;
+  /** องค์ประกอบคะแนนทีละฝั่ง — null = ยังไม่มีผลวิเคราะห์ */
+  score_breakdown: ScoreBreakdown | null;
 }
 
 export type Decision = "approved" | "rejected";
