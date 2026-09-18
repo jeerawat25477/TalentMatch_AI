@@ -99,3 +99,8 @@ resume text เข้า LLM (`resume_parser`, `bias_auditor`, `planner`, `draft
 5. [ ] **Non-root container** + resource limits
 6. [ ] **จำกัดจำนวนหน้า/เวลาแกะ PDF** (decompression bomb)
 7. [ ] **Audit log ถาวร** — ตอนนี้ log ไป stdout เท่านั้น (login สำเร็จ/ส่งอีเมล log แล้ว แต่ไม่ persist)
+8. [ ] **Supabase RLS / Data API** — ทุกตารางอยู่ใน `public` และยังไม่เปิด RLS ถ้า Data API เปิด
+   คนที่มี anon key อาจอ่านเรซูเม่และ `users` ได้ · รายละเอียด [05_database.md](05_database.md) ข้อ 1
+9. [ ] **รหัสผ่าน DB** — ยังเป็น `talentmatch/talentmatch` ใน `docker-compose.yml` · [05_database.md](05_database.md) ข้อ 3
+10. [ ] **Backup อัตโนมัตินอกเครื่อง + อายุ backup** — ตอนนี้มีแค่ `pg_dump` ด้วยมือในเครื่องเดียวกัน
+    ไม่เข้ารหัส และยังเก็บข้อมูลคนที่ถูกลบไปแล้ว (PDPA) · [05_database.md](05_database.md) ข้อ 10, 11
