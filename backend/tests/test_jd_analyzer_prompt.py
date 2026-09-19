@@ -171,6 +171,22 @@ def test_or_only_affects_its_own_clause():
     assert r.preferred_skills == ["Docker", "Podman"]
 
 
+def test_and_before_an_or_group_keeps_the_must_item():
+    line = "Python and PyTorch, TensorFlow, or Hugging Face"
+    r = to_requirement(ex(*(item(n, line=line) for n in ("Python", "PyTorch", "TensorFlow", "Hugging Face"))))
+    assert r.required_skills == ["Python"]
+    assert r.preferred_skills == ["PyTorch", "TensorFlow", "Hugging Face"]
+
+
+def test_thai_and_splits_clauses_but_and_or_does_not():
+    th = "ใช้ Git และ Docker หรือ Podman"
+    r = to_requirement(ex(*(item(n, line=th) for n in ("Git", "Docker", "Podman"))))
+    assert r.required_skills == ["Git"] and r.preferred_skills == ["Docker", "Podman"]
+    en = "Java and/or Kotlin"
+    r = to_requirement(ex(item("Java", line=en), item("Kotlin", line=en)))
+    assert r.required_skills == [] and r.preferred_skills == ["Java", "Kotlin"]
+
+
 def test_or_check_does_not_split_dotted_names():
     """จุดใน "Next.js" ไม่ใช่จุดจบประโยค."""
     line = "React or Next.js"

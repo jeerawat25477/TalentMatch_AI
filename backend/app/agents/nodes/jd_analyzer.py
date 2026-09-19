@@ -12,7 +12,7 @@ gemini-2.5-flash-lite ทำตามกติกายาว ๆ ได้ไ�
 """
 import re
 
-from app.agents.llm import structured_invoke
+from app.agents.llm import structured_invoke, structured_invoke_once
 from app.agents.models import JDExtraction, JobRequirement
 from app.agents.skills import canonical, is_skill
 from app.agents.state import HRSystemState
@@ -76,7 +76,9 @@ _LISTED = {"example", "one_of"}
 # จึงเทียบเป็น substring
 _OR = re.compile(r"\bor\b|หรือ|อย่างใดอย่างหนึ่ง", re.IGNORECASE)
 # แบ่งบรรทัดเป็นท่อน ๆ ให้ "or" มีผลแค่ในท่อนของมัน — จุดต้องตามด้วยช่องว่าง ไม่งั้น "Next.js" ถูกหั่น
-_CLAUSE = re.compile(r"\.\s|;|\n")
+# แบ่งที่ "and"/"และ" ด้วย: "Python and PyTorch, TensorFlow, or Hugging Face" → Python ต้องยังเป็น
+# ข้อบังคับ (ไม่แบ่งที่ "and/or" ซึ่งแปลว่าเป็นตัวเลือก)
+_CLAUSE = re.compile(r"\.\s|;|\n|\band\b(?!/)|และ", re.IGNORECASE)
 
 
 def _mentions(clause: str, name: str) -> bool:
@@ -237,9 +239,13 @@ def to_requirement(ex: JDExtraction, raw_jd: str | None = None) -> JobRequiremen
     )
 
 
-def extract_jd(raw_jd: str) -> tuple[JobRequirement, JDExtraction]:
-    """เรียก LLM หนึ่งครั้ง คืนทั้งผลที่จัดฝั่งแล้วและป้ายดิบ (create_job เก็บป้ายลง jobs.jd_extraction)."""
-    ex = structured_invoke(PROMPT.format(raw_jd=raw_jd), JDExtraction)
+def extract_jd(raw_jd: str, once: bool = False) -> tuple[JobRequirement, JDExtraction]:
+    """เรียก LLM หนึ่งครั้ง คืนทั้งผลที่จัดฝั่งแล้วและป้ายดิบ (create_job เก็บป้ายลง jobs.jd_extraction).
+
+    once=True = ไม่ retry — ใช้กับปุ่มที่ HR นั่งรอหน้าจอ (อ่านประกาศใหม่) ให้รู้ผลเร็วถ้าล้ม
+    """
+    invoke = structured_invoke_once if once else structured_invoke
+    ex = invoke(PROMPT.format(raw_jd=raw_jd), JDExtraction)
     return to_requirement(ex, raw_jd), ex
 
 

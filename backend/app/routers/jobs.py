@@ -6,6 +6,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from psycopg.types.json import Json
 
+from app.agents.llm import DEFAULT_MODEL
 from app.agents.nodes.jd_analyzer import extract_jd
 from app.agents.nodes.jd_reviewer import review_jd
 from app.agents.runner import active_candidates
@@ -15,6 +16,7 @@ from app.rate_limit import hit_and_check, retry_after_sec
 from app.database import get_checkpointer, get_conn
 from app.criteria_edit import criteria_warnings, normalize_criteria, rescore_job
 from app.job_queue import PENDING_STATUSES
+from app.llm_quota import has_room, used_today
 from app.schemas import (
     CriteriaIn,
     CriteriaPreviewOut,
@@ -221,7 +223,12 @@ def _save_criteria(job_id: str, payload: CriteriaIn, reset: bool = False) -> Cri
                 ),
             )
         result = _preview(conn, job_id, payload, apply=True)
-        current = dict(job["parsed_criteria"] or {})
+        # parsed_criteria เป็น NULL ได้ (AI อ่านไม่สำเร็จตอนสร้าง) — เติมจากผลอ่านใหม่ถ้ามี
+        # แล้วเติมค่าตั้งต้นของฟิลด์อื่นให้ครบรูป JobRequirement ที่กราฟและหน้าเว็บคาดหวัง
+        current = dict(job["parsed_criteria"] or job["ai_criteria"] or {})
+        current.setdefault("job_title", job["title"])
+        current.setdefault("min_experience_years", 0)
+        current.setdefault("education", "")
         # เก็บของที่ AI ดึงไว้ครั้งแรกเท่านั้น — แก้รอบที่สองต้องไม่ทับด้วยฉบับของ HR
         # ⚠️ ต้องเป็นสำเนาแยก ไม่ใช่ `or current` ตรง ๆ: ถ้าเป็น dict ตัวเดียวกัน บรรทัดถัดไป
         # ที่แก้ current จะเขียนทับของ AI ไปด้วย แล้วปุ่มคืนค่าจะคืนฉบับของ HR (เทสจับได้)
@@ -272,6 +279,65 @@ def reset_criteria(job_id: str) -> CriteriaSaveOut:
         ),
         reset=True,
     )
+
+
+# เพดานการกด "ให้ AI อ่านประกาศใหม่" ต่อผู้ใช้ต่อนาที — กันกดรัวจนเปลืองโควตา ไม่ใช่กันโจมตี
+REANALYZE_MAX_PER_MIN = int(os.getenv("REANALYZE_MAX_PER_MIN", "5"))
+_reanalyze_hits: dict[str, list[float]] = {}
+# ต้องผ่าน CriteriaIn เหมือนที่ HR พิมพ์เอง — ประกาศยาวอาจให้รายการยาวกว่าเพดานของ schema
+_MAX_SKILLS, _MAX_SKILL_CHARS = 50, 100
+
+
+@router.post("/{job_id}/criteria/reanalyze", response_model=CriteriaPreviewOut)
+def reanalyze_criteria(job_id: str, user: str = Depends(get_current_user)) -> CriteriaPreviewOut:
+    """ให้ jd_analyzer อ่านประกาศของตำแหน่งนี้ใหม่ แล้วคืนผลแบบพรีวิว — **ไม่แตะคะแนนและเกณฑ์ที่ใช้อยู่**.
+
+    สำหรับตำแหน่งที่สร้างก่อน jd_analyzer แบบติดป้าย (memory-bank/06) หรือที่ AI อ่านไม่สำเร็จ
+    ตอนสร้าง · HR ตรวจผลในหน้าต่างแก้เกณฑ์ แล้วกดบันทึกผ่าน PUT /criteria เหมือนแก้เอง
+    ผู้สมัครเดิม คำตัดสิน และอีเมลที่ส่งแล้วจึงอยู่ครบ ต่างจากการลบตำแหน่งแล้วสร้างใหม่
+
+    บันทึกทันที (ผู้ใช้ตัดสิน 2026-09-19) เฉพาะสองคอลัมน์ที่ไม่ใช่เกณฑ์ที่ใช้คิดคะแนน:
+    - jd_extraction = ป้ายชุดใหม่ ไว้ให้ทางแก้ข้อ 3
+    - ai_criteria   = ผลอ่านล่าสุด ให้ "คืนค่าตามที่ AI ดึง" คืนผลนี้ ไม่ใช่ผลเก่าที่อ่านผิด
+
+    ใช้ 1 chat call · ไม่ retry เพราะ HR นั่งรอ · 429 เมื่อกดถี่หรือโควตาวันนี้เต็ม · 502 เมื่อ AI ล้ม
+    """
+    with get_conn() as conn:
+        job = _load_job_for_criteria(conn, job_id)
+
+    now = time.time()
+    if not hit_and_check(_reanalyze_hits, user, now, REANALYZE_MAX_PER_MIN, _JD_REVIEW_WINDOW_SEC):
+        wait = retry_after_sec(_reanalyze_hits, user, now, _JD_REVIEW_WINDOW_SEC)
+        raise HTTPException(
+            status_code=429,
+            detail=f"ให้ AI อ่านประกาศใหม่ได้ไม่เกิน {REANALYZE_MAX_PER_MIN} ครั้งต่อนาที — ลองใหม่ในอีก {wait} วินาที",
+        )
+    if not has_room(used_today(DEFAULT_MODEL), 1):
+        raise HTTPException(
+            status_code=429,
+            detail="โควตา AI ของวันนี้เต็มแล้ว — ลองใหม่พรุ่งนี้ หรือแก้เกณฑ์เองในหน้าต่างนี้ได้เลย",
+        )
+
+    try:
+        requirement, labels = extract_jd(job["raw_text"], once=True)
+    except Exception as exc:  # noqa: BLE001 — โควตา/เครือข่าย/คำตอบผิดรูป ไม่ควรเป็น 500 เปล่า ๆ
+        log.exception("อ่านประกาศใหม่ไม่สำเร็จ job=%s: %s", job_id, exc)
+        raise HTTPException(status_code=502, detail="AI อ่านประกาศไม่สำเร็จ ลองใหม่อีกครั้ง") from exc
+
+    payload = CriteriaIn(
+        required_skills=[s[:_MAX_SKILL_CHARS] for s in requirement.required_skills[:_MAX_SKILLS]],
+        preferred_skills=[s[:_MAX_SKILL_CHARS] for s in requirement.preferred_skills[:_MAX_SKILLS]],
+    )
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET jd_extraction = %s, ai_criteria = %s WHERE id = %s",
+            (Json(labels.model_dump()), Json(requirement.model_dump()), job_id),
+        )
+        result = _preview(conn, job_id, payload, apply=False)
+        conn.commit()
+    log.info("AI อ่านประกาศใหม่ job=%s — ต้องมี %s ข้อ อยากได้ %s ข้อ", job_id,
+             len(result["required_skills"]), len(result["preferred_skills"]))
+    return CriteriaPreviewOut(**result)
 
 
 @router.patch("/{job_id}", response_model=JobOut)

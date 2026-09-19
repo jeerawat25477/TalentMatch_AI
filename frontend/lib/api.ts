@@ -89,7 +89,7 @@ export const listJobs = () => request<JobListItem[]>("/api/v1/jobs");
 export const getJob = (jobId: string) => request<Job>(`/api/v1/jobs/${jobId}`);
 
 // ---------- HR แก้เกณฑ์ทักษะ (ไม่เรียก AI · คำนวณคะแนนคนเดิมใหม่ที่ backend) ----------
-// พรีวิวไม่เขียนอะไร · บันทึก/คืนค่าได้ 409 ถ้ามีผู้สมัครของตำแหน่งนี้กำลังวิเคราะห์หรือรอคิว
+// พรีวิวไม่เขียนอะไร · บันทึกได้ 409 ถ้ามีผู้สมัครของตำแหน่งนี้กำลังวิเคราะห์หรือรอคิว
 export const previewCriteria = (jobId: string, data: CriteriaIn) =>
   request<CriteriaPreview>(`/api/v1/jobs/${jobId}/criteria/preview`, {
     method: "POST",
@@ -104,8 +104,9 @@ export const saveCriteria = (jobId: string, data: CriteriaIn) =>
     body: JSON.stringify(data),
   });
 
-export const resetCriteria = (jobId: string) =>
-  request<CriteriaSaveResult>(`/api/v1/jobs/${jobId}/criteria/reset`, { method: "POST" });
+/** ให้ AI อ่านประกาศใหม่ — คืนผลแบบพรีวิว ยังไม่บันทึกเกณฑ์ (ใช้ 1 call) */
+export const reanalyzeCriteria = (jobId: string) =>
+  request<CriteriaPreview>(`/api/v1/jobs/${jobId}/criteria/reanalyze`, { method: "POST" });
 
 export const createJob = (rawText: string) =>
   request<Job>("/api/v1/jobs", {

@@ -323,6 +323,122 @@ class TestSave:
         assert client.post(f"/api/v1/jobs/{jid}/criteria/reset").status_code == 409
 
 
+# ---------- ให้ AI อ่านประกาศใหม่ (POST /criteria/reanalyze) ----------
+
+
+def _labels(*pairs):
+    """JDExtraction ปลอม — (ชื่อ, necessity) · ทุกคำเป็น technology ในส่วนคุณสมบัติ."""
+    from app.agents.models import JDExtraction, JDSkillItem
+
+    return JDExtraction(job_title="AI Engineer", min_experience_years=2, education="ป.ตรี", items=[
+        JDSkillItem(source_line=n, name=n, kind="technology", necessity=nec, section="qualifications")
+        for n, nec in pairs
+    ])
+
+
+@pytest.fixture
+def reanalyze(monkeypatch):
+    """ให้ AI ตอบ Python บังคับ + PyTorch/TensorFlow/Hugging Face เป็นตัวเลือก · ล้างเพดานการกด."""
+    from app.routers import jobs as jobs_router
+
+    monkeypatch.setattr(jobs_router, "_reanalyze_hits", {})
+    monkeypatch.setattr(jobs_router, "used_today", lambda model: 0)
+    calls = []
+
+    def fake(prompt, schema):
+        calls.append(prompt)
+        return _labels(("Python", "must"), ("PyTorch", "one_of"), ("TensorFlow", "one_of"),
+                       ("Hugging Face", "one_of"))
+
+    monkeypatch.setattr(jd_analyzer, "structured_invoke_once", fake)
+    monkeypatch.setattr(jd_analyzer, "structured_invoke",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("ปุ่มที่คนรอต้องไม่ retry")))
+    return calls
+
+
+class TestReanalyze:
+    def test_คืนผลใหม่พร้อมผลกระทบ_โดยไม่แตะคะแนนและเกณฑ์ที่ใช้อยู่(self, client, job, reanalyze):
+        jid, (strong, _) = job
+        before = _eval(strong)
+        res = client.post(f"/api/v1/jobs/{jid}/criteria/reanalyze")
+        assert res.status_code == 200, res.text
+        body = res.json()
+        assert body["required_skills"] == ["Python"]
+        assert body["preferred_skills"] == ["PyTorch", "TensorFlow", "Hugging Face"]
+        # คนที่รู้ Python + PyTorch: เดิมตรง 2 จาก 5 ข้อบังคับ ตอนนี้บังคับครบ
+        impact = {i["candidate_id"]: i for i in body["impact"]}
+        assert impact[strong]["new_score"] > impact[strong]["old_score"]
+        assert len(reanalyze) == 1 and "PyTorch, TensorFlow, or Hugging Face" in reanalyze[0]
+        after, j = _eval(strong), _job(jid)
+        assert after["fit_score"] == before["fit_score"] and after["rescored_at"] is None
+        assert j["parsed_criteria"] == AI_CRITERIA and j["criteria_edited_at"] is None
+
+    def test_เก็บป้ายและผลอ่านล่าสุด_ให้ปุ่มคืนค่าใช้ผลใหม่(self, client, job, reanalyze):
+        jid, _ = job
+        client.post(f"/api/v1/jobs/{jid}/criteria/reanalyze")
+        with get_conn() as conn:
+            row = conn.execute("SELECT jd_extraction, ai_criteria FROM jobs WHERE id = %s", (jid,)).fetchone()
+        assert [i["necessity"] for i in row["jd_extraction"]["items"]] == ["must", "one_of", "one_of", "one_of"]
+        assert row["ai_criteria"]["required_skills"] == ["Python"]
+        # HR แก้เองหลังจากนั้น แล้วกดคืนค่า → ได้ผลอ่านล่าสุด ไม่ใช่ 5 ข้อบังคับเดิม
+        client.put(f"/api/v1/jobs/{jid}/criteria", json={"required_skills": ["Go"], "preferred_skills": []})
+        res = client.post(f"/api/v1/jobs/{jid}/criteria/reset")
+        assert res.json()["job"]["parsed_criteria"]["required_skills"] == ["Python"]
+
+    def test_บันทึกหลังอ่านใหม่แล้วคะแนนเปลี่ยนตาม(self, client, job, reanalyze):
+        jid, (strong, _) = job
+        body = client.post(f"/api/v1/jobs/{jid}/criteria/reanalyze").json()
+        client.put(f"/api/v1/jobs/{jid}/criteria", json={
+            "required_skills": body["required_skills"], "preferred_skills": body["preferred_skills"]})
+        new = {i["candidate_id"]: i["new_score"] for i in body["impact"]}
+        assert _eval(strong)["fit_score"] == new[strong]
+
+    def test_ไม่พบตำแหน่ง(self, client, reanalyze):
+        assert client.post(
+            "/api/v1/jobs/00000000-0000-0000-0000-000000000000/criteria/reanalyze").status_code == 404
+        assert reanalyze == []
+
+    def test_กดถี่เกินได้_429_และไม่เรียก_AI(self, client, job, reanalyze, monkeypatch):
+        from app.routers import jobs as jobs_router
+
+        monkeypatch.setattr(jobs_router, "REANALYZE_MAX_PER_MIN", 1)
+        jid, _ = job
+        assert client.post(f"/api/v1/jobs/{jid}/criteria/reanalyze").status_code == 200
+        res = client.post(f"/api/v1/jobs/{jid}/criteria/reanalyze")
+        assert res.status_code == 429 and "ครั้งต่อนาที" in res.json()["detail"]
+        assert len(reanalyze) == 1
+
+    def test_โควตาเต็มได้_429_และไม่เรียก_AI(self, client, job, reanalyze, monkeypatch):
+        from app.routers import jobs as jobs_router
+
+        monkeypatch.setattr(jobs_router, "used_today", lambda model: 10**9)
+        monkeypatch.setattr(jobs_router, "has_room", lambda used, cost: False)
+        jid, _ = job
+        res = client.post(f"/api/v1/jobs/{jid}/criteria/reanalyze")
+        assert res.status_code == 429 and "โควตา" in res.json()["detail"]
+        assert reanalyze == []
+
+    def test_AI_ล้มได้_502_และไม่แตะอะไร(self, client, job, reanalyze, monkeypatch):
+        monkeypatch.setattr(jd_analyzer, "structured_invoke_once",
+                            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("429 quota")))
+        jid, _ = job
+        res = client.post(f"/api/v1/jobs/{jid}/criteria/reanalyze")
+        assert res.status_code == 502
+        assert _job(jid)["ai_criteria"] is None
+
+    def test_ตำแหน่งที่ไม่มีเกณฑ์_บันทึกได้และได้รูปเกณฑ์ครบ(self, client, job):
+        jid, _ = job
+        with get_conn() as conn:
+            conn.execute("UPDATE jobs SET parsed_criteria = NULL WHERE id = %s", (jid,))
+            conn.commit()
+        res = client.put(f"/api/v1/jobs/{jid}/criteria",
+                         json={"required_skills": ["Python"], "preferred_skills": []})
+        assert res.status_code == 200, res.text
+        c = res.json()["job"]["parsed_criteria"]
+        assert c["required_skills"] == ["Python"]
+        assert c["min_experience_years"] == 0 and c["education"] == "" and c["job_title"]
+
+
 # ---------- กราฟใช้เกณฑ์ใหม่เมื่อ HR ตัดสินทีหลัง ----------
 
 

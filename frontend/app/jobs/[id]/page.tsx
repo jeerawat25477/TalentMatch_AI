@@ -141,8 +141,8 @@ export default function JobDashboard() {
           อยู่ในหน้านี้เท่านั้น ไม่ขึ้นกระดาน */}
       <JobTabs jobId={id} />
 
-      {/* เกณฑ์จาก JD */}
-      {criteria && (
+      {/* เกณฑ์จาก JD — แสดงแม้ AI อ่านไม่สำเร็จตอนสร้าง (criteria เป็น null) ไม่งั้น HR ไม่มีทางแก้ */}
+      {job && (
         <div className="glass-card rounded-2xl p-md">
           <div className="flex items-start justify-between gap-xs flex-wrap mb-xs">
             <div>
@@ -150,13 +150,16 @@ export default function JobDashboard() {
                 ทักษะที่ใช้ให้คะแนนผู้สมัคร
               </p>
               <p className="text-label-sm text-on-surface-variant">
-                {job?.criteria_edited_at
-                  ? `HR ตรวจและแก้แล้ว เมื่อ ${new Date(job.criteria_edited_at).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })}`
-                  : "AI อ่านจากประกาศงาน ยังไม่มีคนตรวจ — ควรตรวจก่อนเชื่อคะแนน"}
-                {" · "}
-                {criteria.min_experience_years > 0
-                  ? `ต้องมีประสบการณ์อย่างน้อย ${criteria.min_experience_years} ปี`
-                  : "ประกาศไม่ได้กำหนดประสบการณ์"}
+                {!criteria
+                  ? "ยังไม่มีเกณฑ์ — AI อ่านประกาศไม่สำเร็จตอนสร้างตำแหน่ง กด “แก้ไขเกณฑ์” เพื่อกรอกเองหรือให้ AI อ่านใหม่"
+                  : job.criteria_edited_at
+                    ? `HR ตรวจและแก้แล้ว เมื่อ ${new Date(job.criteria_edited_at).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })}`
+                    : "AI อ่านจากประกาศงาน ยังไม่มีคนตรวจ — ควรตรวจก่อนเชื่อคะแนน"}
+                {criteria && " · "}
+                {criteria &&
+                  ((criteria.min_experience_years ?? 0) > 0
+                    ? `ต้องมีประสบการณ์อย่างน้อย ${criteria.min_experience_years} ปี`
+                    : "ประกาศไม่ได้กำหนดประสบการณ์")}
               </p>
             </div>
             <button
@@ -168,7 +171,7 @@ export default function JobDashboard() {
               แก้ไขเกณฑ์
             </button>
           </div>
-          {job?.criteria_warnings?.map((w) => (
+          {job.criteria_warnings?.map((w) => (
             <div
               key={w}
               role="note"
@@ -186,7 +189,7 @@ export default function JobDashboard() {
             </div>
           ))}
           <div className="flex flex-wrap gap-base">
-            {criteria.required_skills?.map((s) => (
+            {criteria?.required_skills?.map((s) => (
               <span
                 key={s}
                 className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-primary-fixed text-on-primary-fixed-variant"
@@ -194,7 +197,7 @@ export default function JobDashboard() {
                 {s}
               </span>
             ))}
-            {criteria.preferred_skills?.map((s) => (
+            {criteria?.preferred_skills?.map((s) => (
               <span
                 key={s}
                 className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-glass/60 border border-outline/40 text-on-surface-variant"
@@ -216,6 +219,7 @@ export default function JobDashboard() {
             setEditingCriteria(false);
           }}
           onClose={() => setEditingCriteria(false)}
+          onReanalyzed={() => mutateJob()}
         />
       )}
 

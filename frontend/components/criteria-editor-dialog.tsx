@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { previewCriteria, resetCriteria, saveCriteria } from "@/lib/api";
+import { previewCriteria, reanalyzeCriteria, saveCriteria } from "@/lib/api";
 import { BANDS } from "@/lib/types";
 import type { CriteriaPreview, CriteriaSaveResult, Job } from "@/lib/types";
 
@@ -41,10 +41,13 @@ export default function CriteriaEditorDialog({
   job,
   onSaved,
   onClose,
+  onReanalyzed,
 }: {
   job: Job;
   onSaved: (result: CriteriaSaveResult) => void;
   onClose: () => void;
+  /** AI อ่านประกาศใหม่แล้ว — backend บันทึก ai_criteria ใหม่ หน้าแม่ควรดึง job ใหม่ */
+  onReanalyzed?: () => void;
 }) {
   const [lists, setLists] = useState<Record<Side, string[]>>({
     required: job.parsed_criteria?.required_skills ?? [],
@@ -54,7 +57,9 @@ export default function CriteriaEditorDialog({
   const [preview, setPreview] = useState<CriteriaPreview | null>(null);
   // รายการที่พรีวิวไว้ล่าสุด — แก้รายการหลังพรีวิวแล้วต้องพรีวิวใหม่ก่อนบันทึก
   const [previewedFor, setPreviewedFor] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"preview" | "save" | "reset" | null>(null);
+  const [busy, setBusy] = useState<"preview" | "save" | "reanalyze" | null>(null);
+  // รายการในหน้าต่างมาจากการให้ AI อ่านใหม่ และยังไม่ได้บันทึก — ให้ HR รู้ว่ายังต้องกดบันทึก
+  const [reanalyzed, setReanalyzed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [auto, setAuto] = useState(true);
 
@@ -109,7 +114,10 @@ export default function CriteriaEditorDialog({
     }));
   }
 
-  async function run<T>(kind: "preview" | "save" | "reset", fn: () => Promise<T>): Promise<T | null> {
+  async function run<T>(
+    kind: "preview" | "save" | "reanalyze",
+    fn: () => Promise<T>,
+  ): Promise<T | null> {
     setBusy(kind);
     setError(null);
     try {
@@ -175,10 +183,16 @@ export default function CriteriaEditorDialog({
     if (r) onSaved(r);
   }
 
-  async function doReset() {
-    if (!confirm("คืนรายการทักษะตามที่ AI ดึงไว้ตอนสร้างตำแหน่ง แล้วคำนวณคะแนนทุกคนใหม่?")) return;
-    const r = await run("reset", () => resetCriteria(job.id));
-    if (r) onSaved(r);
+  async function doReanalyze() {
+    const r = await run("reanalyze", () => reanalyzeCriteria(job.id));
+    if (!r) return;
+    // ผลที่ได้มาพร้อมผลกระทบแล้ว — ตั้งเป็นพรีวิวของรายการนี้ได้เลย ไม่ต้องยิงพรีวิวซ้ำ
+    const next = { required: r.required_skills, preferred: r.preferred_skills };
+    setLists(next);
+    setPreview(r);
+    setPreviewedFor(JSON.stringify(next));
+    setReanalyzed(true);
+    onReanalyzed?.();
   }
 
   const changed = preview?.impact.filter((i) => i.old_score !== i.new_score) ?? [];
@@ -381,6 +395,19 @@ export default function CriteriaEditorDialog({
           </section>
         )}
 
+        {reanalyzed && (
+          <p
+            role="status"
+            className="flex gap-base items-start p-xs rounded-lg border border-primary/40 bg-primary-container/10 text-label-md text-on-surface"
+          >
+            <span className="material-symbols-outlined text-primary text-[18px] flex-none">
+              auto_awesome
+            </span>
+            AI อ่านประกาศใหม่แล้ว ยังไม่ได้บันทึก — ตรวจรายการและผลกระทบ แล้วกด
+            &ldquo;บันทึกและคำนวณใหม่&rdquo; หรือปิดหน้าต่างถ้าไม่ต้องการ
+          </p>
+        )}
+
         {error && (
           <p className="text-error text-label-md" role="alert">
             {error}
@@ -388,16 +415,18 @@ export default function CriteriaEditorDialog({
         )}
 
         <div className="flex flex-wrap items-center justify-end gap-xs pt-xs">
-          {job.ai_criteria && (
+          <div className="flex flex-wrap gap-xs me-auto">
             <button
               type="button"
-              className="btn-secondary-glass me-auto"
-              onClick={doReset}
+              className="btn-secondary-glass inline-flex items-center gap-1.5"
+              onClick={doReanalyze}
               disabled={!!busy}
+              title="อ่านประกาศของตำแหน่งนี้ใหม่ด้วยวิธีล่าสุด (ใช้ AI 1 ครั้ง) — ยังไม่บันทึกจนกว่าจะกดบันทึก"
             >
-              คืนค่าตามที่ AI ดึง
+              <span className="material-symbols-outlined text-[16px]">auto_awesome</span>
+              {busy === "reanalyze" ? "AI กำลังอ่านประกาศ…" : "ให้ AI อ่านประกาศใหม่"}
             </button>
-          )}
+          </div>
           <button type="button" className="btn-secondary-glass" onClick={onClose} disabled={!!busy}>
             ปิด
           </button>
