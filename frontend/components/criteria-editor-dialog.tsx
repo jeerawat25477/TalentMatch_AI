@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { previewCriteria, resetCriteria, saveCriteria } from "@/lib/api";
 import { BANDS } from "@/lib/types";
 import type { CriteriaPreview, CriteriaSaveResult, Job } from "@/lib/types";
 
 type Side = "required" | "preferred";
+
+// จำว่า HR เปิดหรือปิดการอัปเดตผลกระทบอัตโนมัติไว้ — เป็นความสะดวกต่อเครื่อง ไม่ใช่ข้อมูลสำคัญ
+const AUTO_PREVIEW_KEY = "tm-criteria-auto-preview";
+// รอให้หยุดกดสักครู่ก่อนยิง ลบ/ย้ายชิปติดกันหลายตัวจะได้เรียก backend ครั้งเดียว
+const AUTO_PREVIEW_DELAY_MS = 400;
 
 const SIDE_LABEL: Record<Side, string> = {
   required: "ทักษะที่ต้องมี",
@@ -27,7 +32,8 @@ function splitInput(text: string): string[] {
  * ที่มา: AI ดึง "A, B, or C" เป็นข้อบังคับทุกตัว และเอาหน้าที่งานมาเป็นทักษะ คะแนนของทุกคน
  * จึงต่ำเกินจริง (memory-bank/06_scoring_criteria.md)
  *
- * ต้องกด "ดูผลกระทบ" กับรายการปัจจุบันก่อนถึงบันทึกได้ — บันทึกแล้วคะแนนของผู้สมัครเดิม
+ * ต้องมีผลกระทบของรายการปัจจุบันก่อนถึงบันทึกได้ (โหมดอัตโนมัติคำนวณให้ทุกครั้งที่แก้
+ * โหมดปิดต้องกด "ดูผลกระทบ" เอง) พรีวิวไม่เรียก AI จึงยิงบ่อยได้โดยไม่เสียโควตา — บันทึกแล้วคะแนนของผู้สมัครเดิม
  * ถูกคำนวณใหม่ทันที HR จึงควรเห็นก่อนว่าใครจะเปลี่ยนไปอย่างไร · คะแนนทุกตัวในตารางมาจาก
  * backend (สูตรเดียวกับกราฟ) ที่นี่ไม่คำนวณเอง
  */
@@ -50,9 +56,30 @@ export default function CriteriaEditorDialog({
   const [previewedFor, setPreviewedFor] = useState<string | null>(null);
   const [busy, setBusy] = useState<"preview" | "save" | "reset" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [auto, setAuto] = useState(true);
 
   const current = JSON.stringify(lists);
   const previewFresh = preview !== null && previewedFor === current;
+  // รายการล่าสุดที่ผู้ใช้เห็น ใช้ทิ้งผลพรีวิวที่กลับมาช้ากว่าการแก้ครั้งถัดไป
+  const currentRef = useRef(current);
+  currentRef.current = current;
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(AUTO_PREVIEW_KEY) === "0") setAuto(false);
+    } catch {
+      /* เปิดไว้เป็นค่าเริ่มต้น */
+    }
+  }, []);
+
+  function toggleAuto(on: boolean) {
+    setAuto(on);
+    try {
+      localStorage.setItem(AUTO_PREVIEW_KEY, on ? "1" : "0");
+    } catch {
+      /* จำไม่ได้ก็ไม่เป็นไร */
+    }
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -95,20 +122,48 @@ export default function CriteriaEditorDialog({
     }
   }
 
-  async function doPreview() {
-    const r = await run("preview", () =>
-      previewCriteria(job.id, {
-        required_skills: lists.required,
-        preferred_skills: lists.preferred,
-      }),
-    );
-    if (!r) return;
+  function applyPreview(sentFor: string, r: CriteriaPreview) {
+    // ผู้ใช้แก้ต่อระหว่างรอ → ผลนี้เก่าแล้ว ทิ้งไป (รอบถัดไปจะยิงให้เอง) ไม่งั้นจะเขียนทับการแก้ล่าสุด
+    if (sentFor !== currentRef.current) return;
     // แสดงรายการที่ผ่านการทำความสะอาดแล้ว (ตัดซ้ำ/คำที่ไม่ใช่ทักษะ) ให้ตรงกับที่จะถูกบันทึก
     const cleaned = { required: r.required_skills, preferred: r.preferred_skills };
     setLists(cleaned);
     setPreview(r);
     setPreviewedFor(JSON.stringify(cleaned));
   }
+
+  async function doPreview() {
+    const sentFor = current;
+    const r = await run("preview", () =>
+      previewCriteria(job.id, {
+        required_skills: lists.required,
+        preferred_skills: lists.preferred,
+      }),
+    );
+    if (r) applyPreview(sentFor, r);
+  }
+
+  useEffect(() => {
+    if (!auto || busy || previewedFor === current) return;
+    const sentFor = current;
+    // ไม่ผ่าน run()/busy: ระหว่างรอไม่ควรล็อกชิป ไม่งั้นลบหรือย้ายต่อเนื่องไม่ได้
+    const timer = setTimeout(async () => {
+      try {
+        const r = await previewCriteria(job.id, {
+          required_skills: lists.required,
+          preferred_skills: lists.preferred,
+        });
+        setError(null);
+        applyPreview(sentFor, r);
+      } catch (e) {
+        if (sentFor === currentRef.current) {
+          setError(e instanceof Error ? e.message : "คำนวณผลกระทบไม่สำเร็จ");
+        }
+      }
+    }, AUTO_PREVIEW_DELAY_MS);
+    return () => clearTimeout(timer);
+    // current (สตริงของ lists) บอกการเปลี่ยนของ lists อยู่แล้ว จึงไม่ต้องใส่ lists ใน deps
+  }, [auto, busy, current, previewedFor, job.id]);
 
   async function doSave() {
     const r = await run("save", () =>
@@ -238,8 +293,17 @@ export default function CriteriaEditorDialog({
           ))}
         </div>
 
-        {previewFresh && preview && (
-          <section className="space-y-xs" aria-live="polite">
+        {preview && (
+          <section
+            className={`space-y-xs transition-opacity ${previewFresh ? "" : "opacity-50"}`}
+            aria-live="polite"
+            aria-busy={!previewFresh}
+          >
+            {!previewFresh && (
+              <p className="text-label-sm font-semibold text-on-surface">
+                {auto ? "กำลังอัปเดตผลกระทบ…" : "รายการเปลี่ยนแล้ว — กด “ดูผลกระทบ” อีกครั้งก่อนบันทึก"}
+              </p>
+            )}
             {preview.warnings.map((w) => (
               <div
                 key={w}
@@ -337,15 +401,32 @@ export default function CriteriaEditorDialog({
           <button type="button" className="btn-secondary-glass" onClick={onClose} disabled={!!busy}>
             ปิด
           </button>
-          <button type="button" className="btn-tonal" onClick={doPreview} disabled={!!busy}>
-            {busy === "preview" ? "กำลังคำนวณ…" : "ดูผลกระทบ"}
-          </button>
+          <label className="inline-flex items-center gap-base text-label-md text-on-surface cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="w-4 h-4 accent-primary cursor-pointer"
+              checked={auto}
+              onChange={(e) => toggleAuto(e.target.checked)}
+            />
+            แสดงผลกระทบทันทีเมื่อแก้
+          </label>
+          {!auto && (
+            <button type="button" className="btn-tonal" onClick={doPreview} disabled={!!busy}>
+              {busy === "preview" ? "กำลังคำนวณ…" : "ดูผลกระทบ"}
+            </button>
+          )}
           <button
             type="button"
             className="btn-primary"
             onClick={doSave}
             disabled={!!busy || !previewFresh}
-            title={previewFresh ? undefined : "กดดูผลกระทบของรายการปัจจุบันก่อน"}
+            title={
+              previewFresh
+                ? undefined
+                : auto
+                  ? "รอผลกระทบของรายการปัจจุบันสักครู่"
+                  : "กดดูผลกระทบของรายการปัจจุบันก่อน"
+            }
           >
             {busy === "save" ? "กำลังบันทึก…" : "บันทึกและคำนวณใหม่"}
           </button>

@@ -145,12 +145,20 @@ export default function JobDashboard() {
       {criteria && (
         <div className="glass-card rounded-2xl p-md">
           <div className="flex items-start justify-between gap-xs flex-wrap mb-xs">
-            <p className="text-label-sm text-on-surface-variant">
-              {job?.criteria_edited_at
-                ? `เกณฑ์ที่ HR แก้แล้ว เมื่อ ${new Date(job.criteria_edited_at).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })}`
-                : "เกณฑ์ที่ AI สกัดจาก JD — ตรวจก่อนใช้คะแนนตัดสินใจ"}{" "}
-              (ประสบการณ์ขั้นต่ำ {criteria.min_experience_years} ปี)
-            </p>
+            <div>
+              <p className="text-label-md font-semibold text-on-surface">
+                ทักษะที่ใช้ให้คะแนนผู้สมัคร
+              </p>
+              <p className="text-label-sm text-on-surface-variant">
+                {job?.criteria_edited_at
+                  ? `HR ตรวจและแก้แล้ว เมื่อ ${new Date(job.criteria_edited_at).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })}`
+                  : "AI อ่านจากประกาศงาน ยังไม่มีคนตรวจ — ควรตรวจก่อนเชื่อคะแนน"}
+                {" · "}
+                {criteria.min_experience_years > 0
+                  ? `ต้องมีประสบการณ์อย่างน้อย ${criteria.min_experience_years} ปี`
+                  : "ประกาศไม่ได้กำหนดประสบการณ์"}
+              </p>
+            </div>
             <button
               type="button"
               className="btn-tonal text-label-sm py-1"
@@ -160,6 +168,23 @@ export default function JobDashboard() {
               แก้ไขเกณฑ์
             </button>
           </div>
+          {job?.criteria_warnings?.map((w) => (
+            <div
+              key={w}
+              role="note"
+              className="flex gap-base items-start p-xs mb-xs rounded-lg border border-tertiary/40 bg-tertiary-container/10"
+            >
+              <span
+                className="material-symbols-outlined text-tertiary text-[18px] flex-none"
+                style={{ fontVariationSettings: "'FILL' 1" }}
+              >
+                warning
+              </span>
+              <p className="text-label-md text-on-surface">
+                {w} · กด &ldquo;แก้ไขเกณฑ์&rdquo; เพื่อตรวจ
+              </p>
+            </div>
+          ))}
           <div className="flex flex-wrap gap-base">
             {criteria.required_skills?.map((s) => (
               <span

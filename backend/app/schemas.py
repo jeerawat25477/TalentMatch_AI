@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal, Optional
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, EmailStr, Field
+from pydantic import AwareDatetime, BaseModel, EmailStr, Field, computed_field
 
 
 # ---------- Jobs ----------
@@ -36,6 +36,23 @@ class JobOut(BaseModel):
     ai_criteria: Optional[dict[str, Any]] = None
     # None = parsed_criteria ยังเป็นของ AI ล้วน
     criteria_edited_at: Optional[datetime] = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def criteria_warnings(self) -> list[str]:
+        """คำเตือนของเกณฑ์ปัจจุบัน (เช่น ไม่มีทักษะที่ต้องมีเลย) ให้การ์ดเกณฑ์แสดง.
+
+        คำนวณจาก parsed_criteria ทุกครั้ง ใช้ฟังก์ชันเดียวกับหน้าจอแก้เกณฑ์ จึงไม่มีกติกาชุดที่สอง
+        และไม่ต้องเก็บลง DB · import ในฟังก์ชันเพื่อไม่ให้ schemas ลากเลเยอร์ agents เข้ามาตอนโหลด
+        """
+        if not self.parsed_criteria:
+            return []
+        from app.criteria_edit import criteria_warnings
+
+        return criteria_warnings(
+            list(self.parsed_criteria.get("required_skills") or []),
+            list(self.parsed_criteria.get("preferred_skills") or []),
+        )
 
 
 # ---------- HR แก้เกณฑ์ทักษะ (app/criteria_edit.py) ----------

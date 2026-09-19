@@ -23,6 +23,8 @@ export interface Job {
   ai_criteria?: JobRequirement | null;
   /** null = เกณฑ์ยังเป็นของ AI ล้วน */
   criteria_edited_at?: string | null;
+  /** คำเตือนของเกณฑ์ปัจจุบัน (backend คำนวณ — กติกาเดียวกับหน้าจอแก้เกณฑ์) */
+  criteria_warnings?: string[];
 }
 
 // ---------- HR แก้เกณฑ์ทักษะ ----------
