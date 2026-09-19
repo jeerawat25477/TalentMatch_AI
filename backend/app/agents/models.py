@@ -13,6 +13,41 @@ class JobRequirement(BaseModel):
     education: str = Field("", description="ระดับการศึกษาที่ต้องการ")
 
 
+class JDSkillItem(BaseModel):
+    """ทักษะหนึ่งคำที่ jd_analyzer เจอในประกาศ พร้อมป้าย — **ไม่ได้ตัดสินฝั่งเอง**.
+
+    เคยให้ LLM ใส่ required/preferred ตรง ๆ ตามกติกายาว ๆ ใน prompt แล้ววัดกับ
+    gemini-2.5-flash-lite จริง (2026-09-19): "A, B หรือ C" ยังเป็นข้อบังคับทุกตัว หน้าที่งานยังหลุด
+    และ "จะพิจารณาเป็นพิเศษ" ที่เคยถูกกลับกลายเป็นข้อบังคับ — จึงให้มันตอบคำถามแคบ ๆ ต่อคำแทน
+    แล้วให้ jd_analyzer.to_requirement จัดฝั่งด้วยโค้ดที่เทสได้
+
+    **ลำดับฟิลด์มีความหมาย:** โมเดลตอบตามลำดับ source_line จึงมาก่อนป้าย เพื่อให้มันเห็นคำว่า
+    "or" / "such as" / "is a plus" ในบรรทัดนั้นก่อนจะตัดสิน
+    """
+    source_line: str = Field(..., description="ข้อความในประกาศที่คำนี้มา ยกมาตรง ๆ ไม่เกินหนึ่งบรรทัด")
+    name: str = Field(..., description="ชื่อทางการของทักษะ/เทคโนโลยี เช่น 'PostgreSQL' — คำเดียว ห้ามรวมหลายตัว")
+    kind: Literal[
+        "technology", "method", "knowledge_field", "duty", "category", "role", "personal", "education"
+    ] = Field(..., description="ชนิดของคำ")
+    necessity: Literal["must", "one_of", "example", "plus"] = Field(
+        ..., description="ประกาศบอกว่าคำนี้จำเป็นแค่ไหน"
+    )
+    section: Literal["duties", "qualifications", "unsectioned"] = Field(
+        ..., description="คำนี้อยู่ในส่วนไหนของประกาศ"
+    )
+    group: str = Field(
+        "", description="ชื่อกลุ่มของตัวเลือกที่มาด้วยกัน (เช่น 'cloud') เฉพาะ one_of/example · อื่น ๆ เว้นว่าง"
+    )
+
+
+class JDExtraction(BaseModel):
+    """ผลดิบจาก jd_analyzer — แปลงเป็น JobRequirement ด้วย jd_analyzer.to_requirement."""
+    job_title: str = Field(..., description="ชื่อตำแหน่ง")
+    min_experience_years: int = Field(0, description="จำนวนปีขั้นต่ำ (ไม่ระบุ = 0)")
+    education: str = Field("", description="ระดับการศึกษาและสาขาที่ต้องการ")
+    items: list[JDSkillItem] = Field(default_factory=list, description="ทุกคำที่อาจเป็นทักษะในประกาศ")
+
+
 class ResumeProfile(BaseModel):
     """ผลจาก Resume Parser — ฟอร์แมตเดียวกับ JD เพื่อทำ gap analysis แบบ field-by-field."""
     full_name: str = Field(..., description="ชื่อ-นามสกุลผู้สมัคร")

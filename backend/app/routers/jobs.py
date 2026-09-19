@@ -6,7 +6,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from psycopg.types.json import Json
 
-from app.agents.nodes import analyze_jd
+from app.agents.nodes.jd_analyzer import extract_jd
 from app.agents.nodes.jd_reviewer import review_jd
 from app.agents.runner import active_candidates
 from app.agents.models import JDReview
@@ -69,8 +69,12 @@ def create_job(payload: JobCreate) -> JobOut:
     # รัน JD Analyzer เติม parsed_criteria + title จริง (graceful ถ้า LLM ล้มเหลว/ไม่มีคีย์)
     fallback_title = payload.raw_text.strip().splitlines()[0][:255] or "Untitled Position"
     analyzed: dict | None = None
+    extraction: dict | None = None
     try:
-        analyzed = analyze_jd({"raw_jd": payload.raw_text, "analyzed_jd": None}).get("analyzed_jd")
+        requirement, raw_labels = extract_jd(payload.raw_text)
+        analyzed = requirement.model_dump()
+        # ป้ายดิบต่อคำ — parsed_criteria ถูกจัดฝั่งจากสิ่งนี้ เก็บไว้ให้ทางแก้ข้อ 3 ไม่ต้องเรียก LLM ซ้ำ
+        extraction = raw_labels.model_dump()
     except Exception as exc:  # noqa: BLE001 — อย่าให้ endpoint ล้มเพราะ LLM
         log.warning("jd_analyzer ล้มเหลว จะบันทึกงานโดยยังไม่มี parsed_criteria: %s", exc)
 
@@ -78,11 +82,16 @@ def create_job(payload: JobCreate) -> JobOut:
     with get_conn() as conn:
         row = conn.execute(
             """
-            INSERT INTO jobs (title, raw_text, parsed_criteria)
-            VALUES (%s, %s, %s)
+            INSERT INTO jobs (title, raw_text, parsed_criteria, jd_extraction)
+            VALUES (%s, %s, %s, %s)
             RETURNING """
             + _JOB_COLS,
-            (title, payload.raw_text, Json(analyzed) if analyzed else None),
+            (
+                title,
+                payload.raw_text,
+                Json(analyzed) if analyzed else None,
+                Json(extraction) if extraction else None,
+            ),
         ).fetchone()
         conn.commit()
     return JobOut(**row)

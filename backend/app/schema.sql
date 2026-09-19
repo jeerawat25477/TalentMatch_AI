@@ -22,6 +22,10 @@ ALTER TABLE jobs ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS ai_criteria JSONB;
 -- เวลาที่ HR แก้เกณฑ์ล่าสุด · NULL = parsed_criteria ยังเป็นของ AI ล้วน
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS criteria_edited_at TIMESTAMP WITH TIME ZONE;
+-- ป้ายดิบที่ jd_analyzer ติดให้ทักษะแต่ละคำ (JDExtraction: kind/necessity/section/group)
+-- parsed_criteria คือผลที่โค้ดจัดฝั่งจากป้ายเหล่านี้ · เก็บไว้ให้ทางแก้ข้อ 3 (กลุ่ม "ข้อใดข้อหนึ่ง")
+-- ใช้ป้าย one_of ได้โดยไม่ต้องให้ AI อ่านประกาศใหม่ · NULL = ตำแหน่งที่สร้างก่อนมีคอลัมน์นี้
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS jd_extraction JSONB;
 -- CHECK แยกออกมาเพราะ ADD COLUMN IF NOT EXISTS ไม่พา constraint ไปด้วยตอนคอลัมน์มีอยู่แล้ว
 DO $$
 BEGIN
