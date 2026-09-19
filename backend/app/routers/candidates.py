@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
 from app.agents.nodes.matcher import score_breakdown
+from app.criteria_edit import needs_recheck
 from app.agents.runner import active_candidates, get_graph_status, reserve_candidates
 from app.auth import get_current_user
 from app.database import get_checkpointer, get_conn
@@ -179,7 +180,8 @@ def list_candidates(job_id: str) -> list[CandidateSummary]:
             """
             SELECT c.id, c.job_id, c.full_name, c.email,
                    e.fit_score, e.audit_status, e.gap_analysis, c.created_at,
-                   hd.decision AS hr_decision,
+                   hd.decision AS hr_decision, hd.updated_at AS hr_decided_at,
+                   e.rescored_from, e.rescored_at,
                    (e.id IS NOT NULL) AS has_eval,
                    q.status AS queue_status
             FROM candidates c
@@ -200,7 +202,10 @@ def list_candidates(job_id: str) -> list[CandidateSummary]:
     active = active_candidates()
     return [
         CandidateSummary(
-            **{k: v for k, v in r.items() if k != "has_eval"},
+            **{k: v for k, v in r.items() if k not in ("has_eval", "rescored_at", "hr_decided_at")},
+            needs_recheck=needs_recheck(
+                r["rescored_at"], r["rescored_from"], r["fit_score"], r["hr_decided_at"]
+            ),
             stalled=_is_stalled(
                 r["id"], r["has_eval"], r["created_at"], active, r["queue_status"]
             ),
@@ -411,6 +416,7 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
                    e.score_explanation, e.confidence, (e.id IS NOT NULL) AS has_eval,
                    emp.id AS employee_id, hd.decision AS hr_decision,
                    hd.notes AS hr_notes, hd.updated_at AS hr_decided_at,
+                   e.rescored_from, e.rescored_at,
                    q.status AS queue_status,
                    -- CASE จำเป็น: to_jsonb(io) บน LEFT JOIN ที่ไม่แมตช์คืน
                    -- {"candidate_id": null, ...} ไม่ใช่ NULL แล้ว Pydantic จะเจอ
@@ -439,6 +445,7 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
         raise HTTPException(status_code=404, detail="ไม่พบผู้สมัครนี้")
     has_eval = row.pop("has_eval")
     stage_row = row.pop("stage_row")
+    rescored_at = row.pop("rescored_at")
     active = active_candidates()
     return CandidateDetail(
         **row,
@@ -457,6 +464,9 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
             row["queue_status"],
         ),
         score_breakdown=_breakdown_for(row["gap_analysis"], row["fit_score"]),
+        needs_recheck=needs_recheck(
+            rescored_at, row["rescored_from"], row["fit_score"], row["hr_decided_at"]
+        ),
     )
 
 

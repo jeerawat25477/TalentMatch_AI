@@ -19,6 +19,42 @@ export interface Job {
   status: JobStatus;
   closed_at: string | null;
   created_at: string;
+  /** เกณฑ์ที่ AI ดึงไว้ตอนสร้างตำแหน่ง (เก็บตอน HR แก้ครั้งแรก) — null = ยังไม่เคยแก้ */
+  ai_criteria?: JobRequirement | null;
+  /** null = เกณฑ์ยังเป็นของ AI ล้วน */
+  criteria_edited_at?: string | null;
+}
+
+// ---------- HR แก้เกณฑ์ทักษะ ----------
+// มิเรอร์ CriteriaIn / CriteriaImpact / CriteriaPreviewOut ใน backend/app/schemas.py
+// ⚠️ คะแนนเดิม/ใหม่คำนวณที่ backend ด้วย matcher.evaluate_skills ตัวเดียวกับกราฟ
+export interface CriteriaIn {
+  required_skills: string[];
+  preferred_skills: string[];
+}
+
+export interface CriteriaImpact {
+  candidate_id: string;
+  full_name: string;
+  old_score: number;
+  new_score: number;
+  old_band: "pass" | "review" | "fail";
+  new_band: "pass" | "review" | "fail";
+  hr_decision: Decision | "pending" | null;
+  email_sent: boolean;
+}
+
+export interface CriteriaPreview {
+  required_skills: string[];
+  preferred_skills: string[];
+  /** คำที่ไม่ใช่ทักษะ (เช่นชื่อบทบาท) ซึ่งถูกคัดออก */
+  dropped: string[];
+  warnings: string[];
+  impact: CriteriaImpact[];
+}
+
+export interface CriteriaSaveResult extends CriteriaPreview {
+  job: Job;
 }
 
 export interface JobListItem extends Job {
@@ -101,6 +137,10 @@ export interface CandidateSummary {
    * คนละเรื่องกับ stalled โดยสิ้นเชิง: อยู่ในคิว = ระบบยังดูแลอยู่ ห้ามชวนให้กดซ้ำ
    */
   queue_status?: QueueStatus | null;
+  /** คะแนนก่อนถูกคำนวณใหม่เพราะ HR แก้เกณฑ์ — null = ไม่เคย */
+  rescored_from?: number | null;
+  /** แบนด์เปลี่ยนจากตอนที่กราฟ/HR ตัดสินไว้ และ HR ยังไม่ได้ตัดสินใหม่ */
+  needs_recheck?: boolean;
 }
 
 export type QueueStatus = "queued" | "running" | "deferred_quota";

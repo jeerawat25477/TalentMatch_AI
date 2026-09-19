@@ -5,7 +5,7 @@
 """
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, EmailStr, Field
@@ -32,6 +32,45 @@ class JobOut(BaseModel):
     status: JobStatus = "open"
     closed_at: Optional[datetime] = None
     created_at: datetime
+    # เกณฑ์ที่ AI ดึงไว้ตอนสร้างตำแหน่ง (เก็บตอน HR แก้ครั้งแรก) · None = ยังไม่เคยแก้
+    ai_criteria: Optional[dict[str, Any]] = None
+    # None = parsed_criteria ยังเป็นของ AI ล้วน
+    criteria_edited_at: Optional[datetime] = None
+
+
+# ---------- HR แก้เกณฑ์ทักษะ (app/criteria_edit.py) ----------
+SkillName = Annotated[str, Field(max_length=100)]
+
+
+class CriteriaIn(BaseModel):
+    """รายการทักษะที่ HR แก้แล้ว — ทำความสะอาดต่อที่ criteria_edit.normalize_criteria."""
+    required_skills: list[SkillName] = Field(default_factory=list, max_length=50)
+    preferred_skills: list[SkillName] = Field(default_factory=list, max_length=50)
+
+
+class CriteriaImpact(BaseModel):
+    """ผลต่อผู้สมัครหนึ่งคน — คะแนนเดิมกับใหม่ คำนวณด้วย matcher.evaluate_skills ตัวเดียวกับกราฟ."""
+    candidate_id: UUID
+    full_name: str
+    old_score: int
+    new_score: int
+    old_band: Literal["pass", "review", "fail"]
+    new_band: Literal["pass", "review", "fail"]
+    hr_decision: Optional[Literal["approved", "rejected", "pending"]] = None
+    email_sent: bool = False
+
+
+class CriteriaPreviewOut(BaseModel):
+    required_skills: list[str]
+    preferred_skills: list[str]
+    # คำที่ไม่ใช่ทักษะ (เช่นชื่อบทบาท) ซึ่งถูกคัดออก — แจ้ง HR ไม่ทิ้งเงียบ
+    dropped: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    impact: list[CriteriaImpact] = Field(default_factory=list)
+
+
+class CriteriaSaveOut(CriteriaPreviewOut):
+    job: JobOut
 
 
 class JobListItem(JobOut):
@@ -77,6 +116,10 @@ class CandidateSummary(BaseModel):
     # สถานะในคิวประมวลผล (None = ไม่มีงานค้าง) — แยกจาก stalled โดยตั้งใจ:
     # "รอคิว" กับ "เลื่อนเพราะโควตาเต็ม" คือระบบยังดูแลอยู่ ห้ามให้ HR เข้าใจว่าพัง
     queue_status: Optional[Literal["queued", "running", "deferred_quota"]] = None
+    # คะแนนก่อนถูกคำนวณใหม่เพราะ HR แก้เกณฑ์ทักษะ (None = ไม่เคยถูกคำนวณใหม่)
+    rescored_from: Optional[int] = None
+    # แบนด์เปลี่ยนจากตอนที่กราฟ/HR ตัดสินไว้ และ HR ยังไม่ได้ตัดสินใหม่ — ดู criteria_edit.needs_recheck
+    needs_recheck: bool = False
 
 
 class CandidateDeleteOut(BaseModel):

@@ -43,6 +43,8 @@ description: อ่านก่อนเสมอเมื่อจะเพิ�
 
 **สถานะ "ค้างกลางทาง" ต้องแยกจาก "รอ HR"** `runner.resolve_graph_status` คืน `interrupted` เมื่อกราฟไม่จบและไม่ได้พักรอคำตัดสินจริง HR สั่งทำต่อได้ที่ `POST /api/v1/candidates/{id}/resume` ซึ่งเข้าคิวด้วย kind เดิม ส่วน router ต้องทับเป็น `processing` เมื่อคนนั้นกำลังรันหรือรอคิว ไม่งั้นปุ่มจะกะพริบให้กดซ้ำ
 
+**checkpoint อาจถือเกณฑ์เก่า** HR แก้เกณฑ์ทักษะของตำแหน่งได้หลังกราฟเดินไปแล้ว (`app/criteria_edit.py` เขียนคะแนนใหม่ลง DB แต่ไม่แตะ checkpoint) `resume_after_decision` จึงเรียก `_fresh_screening` เติม `analyzed_jd` และ `evaluations[0]` (เฉพาะ fit_score/gaps) จาก DB ลงใน `update_state` ครั้งเดียวกับคำตัดสิน ไม่งั้น planner จะตั้งคำถามจากทักษะที่ HR ตัดออกไปแล้ว · `_continue_candidate` ยังไม่ได้ทำแบบนี้ (กันไว้ด้วย 409 ตอนแก้เกณฑ์)
+
 **state สะสมข้ามการย้อน** รอบใหม่ที่เดินไปทางปฏิเสธจะไม่แวะ planner ดังนั้น `_persist_outputs` ต้องล้าง `interview_plan` เก่าทิ้งเมื่อร่างที่ได้เป็นอีเมลปฏิเสธ ไม่งั้นหน้าเว็บจะโชว์คำถามสัมภาษณ์ของคนที่เพิ่งถูกปฏิเสธ
 
 **checkpointer ต้องเป็น `PostgresSaver`** บรีฟ `brief/backend_langgraph.md` แสดง `SqliteSaver.from_conn_string(":memory:")` ไว้เป็นตัวอย่างประกอบเท่านั้น state ในหน่วยความจำตายตอนรีสตาร์ตซึ่งทำให้ HITL ใช้ไม่ได้จริง

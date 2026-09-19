@@ -117,25 +117,30 @@ def score_breakdown(
     return {"required": required, "preferred": preferred, "total": total, "no_criteria": False}
 
 
-def match_candidates(state: HRSystemState) -> dict:
-    jd = state["analyzed_jd"] or {}
-    profile = state["parsed_resumes"][0]
-    cid = profile["candidate_id"]
+def evaluate_skills(
+    required_skills: list[str],
+    preferred_skills: list[str],
+    profile: dict,
+    resume_text: str,
+    exclusions: dict | None = None,
+) -> dict:
+    """ประเมินผู้สมัครหนึ่งคนกับเกณฑ์ทักษะหนึ่งชุด — **แหล่งเดียวของผลประเมินทั้งก้อน**.
+
+    ใช้ทั้งในกราฟ (match_candidates) และตอน HR แก้เกณฑ์แล้วคำนวณคนเดิมใหม่
+    (app/criteria_edit.py) ถ้าสองที่นี้เทียบทักษะหรือคำนวณเองคนละชุด คะแนนที่ได้จาก
+    การแก้เกณฑ์จะไม่ตรงกับคะแนนที่กราฟให้คนใหม่ภายใต้เกณฑ์เดียวกัน
+
+    ฟังก์ชันบริสุทธิ์: ไม่แตะ DB ไม่เรียก LLM
+    `profile` คือ parsed_resume (ใช้ skills และ skill_evidence) · `exclusions` คือเกณฑ์ที่
+    ลูปตรวจอคติขอให้ตัด {"required_skills": [...], "preferred_skills": [...]}
+    """
+    exclusions = exclusions or {}
     owned = {s for s in profile.get("skills", []) if s and s.strip()}
-    # ข้อความเรซูเม่ดิบ — ใช้วัดความมั่นใจของผลวิเคราะห์ (กราฟรันทีละคน จึงเป็น [0] เสมอ)
-    raw_resumes = state.get("raw_resumes") or [{}]
-    resume_text = raw_resumes[0].get("content") or ""
+    required = _without_excluded(required_skills, exclusions.get("required_skills") or [])
+    preferred = _without_excluded(preferred_skills, exclusions.get("preferred_skills") or [])
 
-    exclusions = (state.get("bias_exclusions") or {}).get(cid) or {}
-    required_skills = _without_excluded(
-        jd.get("required_skills") or [], exclusions.get("required_skills") or []
-    )
-    preferred_skills = _without_excluded(
-        jd.get("preferred_skills") or [], exclusions.get("preferred_skills") or []
-    )
-
-    matched_req, missing_req = split_matched(required_skills, owned)
-    matched_pref, missing_pref = split_matched(preferred_skills, owned)
+    matched_req, missing_req = split_matched(required, owned)
+    matched_pref, missing_pref = split_matched(preferred, owned)
 
     fit_score = compute_fit_score(matched_req, missing_req, matched_pref, missing_pref)
 
@@ -151,9 +156,7 @@ def match_candidates(state: HRSystemState) -> dict:
         "matched_preferred": matched_pref,
         "missing_preferred": missing_pref,
     }
-
-    evaluation = {
-        "candidate_id": cid,
+    return {
         "fit_score": fit_score,
         "gaps": gaps,
         # อธิบายตัวเลขที่คำนวณเสร็จแล้วเป็นภาษาคน (template ล้วน ไม่เรียก LLM)
@@ -162,10 +165,34 @@ def match_candidates(state: HRSystemState) -> dict:
         # ความน่าเชื่อถือของผลวิเคราะห์ คนละมิติกับ fit_score — นับอักขระที่ไม่ใช่ช่องว่าง
         # ด้วยสูตรเดียวกับ candidates.py::_is_unreadable_resume
         "confidence": confidence_level(
-            len("".join(resume_text.split())),
+            len("".join((resume_text or "").split())),
             len(matched_req) + len(matched_pref),
             len(skill_evidence),
         ),
+    }
+
+
+def match_candidates(state: HRSystemState) -> dict:
+    jd = state["analyzed_jd"] or {}
+    profile = state["parsed_resumes"][0]
+    cid = profile["candidate_id"]
+    # ข้อความเรซูเม่ดิบ — ใช้วัดความมั่นใจของผลวิเคราะห์ (กราฟรันทีละคน จึงเป็น [0] เสมอ)
+    raw_resumes = state.get("raw_resumes") or [{}]
+    resume_text = raw_resumes[0].get("content") or ""
+
+    exclusions = (state.get("bias_exclusions") or {}).get(cid) or {}
+    result = evaluate_skills(
+        jd.get("required_skills") or [],
+        jd.get("preferred_skills") or [],
+        profile,
+        resume_text,
+        exclusions,
+    )
+    fit_score = result["fit_score"]
+
+    evaluation = {
+        "candidate_id": cid,
+        **result,
         "is_biased": False,
         "audit_status": "passed",
         "audit_log": "",

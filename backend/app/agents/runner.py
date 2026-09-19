@@ -390,6 +390,35 @@ def decide_candidate(candidate_id: str, decision: str, notes: str | None) -> Non
         release_candidate(candidate_id)
 
 
+def _fresh_screening(cid: str, state: dict) -> dict:
+    """เกณฑ์และผลประเมินล่าสุดจาก DB สำหรับเขียนทับ state ก่อนเดินต่อหลัง HR ตัดสิน.
+
+    checkpoint ถือ analyzed_jd กับ evaluations ของตอนที่กราฟเดินครั้งแรก ถ้า HR แก้เกณฑ์ทักษะ
+    ระหว่างนั้น (app/criteria_edit.py คำนวณคะแนนใหม่ลง DB) แล้วมากดอนุมัติ planner จะตั้งคำถาม
+    จากทักษะที่ขาดตามเกณฑ์เก่า · ที่นี่เอาค่าจาก DB มาแทนเฉพาะ fit_score กับ gaps ส่วนฟิลด์อื่น
+    ของ evaluation ใน state (audit ฯลฯ) คงเดิม · state ไม่มี reducer จึงเขียนทับได้ตรง ๆ
+    ถ้าหาไม่เจอ (ยังไม่มีแถว) คืน {} = ใช้ state เดิม
+    """
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT j.parsed_criteria, e.fit_score, e.gap_analysis
+                 FROM candidates c
+                 JOIN jobs j ON j.id = c.job_id
+                 JOIN evaluations e ON e.candidate_id = c.id
+                WHERE c.id = %s""",
+            (cid,),
+        ).fetchone()
+    old = (state.get("evaluations") or [None])[0]
+    if row is None or not old:
+        return {}
+    # gap_analysis เป็น NULL ได้ในแถวเก่า — ห้ามเอา {} ไปทับ gaps ที่ state มีอยู่จริง
+    gaps = row["gap_analysis"] if row["gap_analysis"] is not None else old.get("gaps")
+    fresh: dict = {"evaluations": [{**old, "fit_score": row["fit_score"], "gaps": gaps}]}
+    if row["parsed_criteria"]:
+        fresh["analyzed_jd"] = row["parsed_criteria"]
+    return fresh
+
+
 def resume_after_decision(candidate_id: str, decision: str, notes: str | None) -> None:
     """หลัง HR ตัดสิน: เขียน hr_decision ลง state แล้วเดินกราฟต่อ (ไม่ rerun จากต้น).
 
@@ -406,6 +435,8 @@ def resume_after_decision(candidate_id: str, decision: str, notes: str | None) -
     config = _config(candidate_id)
     cid = str(candidate_id)
     values = {"hr_decision": {cid: decision}, "hr_notes": {cid: notes or ""}}
+    # เติมเกณฑ์และผลประเมินล่าสุดจาก DB ลงใน update_state ครั้งเดียวกัน (as_node ระบุชัดข้างล่าง)
+    values.update(_fresh_screening(cid, graph.get_state(config).values or {}))
 
     # ⚠️ ระบุ as_node เองทุกกรณี ห้ามปล่อยให้ LangGraph เดาจาก checkpoint ล่าสุด:
     # ถ้า checkpoint นั้นเกิดจาก update_state (เช่นรอบก่อน rewind แล้ว planner ล้ม) มันเดาผิด

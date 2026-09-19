@@ -9,6 +9,7 @@ import Breadcrumb from "@/components/breadcrumb";
 import JobTabs from "@/components/job-tabs";
 import CandidateCard from "@/components/candidate-card";
 import ConfirmDialog from "@/components/confirm-dialog";
+import CriteriaEditorDialog from "@/components/criteria-editor-dialog";
 import FileUpload from "@/components/file-upload";
 import { bulkDecision, fetcher } from "@/lib/api";
 import { JOB_STATUS, scoreBand } from "@/lib/types";
@@ -43,7 +44,8 @@ export default function JobDashboard() {
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [bulkResult, setBulkResult] = useState<BulkDecisionResult | null>(null);
 
-  const { data: job } = useSWR<Job>(`/api/v1/jobs/${id}`, fetcher);
+  const { data: job, mutate: mutateJob } = useSWR<Job>(`/api/v1/jobs/${id}`, fetcher);
+  const [editingCriteria, setEditingCriteria] = useState(false);
   const { data: candidates, mutate } = useSWR<CandidateSummary[]>(
     `/api/v1/jobs/${id}/candidates`,
     fetcher,
@@ -142,10 +144,22 @@ export default function JobDashboard() {
       {/* เกณฑ์จาก JD */}
       {criteria && (
         <div className="glass-card rounded-2xl p-md">
-          <p className="text-label-sm text-outline mb-xs">
-            เกณฑ์ที่ AI สกัดจาก JD (ประสบการณ์ขั้นต่ำ{" "}
-            {criteria.min_experience_years} ปี)
-          </p>
+          <div className="flex items-start justify-between gap-xs flex-wrap mb-xs">
+            <p className="text-label-sm text-on-surface-variant">
+              {job?.criteria_edited_at
+                ? `เกณฑ์ที่ HR แก้แล้ว เมื่อ ${new Date(job.criteria_edited_at).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })}`
+                : "เกณฑ์ที่ AI สกัดจาก JD — ตรวจก่อนใช้คะแนนตัดสินใจ"}{" "}
+              (ประสบการณ์ขั้นต่ำ {criteria.min_experience_years} ปี)
+            </p>
+            <button
+              type="button"
+              className="btn-tonal text-label-sm py-1"
+              onClick={() => setEditingCriteria(true)}
+            >
+              <span className="material-symbols-outlined text-[16px]">edit</span>
+              แก้ไขเกณฑ์
+            </button>
+          </div>
           <div className="flex flex-wrap gap-base">
             {criteria.required_skills?.map((s) => (
               <span
@@ -165,6 +179,19 @@ export default function JobDashboard() {
             ))}
           </div>
         </div>
+      )}
+
+      {editingCriteria && job && (
+        <CriteriaEditorDialog
+          job={job}
+          onSaved={(r) => {
+            // เอาผลจาก backend ใส่ cache ทันที แล้วดึงรายชื่อใหม่ให้คะแนนเปลี่ยนตามโดยไม่รอรอบ poll
+            mutateJob(r.job, false);
+            mutate();
+            setEditingCriteria(false);
+          }}
+          onClose={() => setEditingCriteria(false)}
+        />
       )}
 
       {/* AI insight — คำนวณจากข้อมูลจริงเท่านั้น */}

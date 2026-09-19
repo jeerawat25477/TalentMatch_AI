@@ -13,7 +13,12 @@ from app.agents.models import JDReview
 from app.auth import get_current_user
 from app.rate_limit import hit_and_check, retry_after_sec
 from app.database import get_checkpointer, get_conn
+from app.criteria_edit import criteria_warnings, normalize_criteria, rescore_job
+from app.job_queue import PENDING_STATUSES
 from app.schemas import (
+    CriteriaIn,
+    CriteriaPreviewOut,
+    CriteriaSaveOut,
     JDReviewIn,
     JobCreate,
     JobDeleteOut,
@@ -23,7 +28,10 @@ from app.schemas import (
 )
 
 # คอลัมน์ที่ทุก endpoint คืนเป็น JobOut — รวมไว้ที่เดียวกันเผื่อเพิ่มฟิลด์ทีหลัง
-_JOB_COLS = "id, title, raw_text, parsed_criteria, status, closed_at, created_at"
+_JOB_COLS = (
+    "id, title, raw_text, parsed_criteria, status, closed_at, created_at, "
+    "ai_criteria, criteria_edited_at"
+)
 
 log = logging.getLogger(__name__)
 
@@ -134,6 +142,127 @@ def get_job(job_id: str) -> JobOut:
     if row is None:
         raise HTTPException(status_code=404, detail="ไม่พบตำแหน่งงานนี้")
     return JobOut(**row)
+
+
+# ---------- HR แก้เกณฑ์ทักษะ ----------
+# ที่มาและกติกาอยู่ใน app/criteria_edit.py · ทั้งสามเส้นทางไม่เรียก LLM เลย
+
+
+def _load_job_for_criteria(conn, job_id: str) -> dict:
+    row = conn.execute(
+        f"SELECT {_JOB_COLS} FROM jobs WHERE id = %s", (job_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="ไม่พบตำแหน่งงานนี้")
+    return row
+
+
+def _busy_candidates(conn, job_id: str) -> int:
+    """จำนวนผู้สมัครของตำแหน่งนี้ที่กราฟกำลังรันหรือมีงานค้างในคิว.
+
+    ต้องกันไว้ เพราะกราฟที่กำลังเดินจะบันทึกคะแนนด้วยเกณฑ์เก่าทับคะแนนที่เพิ่งคำนวณใหม่
+    เช็คทั้งทะเบียนในโปรเซสและแถวคิว เพราะทะเบียนหายตอนรีสตาร์ตแต่แถวคิวไม่หาย
+    """
+    ids = {str(r["id"]) for r in conn.execute(
+        "SELECT id FROM candidates WHERE job_id = %s", (job_id,)
+    ).fetchall()}
+    queued = conn.execute(
+        """SELECT count(DISTINCT pq.candidate_id) AS n
+             FROM processing_queue pq JOIN candidates c ON c.id = pq.candidate_id
+            WHERE c.job_id = %s AND pq.status = ANY(%s)""",
+        (job_id, list(PENDING_STATUSES)),
+    ).fetchone()["n"]
+    return max(len(ids & active_candidates()), queued)
+
+
+def _preview(conn, job_id: str, payload: CriteriaIn, apply: bool) -> dict:
+    clean = normalize_criteria(payload.required_skills, payload.preferred_skills)
+    req, pref = clean["required_skills"], clean["preferred_skills"]
+    return {
+        "required_skills": req,
+        "preferred_skills": pref,
+        "dropped": clean["dropped"],
+        "warnings": criteria_warnings(req, pref),
+        "impact": rescore_job(conn, job_id, req, pref, apply=apply),
+    }
+
+
+@router.post("/{job_id}/criteria/preview", response_model=CriteriaPreviewOut)
+def preview_criteria(job_id: str, payload: CriteriaIn) -> CriteriaPreviewOut:
+    """ผลกระทบของเกณฑ์ใหม่ต่อผู้สมัครทุกคน — **ไม่เขียนอะไรเลย** ให้ HR ดูก่อนกดบันทึก."""
+    with get_conn() as conn:
+        _load_job_for_criteria(conn, job_id)
+        result = _preview(conn, job_id, payload, apply=False)
+        conn.rollback()  # ไม่มีอะไรให้ย้อน แต่ปิดทรานแซกชันอ่านให้ชัดว่าไม่ได้ตั้งใจเขียน
+    return CriteriaPreviewOut(**result)
+
+
+def _save_criteria(job_id: str, payload: CriteriaIn, reset: bool = False) -> CriteriaSaveOut:
+    """บันทึกเกณฑ์ + คำนวณคะแนนคนเดิมใหม่ในทรานแซกชันเดียว — ล้มกลางทางต้องไม่เหลือสภาพ
+    ที่เกณฑ์เปลี่ยนแล้วแต่คะแนนยังเป็นของเกณฑ์เก่า (หรือกลับกัน)."""
+    with get_conn() as conn:
+        job = _load_job_for_criteria(conn, job_id)
+        busy = _busy_candidates(conn, job_id)
+        if busy:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"มีผู้สมัคร {busy} คนของตำแหน่งนี้กำลังวิเคราะห์หรือรอคิวอยู่ — "
+                    "รอให้เสร็จก่อนแล้วค่อยแก้เกณฑ์ ไม่งั้นคะแนนของเกณฑ์เก่าจะเขียนทับ"
+                ),
+            )
+        result = _preview(conn, job_id, payload, apply=True)
+        current = dict(job["parsed_criteria"] or {})
+        # เก็บของที่ AI ดึงไว้ครั้งแรกเท่านั้น — แก้รอบที่สองต้องไม่ทับด้วยฉบับของ HR
+        # ⚠️ ต้องเป็นสำเนาแยก ไม่ใช่ `or current` ตรง ๆ: ถ้าเป็น dict ตัวเดียวกัน บรรทัดถัดไป
+        # ที่แก้ current จะเขียนทับของ AI ไปด้วย แล้วปุ่มคืนค่าจะคืนฉบับของ HR (เทสจับได้)
+        ai = job["ai_criteria"] or dict(job["parsed_criteria"] or {})
+        # แทนแค่สองรายการ คง job_title / min_experience_years / education ไว้ตามเดิม
+        current["required_skills"] = result["required_skills"]
+        current["preferred_skills"] = result["preferred_skills"]
+        row = conn.execute(
+            f"""
+            UPDATE jobs
+               SET parsed_criteria = %s, ai_criteria = %s,
+                   -- คืนค่าของ AI = กลับเป็น "ยังไม่เคยแก้" ไม่ใช่ "HR แก้เมื่อกี้"
+                   criteria_edited_at = CASE WHEN %s THEN NULL ELSE now() END
+             WHERE id = %s
+            RETURNING {_JOB_COLS}
+            """,
+            (Json(current), Json(ai), reset, job_id),
+        ).fetchone()
+        conn.commit()
+    changed = sum(1 for i in result["impact"] if i["old_score"] != i["new_score"])
+    log.info("HR แก้เกณฑ์ของตำแหน่ง %s — คะแนนเปลี่ยน %s คน", job_id, changed)
+    return CriteriaSaveOut(**result, job=JobOut(**row))
+
+
+@router.put("/{job_id}/criteria", response_model=CriteriaSaveOut)
+def save_criteria(job_id: str, payload: CriteriaIn) -> CriteriaSaveOut:
+    """HR แก้รายการทักษะ แล้วคำนวณคะแนนคนเดิมใหม่ทันที (ไม่เรียก LLM ไม่เดินกราฟใหม่).
+
+    คนที่แบนด์เปลี่ยนจะขึ้นป้าย "ตรวจอีกครั้ง" ให้ HR ตัดสินเอง — ระบบไม่ลบร่างอีเมล
+    ไม่สร้างคำถามใหม่ และไม่แตะคำตัดสินเดิม
+    """
+    return _save_criteria(job_id, payload)
+
+
+@router.post("/{job_id}/criteria/reset", response_model=CriteriaSaveOut)
+def reset_criteria(job_id: str) -> CriteriaSaveOut:
+    """คืนรายการทักษะตามที่ AI ดึงไว้ — เดินเส้นทางเดียวกับการบันทึก (คำนวณคะแนนใหม่ด้วย)."""
+    with get_conn() as conn:
+        job = _load_job_for_criteria(conn, job_id)
+    ai = job["ai_criteria"]
+    if not ai:
+        raise HTTPException(status_code=409, detail="ตำแหน่งนี้ยังไม่เคยแก้เกณฑ์ ไม่มีอะไรให้คืนค่า")
+    return _save_criteria(
+        job_id,
+        CriteriaIn(
+            required_skills=ai.get("required_skills") or [],
+            preferred_skills=ai.get("preferred_skills") or [],
+        ),
+        reset=True,
+    )
 
 
 @router.patch("/{job_id}", response_model=JobOut)

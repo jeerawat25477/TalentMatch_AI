@@ -17,6 +17,11 @@ CREATE TABLE IF NOT EXISTS jobs (
 -- เผื่อ DB ที่สร้างตาราง jobs ไว้ก่อนเพิ่มสองคอลัมน์นี้ (idempotent)
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'open';
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP WITH TIME ZONE;
+-- เกณฑ์ทักษะที่ AI ดึงไว้ตอนสร้างตำแหน่ง เก็บตอน HR แก้ parsed_criteria ครั้งแรก — ให้กด
+-- "คืนค่าตามที่ AI ดึง" ได้ และเป็นข้อมูลว่า AI ดึงผิดบ่อยแค่ไหน (NULL = ยังไม่เคยแก้)
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS ai_criteria JSONB;
+-- เวลาที่ HR แก้เกณฑ์ล่าสุด · NULL = parsed_criteria ยังเป็นของ AI ล้วน
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS criteria_edited_at TIMESTAMP WITH TIME ZONE;
 -- CHECK แยกออกมาเพราะ ADD COLUMN IF NOT EXISTS ไม่พา constraint ไปด้วยตอนคอลัมน์มีอยู่แล้ว
 DO $$
 BEGIN
@@ -76,6 +81,10 @@ ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS score_explanation TEXT;
 -- ความมั่นใจของผลวิเคราะห์ 'high'|'medium'|'low' (คนละมิติกับ fit_score — บอกว่าผลนี้
 -- อิงข้อมูลครบแค่ไหน) คำนวณ deterministic ใน agents/bands.py ไม่ได้ให้ LLM ประเมินตัวเอง
 ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS confidence VARCHAR(10);
+-- คะแนนก่อนถูกคำนวณใหม่เพราะ HR แก้เกณฑ์ทักษะ + เวลาที่คำนวณ — ใช้ขึ้นป้าย
+-- "เกณฑ์เปลี่ยน ตรวจอีกครั้ง" เมื่อแบนด์เปลี่ยน (ระบบไม่เดินกราฟใหม่เอง ให้ HR ตัดสิน)
+ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS rescored_from INT;
+ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS rescored_at TIMESTAMP WITH TIME ZONE;
 
 CREATE TABLE IF NOT EXISTS hr_decisions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

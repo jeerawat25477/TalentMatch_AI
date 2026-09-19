@@ -122,6 +122,18 @@ export default function CandidateCard({
             </span>
           </div>
         )}
+        {/* HR แก้เกณฑ์ทักษะจนคะแนนข้ามแบนด์ — ระบบไม่ทำอะไรเอง ให้คนตัดสินใหม่ */}
+        {candidate.needs_recheck && (
+          <div className="mb-xs">
+            <span
+              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant"
+              title="คะแนนถูกคำนวณใหม่หลังแก้เกณฑ์ทักษะ และข้ามแบนด์จากตอนที่ตัดสินไว้"
+            >
+              <span className="material-symbols-outlined text-[14px]">rule</span>
+              เกณฑ์เปลี่ยน ตรวจอีกครั้ง (เดิม {candidate.rescored_from})
+            </span>
+          </div>
+        )}
         {candidate.stalled && (
           <div className="mb-xs space-y-0.5">
             <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-error-container/60 text-on-error-container">

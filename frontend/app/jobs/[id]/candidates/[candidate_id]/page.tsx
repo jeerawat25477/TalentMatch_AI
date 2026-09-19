@@ -618,6 +618,28 @@ export default function CandidateDeepDive() {
       <div className="glass-card rounded-2xl p-md space-y-sm">
         <h3 className="text-headline-md text-on-surface">ผลคัดกรองโดย HR</h3>
 
+        {/* HR แก้เกณฑ์ทักษะของตำแหน่งจนคะแนนคนนี้ข้ามแบนด์ — ระบบไม่เดินกราฟใหม่เอง
+            คำถาม/ร่างอีเมลที่มีอยู่ยังเป็นของเกณฑ์เดิม ถ้าตัดสินใหม่ กราฟจะใช้เกณฑ์ล่าสุด
+            วางนอกเงื่อนไขซ่อนข้อความด้านล่างด้วยเหตุผลเดียวกับแถบหยุดกลางทาง */}
+        {c.needs_recheck && (
+          <div
+            role="note"
+            className="rounded-xl border border-tertiary/40 bg-tertiary-container/10 p-sm flex items-start gap-xs"
+          >
+            <span
+              className="material-symbols-outlined text-tertiary text-[20px] flex-none"
+              style={{ fontVariationSettings: "'FILL' 1" }}
+            >
+              rule
+            </span>
+            <p className="text-label-md text-on-surface">
+              เกณฑ์ทักษะของตำแหน่งนี้ถูกแก้ คะแนนเปลี่ยนจาก {c.rescored_from} เป็น{" "}
+              {c.fit_score} จนข้ามแบนด์ — คำถามสัมภาษณ์และร่างอีเมลด้านบนยังเป็นของเกณฑ์เดิม
+              ตรวจแล้วตัดสินใหม่ได้ด้วยปุ่มด้านล่าง ระบบจะใช้เกณฑ์ล่าสุด
+            </p>
+          </div>
+        )}
+
         {/* กราฟหยุดกลางทาง — วางไว้นอกเงื่อนไขด้านล่างโดยตั้งใจ: คนที่เจอเคสนี้มักตัดสิน
             ไปแล้ว (อนุมัติแล้วแต่ร่างอีเมลล้ม) ซึ่งข้อความด้านล่างถูกซ่อนเมื่อมีคำตัดสิน
             ถ้าวางข้างในแถบนี้จะไม่โผล่ให้คนที่ต้องการมันที่สุดเห็นเลย */}
