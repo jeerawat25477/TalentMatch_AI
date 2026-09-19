@@ -55,18 +55,51 @@ def test_non_skill_kinds_always_dropped(kind, necessity, section):
     assert r.required_skills == [] and r.preferred_skills == []
 
 
-def test_or_group_goes_to_preferred_and_and_items_stay_required():
-    """ตัวอย่างจริงของ AI Engineer 6c0d205a: "Python and SQL" + "Azure, AWS, or GCP"."""
+def test_or_group_becomes_one_required_item_and_examples_a_preferred_group():
+    """ตัวอย่างจริงของ AI Engineer 6c0d205a: "Python and SQL" + "Azure, AWS, or GCP" + vector DB such as."""
+    cloud = "Microsoft Azure, AWS, or Google Cloud Platform"
+    vdb = "Vector databases such as Pinecone, Milvus"
     r = to_requirement(ex(
         item("Python"), item("SQL"),
-        item("Microsoft Azure", necessity="one_of", group="cloud"),
-        item("AWS", necessity="one_of", group="cloud"),
-        item("Google Cloud Platform", necessity="one_of", group="cloud"),
-        item("Vector databases", kind="category"),
-        item("Pinecone", necessity="example", group="vector db"),
+        item("Microsoft Azure", necessity="one_of", group="cloud", line=cloud),
+        item("AWS", necessity="one_of", group="cloud", line=cloud),
+        item("Google Cloud Platform", necessity="one_of", group="cloud", line=cloud),
+        item("Vector databases", kind="category", line=vdb),
+        item("Pinecone", necessity="example", group="vector db", line=vdb),
+        item("Milvus", necessity="example", group="vector db", line=vdb),
     ))
-    assert r.required_skills == ["Python", "SQL"]
-    assert r.preferred_skills == ["Microsoft Azure", "AWS", "Google Cloud Platform", "Pinecone"]
+    assert r.required_skills == ["Python", "SQL", "Microsoft Azure | AWS | Google Cloud Platform"]
+    assert r.preferred_skills == ["Pinecone | Milvus"]
+
+
+def test_group_labels_only_merge_within_the_same_line():
+    """ชื่อกลุ่มซ้ำกันคนละบรรทัด (LLM ตั้งชื่อ "tools" ซ้ำ) ต้องไม่ถูกรวมเป็นกลุ่มเดียว."""
+    r = to_requirement(ex(
+        item("Airflow", necessity="example", group="tools", line="orchestration such as Airflow"),
+        item("Terraform", necessity="example", group="tools", line="IaC such as Terraform"),
+    ))
+    assert r.preferred_skills == ["Airflow", "Terraform"]
+
+
+def test_group_in_duties_or_plus_goes_to_preferred():
+    duties = "Design systems using LLMs such as GPT, Claude, or Gemini"
+    plus = "Experience in ICT, Telecommunications, or Smart City is a plus"
+    r = to_requirement(ex(
+        *(item(n, necessity="example", section="duties", group="llm", line=duties)
+          for n in ("GPT", "Claude", "Gemini")),
+        *(item(n, kind="knowledge_field", necessity="plus", line=plus)
+          for n in ("ICT", "Telecommunications", "Smart City")),
+    ))
+    assert r.required_skills == []
+    assert r.preferred_skills == ["GPT | Claude | Gemini", "ICT | Telecommunications | Smart City"]
+
+
+def test_duplicate_groups_in_any_order_are_merged():
+    r = to_requirement(ex(
+        item("AWS", necessity="one_of", line="AWS or GCP"), item("GCP", necessity="one_of", line="AWS or GCP"),
+        item("GCP", necessity="one_of", line="GCP or AWS"), item("AWS", necessity="one_of", line="GCP or AWS"),
+    ))
+    assert r.required_skills == ["AWS | GCP"]
 
 
 def test_short_unsectioned_jd_keeps_required():
@@ -147,14 +180,14 @@ def test_or_line_labelled_must_is_demoted():
     line = "At least 2-5 years of experience in AI, Machine Learning, or Data Science"
     r = to_requirement(ex(*(item(n, kind="knowledge_field", line=line)
                             for n in ("AI", "Machine Learning", "Data Science")), item("Python")))
-    assert r.required_skills == ["Python"]
-    assert r.preferred_skills == ["AI", "Machine Learning", "Data Science"]
+    assert r.required_skills == ["AI | Machine Learning | Data Science", "Python"]
+    assert r.preferred_skills == []
 
 
 def test_thai_or_line_is_demoted():
     line = "ใช้ cloud อย่างใดอย่างหนึ่ง: AWS, Azure หรือ GCP"
     r = to_requirement(ex(*(item(n, line=line) for n in ("AWS", "Azure", "GCP"))))
-    assert r.required_skills == [] and r.preferred_skills == ["AWS", "Azure", "GCP"]
+    assert r.required_skills == ["AWS | Azure | GCP"] and r.preferred_skills == []
 
 
 def test_or_in_education_clause_does_not_demote_single_skill():
@@ -167,31 +200,31 @@ def test_or_in_education_clause_does_not_demote_single_skill():
 def test_or_only_affects_its_own_clause():
     line = "Must know Python and FastAPI. Docker or Podman is fine"
     r = to_requirement(ex(*(item(n, line=line) for n in ("Python", "FastAPI", "Docker", "Podman"))))
-    assert r.required_skills == ["Python", "FastAPI"]
-    assert r.preferred_skills == ["Docker", "Podman"]
+    assert r.required_skills == ["Python", "FastAPI", "Docker | Podman"]
+    assert r.preferred_skills == []
 
 
 def test_and_before_an_or_group_keeps_the_must_item():
     line = "Python and PyTorch, TensorFlow, or Hugging Face"
     r = to_requirement(ex(*(item(n, line=line) for n in ("Python", "PyTorch", "TensorFlow", "Hugging Face"))))
-    assert r.required_skills == ["Python"]
-    assert r.preferred_skills == ["PyTorch", "TensorFlow", "Hugging Face"]
+    assert r.required_skills == ["Python", "PyTorch | TensorFlow | Hugging Face"]
+    assert r.preferred_skills == []
 
 
 def test_thai_and_splits_clauses_but_and_or_does_not():
     th = "ใช้ Git และ Docker หรือ Podman"
     r = to_requirement(ex(*(item(n, line=th) for n in ("Git", "Docker", "Podman"))))
-    assert r.required_skills == ["Git"] and r.preferred_skills == ["Docker", "Podman"]
+    assert r.required_skills == ["Git", "Docker | Podman"] and r.preferred_skills == []
     en = "Java and/or Kotlin"
     r = to_requirement(ex(item("Java", line=en), item("Kotlin", line=en)))
-    assert r.required_skills == [] and r.preferred_skills == ["Java", "Kotlin"]
+    assert r.required_skills == ["Java | Kotlin"] and r.preferred_skills == []
 
 
 def test_or_check_does_not_split_dotted_names():
     """จุดใน "Next.js" ไม่ใช่จุดจบประโยค."""
     line = "React or Next.js"
     r = to_requirement(ex(item("React", line=line), item("Next.js", line=line)))
-    assert r.required_skills == [] and r.preferred_skills == ["React", "Next.js"]
+    assert r.required_skills == ["React | Next.js"] and r.preferred_skills == []
 
 
 def test_or_check_ignores_skills_from_other_lines_and_word_fragments():
@@ -202,8 +235,8 @@ def test_or_check_ignores_skills_from_other_lines_and_word_fragments():
         item("Go", line="Go, plus Google Cloud or AWS"),
         item("PostgreSQL", line="PostgreSQL or MySQL"), item("MySQL", line="PostgreSQL or MySQL"),
     ))
-    assert r.required_skills == ["Python", "SQL", "Go"]
-    assert r.preferred_skills == ["PostgreSQL", "MySQL"]
+    assert r.required_skills == ["Python", "SQL", "Go", "PostgreSQL | MySQL"]
+    assert r.preferred_skills == []
 
 
 def test_generic_suffix_is_trimmed_so_resumes_can_match():
@@ -241,8 +274,8 @@ def test_or_check_uses_the_real_jd_line_when_quote_is_partial():
         item("TensorFlow", line="- PyTorch, TensorFlow,"),
         item("Python", line="Python and SQL"),
     ), jd)
-    assert r.required_skills == ["Python"]
-    assert r.preferred_skills == ["PyTorch", "TensorFlow"]
+    assert r.required_skills == ["PyTorch | TensorFlow", "Python"]
+    assert r.preferred_skills == []
 
 
 def test_duty_line_grouping_ignores_bullets_case_and_spacing():
@@ -259,7 +292,7 @@ def test_duty_line_grouping_ignores_bullets_case_and_spacing():
 def test_line_keys_fall_back_to_quote_without_raw_jd():
     """ไม่มี raw_jd (เช่น replay ป้ายเก่า) — ใช้ source_line ที่ normalize แล้ว."""
     r = to_requirement(ex(item("React", line="  React OR Vue "), item("Vue", line="react or vue")))
-    assert r.required_skills == [] and r.preferred_skills == ["React", "Vue"]
+    assert r.required_skills == ["React | Vue"] and r.preferred_skills == []
 
 
 def test_blank_and_role_names_are_filtered():

@@ -20,7 +20,7 @@ from psycopg.types.json import Json
 
 from app.agents.bands import band
 from app.agents.nodes.matcher import evaluate_skills
-from app.agents.skills import canonical, is_skill
+from app.agents.skills import GROUP_SEP, alternatives, canonical, is_skill
 
 # ทักษะที่ต้องมีเกินเท่านี้เป็นสัญญาณว่าเกณฑ์พอง — AI Engineer ที่เจอปัญหามี 19 และ 32 ข้อ
 # ส่วนตำแหน่งที่ดึงถูกมี 3-7 ข้อ · เป็นคำเตือน ไม่ใช่ข้อห้าม
@@ -43,10 +43,11 @@ def normalize_criteria(required: list[str], preferred: list[str]) -> dict:
     def clean(items: list[str]) -> list[str]:
         out: list[str] = []
         for raw in items:
-            s = (raw or "").strip()
+            s = _clean_group(raw or "", dropped)
             if not s:
                 continue
-            key = canonical(s)
+            # กลุ่ม "A | B" กับ "B | A" คือเกณฑ์เดียวกัน — เทียบซ้ำแบบไม่สนลำดับตัวเลือก
+            key = GROUP_SEP.join(sorted(canonical(a) for a in alternatives(s)))
             if key in seen:
                 continue
             seen.add(key)
@@ -59,6 +60,26 @@ def normalize_criteria(required: list[str], preferred: list[str]) -> dict:
     req = clean(required)  # ฝั่งที่ต้องมีก่อน จึงชนะเมื่อซ้ำข้ามฝั่ง
     pref = clean(preferred)
     return {"required_skills": req, "preferred_skills": pref, "dropped": dropped}
+
+
+def _clean_group(raw: str, dropped: list[str]) -> str:
+    """จัดรูปกลุ่ม "ข้อใดข้อหนึ่ง": ตัดช่องว่าง ตัวเลือกซ้ำ และตัวเลือกที่ไม่ใช่ทักษะ (แจ้งใน dropped)
+    เหลือตัวเดียว → เป็นทักษะธรรมดา · ทักษะธรรมดาคืนตามเดิม (ตัดช่องว่างหัวท้าย)."""
+    alts = alternatives(raw)
+    if len(alts) <= 1:
+        return alts[0] if alts else ""
+    keep: list[str] = []
+    keys: set[str] = set()
+    for a in alts:
+        k = canonical(a)
+        if not k or k in keys:
+            continue
+        keys.add(k)
+        if not is_skill(a):
+            dropped.append(a)
+            continue
+        keep.append(a)
+    return f" {GROUP_SEP} ".join(keep)
 
 
 def criteria_warnings(required: list[str], preferred: list[str]) -> list[str]:
@@ -78,7 +99,8 @@ def criteria_warnings(required: list[str], preferred: list[str]) -> list[str]:
             f"ทักษะที่ต้องมีมี {len(required)} ข้อ — ทุกข้อนับเป็นข้อบังคับ ถ้าบางข้อเป็น"
             "ตัวเลือกแบบ \"หรือ\" หรือเป็นหน้าที่งาน คะแนนของทุกคนจะต่ำเกินจริง"
         )
-    phrases = [s for s in required if looks_like_phrase(s)]
+    # เช็กทีละตัวเลือก — กลุ่มยาว ๆ อย่าง "PyTorch | TensorFlow | Hugging Face" ไม่ใช่ประโยค
+    phrases = [a for s in required for a in alternatives(s) if looks_like_phrase(a)]
     if phrases:
         shown = ", ".join(f'"{s}"' for s in phrases[:3])
         more = f" และอีก {len(phrases) - 3} ข้อ" if len(phrases) > 3 else ""

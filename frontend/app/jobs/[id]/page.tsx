@@ -13,6 +13,7 @@ import CriteriaEditorDialog from "@/components/criteria-editor-dialog";
 import FileUpload from "@/components/file-upload";
 import { bulkDecision, fetcher } from "@/lib/api";
 import { JOB_STATUS, scoreBand } from "@/lib/types";
+import { skillLabel } from "@/lib/skill-group";
 import type {
   BulkDecisionResult,
   CandidateSummary,
@@ -194,7 +195,7 @@ export default function JobDashboard() {
                 key={s}
                 className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-primary-fixed text-on-primary-fixed-variant"
               >
-                {s}
+                {skillLabel(s)}
               </span>
             ))}
             {criteria?.preferred_skills?.map((s) => (
@@ -202,7 +203,7 @@ export default function JobDashboard() {
                 key={s}
                 className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-glass/60 border border-outline/40 text-on-surface-variant"
               >
-                {s} (อยากได้)
+                {skillLabel(s)} (อยากได้)
               </span>
             ))}
           </div>

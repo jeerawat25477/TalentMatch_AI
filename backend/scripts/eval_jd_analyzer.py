@@ -23,9 +23,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.agents.models import JDExtraction  # noqa: E402
 from app.agents.nodes.jd_analyzer import extract_jd, to_requirement  # noqa: E402
-from app.agents.skills import canonical  # noqa: E402
+from app.agents.skills import alternatives, canonical  # noqa: E402
 
-# expect: req_has = ต้องอยู่ฝั่งต้องมี · pref_has = ต้องอยู่ฝั่งอยากได้ · not_req = ห้ามอยู่ฝั่งต้องมี
+# expect: req_has = ต้องอยู่ฝั่งต้องมี (ตัวเดี่ยวหรือในกลุ่ม) · pref_has = ต้องอยู่ฝั่งอยากได้
+#         not_req = ห้ามเป็นข้อบังคับเดี่ยว ๆ (อยู่ในกลุ่ม "หรือ" ได้) · req_groups = ต้องมีกลุ่มที่มีตัวเลือกเหล่านี้
 #         nowhere = ห้ามโผล่ฝั่งไหน (เทียบ substring ไม่สนตัวพิมพ์) · req_max = ต้องมีไม่เกินกี่ข้อ
 CASES = {
     "backend_th_sectioned": (
@@ -57,8 +58,9 @@ CASES = {
 - มีความรู้ TCP/IP
 - มีประสบการณ์ Ansible จะพิจารณาเป็นพิเศษ""",
         {"req_has": ["Linux", "Git", "CI/CD", "Docker", "Kubernetes", "TCP/IP"],
-         "pref_has": ["AWS", "Azure", "GCP", "Terraform", "Pulumi", "Ansible"],
-         "not_req": ["monitoring", "logging"]},
+         "req_groups": [["AWS", "Azure", "GCP"]],
+         "pref_has": ["Terraform", "Pulumi", "Ansible"],
+         "not_req": ["monitoring", "logging", "AWS", "Azure", "GCP"]},
     ),
     "bias_th": (
         """รับสมัคร Backend Developer
@@ -111,6 +113,8 @@ Qualification
 DB_EXPECT = {
     "6c0d205a": {"req_has": ["Python", "SQL", "Prompt Engineering", "RAG", "Fine-tuning", "Docker",
                              "Kubernetes", "Git", "CI/CD"],
+                 "req_groups": [["PyTorch", "TensorFlow"], ["AWS", "Microsoft Azure", "Google Cloud Platform"],
+                                ["LangChain", "LangGraph"]],
                  "not_req": ["PyTorch", "TensorFlow", "AWS", "Microsoft Azure", "Google Cloud Platform",
                              "LangChain", "Pinecone"]},
     "7b44445d": {"req_max": 3, "not_req": ["monitoring", "logging", "experimentation", "quantitative research"],
@@ -118,15 +122,28 @@ DB_EXPECT = {
 }
 
 
-def _has(names: list[str], want: str) -> bool:
-    return canonical(want) in {canonical(n) for n in names}
+def _has(names: list[str], want: str, in_groups: bool = True) -> bool:
+    """มี `want` ในรายการไหม — in_groups=False นับเฉพาะรายการเดี่ยว ไม่นับตัวเลือกในกลุ่ม "หรือ"."""
+    w = canonical(want)
+    for n in names:
+        alts = alternatives(n)
+        if (len(alts) == 1 or in_groups) and w in {canonical(a) for a in alts}:
+            return True
+    return False
+
+
+def _has_group(names: list[str], members: list[str]) -> bool:
+    want = {canonical(m) for m in members}
+    return any(len(alternatives(n)) > 1 and want <= {canonical(a) for a in alternatives(n)} for n in names)
 
 
 def check(req: list[str], pref: list[str], expect: dict) -> list[str]:
     fails = []
     fails += [f"ต้องมีขาด {w}" for w in expect.get("req_has", []) if not _has(req, w)]
     fails += [f"อยากได้ขาด {w}" for w in expect.get("pref_has", []) if not _has(pref, w)]
-    fails += [f"{w} ไม่ควรอยู่ฝั่งต้องมี" for w in expect.get("not_req", []) if _has(req, w)]
+    fails += [f"{w} ไม่ควรเป็นข้อบังคับเดี่ยว" for w in expect.get("not_req", [])
+              if _has(req, w, in_groups=False)]
+    fails += [f"ต้องมีขาดกลุ่ม {' | '.join(g)}" for g in expect.get("req_groups", []) if not _has_group(req, g)]
     everything = " | ".join(req + pref).casefold()
     fails += [f"'{w}' ไม่ควรโผล่" for w in expect.get("nowhere", []) if w.casefold() in everything]
     if "req_max" in expect and len(req) > expect["req_max"]:

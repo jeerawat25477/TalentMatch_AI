@@ -5,6 +5,7 @@ import { useState } from "react";
 import { deleteCandidate, reprocessCandidate } from "@/lib/api";
 import type { CandidateSummary } from "@/lib/types";
 import { initials, QUEUE_STATE } from "@/lib/types";
+import { skillLabel } from "@/lib/skill-group";
 import ConfirmDialog from "./confirm-dialog";
 import ScoreRing from "./score-ring";
 
@@ -155,7 +156,7 @@ export default function CandidateCard({
               key={s}
               className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-secondary-fixed text-on-secondary-fixed-variant"
             >
-              {s}
+              {skillLabel(s)}
             </span>
           ))}
           {missing.slice(0, 3).map((s) => (
@@ -163,7 +164,7 @@ export default function CandidateCard({
               key={s}
               className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-error/10 text-on-error-container"
             >
-              {s}
+              {skillLabel(s)}
             </span>
           ))}
         </div>

@@ -4,6 +4,7 @@
 """
 from app.agents.llm import structured_invoke
 from app.agents.models import InterviewPlan
+from app.agents.skills import display_skill
 from app.agents.state import HRSystemState
 
 PROMPT = """คุณคือผู้สัมภาษณ์ที่มีประสบการณ์ จงร่างคำถามสัมภาษณ์ 5-7 ข้อสำหรับผู้สมัครตำแหน่ง "{job_title}"
@@ -47,8 +48,9 @@ def plan_interviews(state: HRSystemState) -> dict:
     plan = structured_invoke(
         PROMPT.format(
             job_title=jd.get("job_title", ""),
-            matched=gaps.get("matched_required", []) + gaps.get("matched_preferred", []),
-            missing=gaps.get("missing_required", []) + gaps.get("missing_preferred", []),
+            # กลุ่ม "A | B" → "A หรือ B" ให้ LLM อ่านเป็นภาษาคน
+            matched=[display_skill(x) for x in gaps.get("matched_required", []) + gaps.get("matched_preferred", [])],
+            missing=[display_skill(x) for x in gaps.get("missing_required", []) + gaps.get("missing_preferred", [])],
             similar_block=_similar_block(state, cid),
         ),
         InterviewPlan,

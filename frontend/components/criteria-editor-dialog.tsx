@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { previewCriteria, reanalyzeCriteria, saveCriteria } from "@/lib/api";
 import { BANDS } from "@/lib/types";
+import { skillLabel, splitSkillInput } from "@/lib/skill-group";
 import type { CriteriaPreview, CriteriaSaveResult, Job } from "@/lib/types";
 
 type Side = "required" | "preferred";
@@ -18,13 +19,6 @@ const SIDE_LABEL: Record<Side, string> = {
   preferred: "ทักษะที่อยากได้",
 };
 
-/** แยกข้อความที่วางมาทีละหลายตัว (คั่นด้วยจุลภาคหรือขึ้นบรรทัด) */
-function splitInput(text: string): string[] {
-  return text
-    .split(/[,\n]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
 
 /**
  * โมดัลให้ HR ตรวจและแก้รายการทักษะที่ AI ดึงจาก JD
@@ -95,7 +89,7 @@ export default function CriteriaEditorDialog({
   }, [busy, onClose]);
 
   function add(side: Side) {
-    const items = splitInput(drafts[side]);
+    const items = splitSkillInput(drafts[side]);
     if (!items.length) return;
     setLists((l) => ({ ...l, [side]: [...l[side], ...items] }));
     setDrafts((d) => ({ ...d, [side]: "" }));
@@ -218,10 +212,9 @@ export default function CriteriaEditorDialog({
         <h2 className="text-headline-md text-on-surface">แก้ไขเกณฑ์ทักษะ</h2>
         {/* text-on-surface ไม่ใช่ on-surface-variant: บนกระจกโมดัลในธีมมืดตัวหลังได้แค่ ~4.1:1 */}
         <p className="text-label-md text-on-surface">
-          ทุกข้อในฝั่ง &ldquo;ต้องมี&rdquo; นับเป็นข้อบังคับ ถ้าประกาศเขียนว่า &ldquo;A, B
-          หรือ C&rdquo; ให้เก็บไว้ตัวเดียว หรือย้ายตัวที่เหลือไปฝั่ง &ldquo;อยากได้&rdquo;
-          และลบคำที่เป็นหน้าที่งาน ไม่ใช่ทักษะ · บันทึกแล้วคะแนนผู้สมัครเดิมจะคำนวณใหม่ทันที
-          โดยไม่เรียก AI
+          ทุกข้อในฝั่ง &ldquo;ต้องมี&rdquo; นับเป็นข้อบังคับ · ถ้ามีตัวใดตัวหนึ่งก็พอ ให้พิมพ์คั่นด้วย
+          &ldquo;หรือ&rdquo; เช่น PyTorch หรือ TensorFlow (นับเป็น 1 ข้อ) · บันทึกแล้วคะแนนผู้สมัครเดิม
+          คำนวณใหม่ทันที โดยไม่เรียก AI
         </p>
 
         <div className="grid gap-sm md:grid-cols-2">
@@ -247,13 +240,13 @@ export default function CriteriaEditorDialog({
                         : "bg-surface-container-high text-on-surface-variant"
                     }`}
                   >
-                    {s}
+                    {skillLabel(s)}
                     <button
                       type="button"
                       onClick={() => move(side, i)}
                       disabled={!!busy}
                       className="w-6 h-6 rounded-full inline-flex items-center justify-center hover:bg-on-surface/10"
-                      aria-label={`ย้าย ${s} ไป${side === "required" ? SIDE_LABEL.preferred : SIDE_LABEL.required}`}
+                      aria-label={`ย้าย ${skillLabel(s)} ไป${side === "required" ? SIDE_LABEL.preferred : SIDE_LABEL.required}`}
                       title={`ย้ายไป${side === "required" ? SIDE_LABEL.preferred : SIDE_LABEL.required}`}
                     >
                       <span className="material-symbols-outlined text-[16px]">
@@ -265,7 +258,7 @@ export default function CriteriaEditorDialog({
                       onClick={() => remove(side, i)}
                       disabled={!!busy}
                       className="w-6 h-6 rounded-full inline-flex items-center justify-center hover:bg-on-surface/10"
-                      aria-label={`ลบ ${s}`}
+                      aria-label={`ลบ ${skillLabel(s)}`}
                       title="ลบ"
                     >
                       <span className="material-symbols-outlined text-[16px]">close</span>

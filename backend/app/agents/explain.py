@@ -8,6 +8,8 @@ CLAUDE.md ที่ห้าม matcher เทียบสตริงเอง 
 ⚠️ สูตรคะแนนอยู่ที่ matcher.py ที่เดียว ไฟล์นี้ต้องไม่คำนวณคะแนนซ้ำ แค่บรรยายสิ่งที่เกิดขึ้น
 """
 
+from app.agents.skills import display_skill
+
 # ยกชื่อทักษะมาในประโยคได้ไม่เกินเท่านี้ ที่เหลือสรุปเป็น "และอีก N ข้อ"
 # ไม่งั้นตำแหน่งที่มีเกณฑ์ 20 ข้อจะได้ประโยคยาวเป็นย่อหน้าจนไม่มีใครอ่าน
 MAX_NAMED_SKILLS = 3
@@ -15,6 +17,7 @@ MAX_NAMED_SKILLS = 3
 
 def _join(skills: list[str]) -> str:
     """รายชื่อทักษะแบบสั้น — เกิน MAX_NAMED_SKILLS แล้วตัดเหลือ "และอีก N ข้อ"."""
+    skills = [display_skill(s) for s in skills]  # กลุ่ม "A | B" → "A หรือ B"
     if len(skills) <= MAX_NAMED_SKILLS:
         return ", ".join(skills)
     shown = ", ".join(skills[:MAX_NAMED_SKILLS])

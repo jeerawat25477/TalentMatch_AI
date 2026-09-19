@@ -171,3 +171,16 @@ class TestBreakdownForDetail:
         b = _breakdown_for(gap, 40)
         assert b["matches_stored_score"] is False
         assert b["total"] == 0
+
+
+class TestAnyOfGroup:
+    def test_กลุ่มนับเป็น_1_ข้อ(self):
+        """ประกาศ "Python and PyTorch, TensorFlow, or Hugging Face" — รู้ Python + PyTorch = ครบ."""
+        assert score(["Python", "PyTorch | TensorFlow | Hugging Face"], [], ["Python", "PyTorch"]) == 100
+
+    def test_ไม่รู้สักตัวในกลุ่มถูกหัก_1_ข้อ(self):
+        assert score(["Python", "PyTorch | TensorFlow | Hugging Face"], [], ["Python"]) == 50
+
+    def test_เทียบกับแบบแบนเดิม(self):
+        """แบบแบนเดิม คนเดียวกันได้แค่ 2 จาก 4 ข้อ — นี่คือเหตุผลที่ต้องมีกลุ่ม."""
+        assert score(["Python", "PyTorch", "TensorFlow", "Hugging Face"], [], ["Python", "PyTorch"]) == 50

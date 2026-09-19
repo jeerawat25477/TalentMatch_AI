@@ -6,6 +6,7 @@ import useSWR from "swr";
 import Breadcrumb from "@/components/breadcrumb";
 import JobActions from "@/components/job-actions";
 import { fetcher } from "@/lib/api";
+import { skillLabel } from "@/lib/skill-group";
 import { JOB_STATUS, type JobListItem } from "@/lib/types";
 
 type Tab = "all" | "open" | "closed";
@@ -143,7 +144,7 @@ export default function HomePage() {
                       key={s}
                       className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-primary-fixed text-on-primary-fixed-variant"
                     >
-                      {s}
+                      {skillLabel(s)}
                     </span>
                   ))}
                 </div>

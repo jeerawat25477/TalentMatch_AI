@@ -1,4 +1,5 @@
 import type { GapAnalysis } from "@/lib/types";
+import { skillLabel } from "@/lib/skill-group";
 
 // รายการทักษะผ่าน/ขาด — ทำหน้าที่เป็น "table view" ของ radar chart ด้วย
 // (ระบุตัวตนด้วยข้อความ ไม่พึ่งสีอย่างเดียว)
@@ -83,7 +84,7 @@ function Panel({
               key={s}
               className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${chip}`}
             >
-              {s}
+              {skillLabel(s)}
             </span>
           ))}
         </div>
@@ -101,7 +102,7 @@ function Panel({
           </p>
           {quotes.map(([skill, quote]) => (
             <div key={skill}>
-              <p className="text-label-sm font-semibold text-on-surface">{skill}</p>
+              <p className="text-label-sm font-semibold text-on-surface">{skillLabel(skill)}</p>
               <blockquote
                 className={`border-l-2 pl-sm mt-0.5 text-label-sm italic text-on-surface-variant ${
                   tone === "secondary" ? "border-secondary/40" : "border-error/40"

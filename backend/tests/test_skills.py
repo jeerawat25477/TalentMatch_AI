@@ -153,3 +153,41 @@ class TestMatchingOwned:
             assert matches(required, REAL_OWNED) is (
                 matching_owned(required, REAL_OWNED) is not None
             )
+
+
+# ---------- กลุ่ม "ข้อใดข้อหนึ่ง" (เก็บเป็น "A | B | C") ----------
+
+
+class TestAnyOfGroups:
+    def test_alternatives_และแสดงผล(self):
+        from app.agents.skills import alternatives, display_skill
+
+        assert alternatives("PyTorch | TensorFlow |  | Hugging Face") == ["PyTorch", "TensorFlow", "Hugging Face"]
+        assert alternatives("Python") == ["Python"]
+        assert display_skill("PyTorch | TensorFlow") == "PyTorch หรือ TensorFlow"
+        assert display_skill("CI/CD") == "CI/CD"
+
+    def test_มีตัวใดตัวหนึ่งก็ตรง(self):
+        assert matches("PyTorch | TensorFlow | Hugging Face", {"TensorFlow"})
+        assert not matches("PyTorch | TensorFlow | Hugging Face", {"Keras", "Python"})
+
+    def test_ตัวเลือกใช้_alias_และ_IMPLIES_ได้(self):
+        assert matches("Node.js | Go", {"NodeJs"})
+        assert matches("SQL | NoSQL", {"PostgreSQL"})
+
+    def test_หลักฐานผูกกับตัวที่ตรงและลำดับคงที่(self):
+        # ลองตามลำดับในกลุ่ม คืนการสะกดในเรซูเม่ของตัวแรกที่ตรง
+        assert matching_owned("PyTorch | TensorFlow", {"tensorflow", "pytorch"}) == "pytorch"
+
+    def test_ไม่แยกก่อน_canonical_แล้วพัง(self):
+        """canonical ลบเครื่องหมายทิ้ง ถ้าแยก | ทีหลัง กลุ่มจะกลายเป็นทักษะชื่อยาวที่ไม่มีใครตรง."""
+        assert matches("AWS | Microsoft Azure | Google Cloud Platform", {"Azure"}) or matches(
+            "AWS | Microsoft Azure | Google Cloud Platform", {"Microsoft Azure"})
+
+    def test_กลุ่มเป็นทักษะถ้ามีตัวเลือกที่เป็นทักษะ(self):
+        assert is_skill("data scientists | Python")
+        assert not is_skill("data scientists | product owners")
+
+    def test_split_matched_คงการสะกดของกลุ่มตาม_JD(self):
+        hit, miss = split_matched(["Python", "PyTorch | TensorFlow", "Go | Rust"], {"Python", "PyTorch"})
+        assert hit == ["Python", "PyTorch | TensorFlow"] and miss == ["Go | Rust"]

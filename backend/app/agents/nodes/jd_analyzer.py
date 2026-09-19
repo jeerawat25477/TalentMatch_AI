@@ -7,14 +7,13 @@
 ทำไมไม่ให้ LLM ตัดสินฝั่งเอง: `JobRequirement` เป็นรายการแบนที่ทุกข้อบังคับครบ (AND) และ
 gemini-2.5-flash-lite ทำตามกติกายาว ๆ ได้ไม่ครบ (วัดแล้ว 2026-09-19 — memory-bank/06)
 กติกาที่ย้ายมาอยู่ในโค้ดจึงเทสได้และไม่ขึ้นกับว่าโมเดลจำได้หรือไม่
-ข้อจำกัดที่ยังอยู่: ตัวเลือก "A หรือ B" ไปฝั่ง preferred ทั้งหมด ข้อบังคับ "ต้องมีสักตัว" จึงหายไป
-ทางแก้ที่ถูกคือกลุ่ม any-of (ทางแก้ข้อ 3) ซึ่งใช้ป้าย one_of/group ที่เก็บใน jobs.jd_extraction ได้
+ตัวเลือก "A หรือ B" รวมเป็นกลุ่ม "A | B" = 1 ข้อ (skills.alternatives) ข้อบังคับ "ต้องมีสักตัว" จึงยังอยู่
 """
 import re
 
 from app.agents.llm import structured_invoke, structured_invoke_once
 from app.agents.models import JDExtraction, JobRequirement
-from app.agents.skills import canonical, is_skill
+from app.agents.skills import GROUP_SEP, alternatives, canonical, is_skill
 from app.agents.state import HRSystemState
 
 PROMPT = """คุณคือผู้เชี่ยวชาญ HR อ่านประกาศรับสมัครงานนี้แล้วตอบ:
@@ -93,8 +92,10 @@ def _mentions(clause: str, name: str) -> bool:
     return re.search(pattern, clause.casefold()) is not None
 
 
-def _in_or_clause(items: list[tuple[str, str]]) -> set[int]:
-    """index ของ item ที่อยู่ในท่อนประโยคเดียวกับ or/หรือ ร่วมกับทักษะอื่นจาก **บรรทัดเดียวกัน**.
+def _or_clauses(items: list[tuple[str, str]]) -> list[list[int]]:
+    """กลุ่ม index ของ item ที่อยู่ในท่อนประโยคเดียวกับ or/หรือ ร่วมกับทักษะอื่นจาก **บรรทัดเดียวกัน**.
+
+    แต่ละท่อนคือตัวเลือกหนึ่งกลุ่ม — ตาข่ายเผื่อ LLM ไม่ได้ติดป้าย one_of/group ให้
 
     - ต้องมี ≥ 2 ทักษะในท่อนเดียวกัน — "ปริญญาตรีสาขาคอมพิวเตอร์หรือสาขาที่เกี่ยวข้อง" มีคำว่าหรือ
       แต่ไม่มีทักษะให้เลือกระหว่างกัน
@@ -105,15 +106,46 @@ def _in_or_clause(items: list[tuple[str, str]]) -> set[int]:
     by_line: dict[str, list[int]] = {}
     for i, (_, line) in enumerate(items):
         by_line.setdefault(line, []).append(i)
-    hits: set[int] = set()
+    groups: list[list[int]] = []
     for line, idxs in by_line.items():
         for clause in _CLAUSE.split(line):
             if not _OR.search(clause):
                 continue
             inside = [i for i in idxs if _mentions(clause, items[i][0])]
             if len(inside) >= 2:
-                hits.update(inside)
-    return hits
+                groups.append(inside)
+    return groups
+
+
+def _group_ids(kept) -> list[int]:
+    """เลขกลุ่มของแต่ละ item (union-find) — รวมจากสองแหล่ง:
+    ป้าย group ที่ LLM ติด (one_of/example ในบรรทัดเดียวกัน) และท่อน or/หรือ ที่โค้ดหาเอง
+    item ที่ไม่อยู่ในกลุ่มไหนได้เลขของตัวเอง
+    """
+    parent = list(range(len(kept)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(a: int, b: int) -> None:
+        parent[find(a)] = find(b)
+
+    by_label: dict[tuple[str, str], int] = {}
+    for i, (item, _) in enumerate(kept):
+        label = item.group.strip().casefold()
+        if label and item.necessity in _LISTED:
+            key = (label, item.source_line)
+            if key in by_label:
+                union(i, by_label[key])
+            else:
+                by_label[key] = i
+    for clause in _or_clauses([(name, item.source_line) for item, name in kept]):
+        for i in clause[1:]:
+            union(i, clause[0])
+    return [find(i) for i in range(len(kept))]
 
 
 # คำต่อท้ายทั่วไปที่ทำให้ชื่อทักษะเจาะจงเกินเรซูเม่ — matcher เทียบแบบ "required ต้องไม่เจาะจงกว่า
@@ -207,22 +239,39 @@ def to_requirement(ex: JDExtraction, raw_jd: str | None = None) -> JobRequiremen
             continue
         kept.append((item.model_copy(update={"section": section, "source_line": key}), name))
 
-    in_or_clause = _in_or_clause([(name, item.source_line) for item, name in kept])
+    # รวมตัวเลือกเป็นกลุ่ม "A | B | C" = 1 ข้อ มีตัวใดตัวหนึ่งก็ผ่าน (ทางแก้ข้อ 3)
+    ids = _group_ids(kept)
+    members: dict[int, list[int]] = {}
+    for i, g in enumerate(ids):
+        members.setdefault(g, []).append(i)
 
     required: list[str] = []
     preferred: list[str] = []
-    for i, (item, name) in enumerate(kept):
-        if item.necessity == "must" and item.section != "duties" and i not in in_or_clause:
-            required.append(name)
+    done: set[int] = set()
+    for i, g in enumerate(ids):  # วนตามลำดับในประกาศ กลุ่มอยู่ตำแหน่งของตัวแรก
+        if g in done:
+            continue
+        done.add(g)
+        idxs = members[g]
+        items = [kept[j][0] for j in idxs]
+        names = list(dict.fromkeys(kept[j][1] for j in idxs))
+        if len(names) == 1:
+            # ตัวเดียว: must นอกส่วนหน้าที่ → ต้องมี · one_of/example/plus ลอย ๆ → อยากได้
+            # (ตัวที่ตาข่าย or ดึงมาจะไม่เหลือตัวเดียว เพราะท่อนต้องมี ≥ 2 ทักษะ)
+            is_req = items[0].necessity == "must" and items[0].section != "duties"
         else:
-            preferred.append(name)
+            # กลุ่มเป็นข้อบังคับเมื่อทุกตัวเป็น must/one_of และไม่อยู่ในส่วนหน้าที่งาน
+            # "such as" (example) / "is a plus" / ส่วนหน้าที่งาน → กลุ่มฝั่งอยากได้
+            is_req = all(it.necessity in ("must", "one_of") and it.section != "duties" for it in items)
+        (required if is_req else preferred).append(f" {GROUP_SEP} ".join(names))
 
     seen: set[str] = set()
 
     def dedupe(names: list[str]) -> list[str]:
         out = []
         for n in names:
-            key = canonical(n)
+            # กลุ่มเทียบซ้ำแบบไม่สนลำดับตัวเลือก
+            key = GROUP_SEP.join(sorted(canonical(a) for a in alternatives(n)))
             if key and key not in seen:
                 seen.add(key)
                 out.append(n)

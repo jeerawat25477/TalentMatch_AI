@@ -116,6 +116,26 @@ def _normalize(s: str) -> str:
     return " ".join(_PUNCT.sub(" ", s.lower()).split())
 
 
+# กลุ่ม "ข้อใดข้อหนึ่ง" เก็บเป็นข้อความเดียวในรายการเกณฑ์: "PyTorch | TensorFlow | Hugging Face"
+# นับเป็น 1 ข้อในสูตร มีตัวใดตัวหนึ่งก็ผ่าน (memory-bank/06 ทางแก้ข้อ 3) · เลือกเก็บเป็นข้อความ
+# แทนโครงข้อมูลใหม่ เพื่อให้เกณฑ์เดิม, API, หน้าแก้เกณฑ์ และลูปอคติใช้ได้ต่อโดยไม่แก้
+GROUP_SEP = "|"
+
+
+def alternatives(skill: str) -> list[str]:
+    """ตัวเลือกในกลุ่ม (ตัดช่องว่าง/ช่องเปล่า) — ทักษะธรรมดาคืนรายการตัวเดียว.
+
+    ⚠️ ต้องแยกก่อนเรียก canonical() เสมอ เพราะ canonical ลบเครื่องหมายทิ้ง
+    กลุ่มจะกลายเป็นชื่อยาวชื่อเดียวที่ไม่มีใครตรง
+    """
+    return [a.strip() for a in skill.split(GROUP_SEP) if a.strip()]
+
+
+def display_skill(skill: str) -> str:
+    """ข้อความสำหรับคนอ่าน: "PyTorch | TensorFlow" → "PyTorch หรือ TensorFlow"."""
+    return " หรือ ".join(alternatives(skill)) or skill
+
+
 def canonical(skill: str) -> str:
     """ชื่อมาตรฐานของทักษะ — normalize แล้วแมปผ่าน ALIASES.
 
@@ -135,6 +155,10 @@ def is_skill(s: str) -> bool:
     ใช้กรอง parsed_criteria ตอนอ่านจาก DB ด้วย เพื่อให้ JD เก่าที่บันทึกไว้แล้ว
     ได้คะแนนที่ถูกต้องทันทีโดยไม่ต้องเรียก LLM วิเคราะห์ใหม่
     """
+    alts = alternatives(s)
+    if len(alts) > 1:
+        # กลุ่มนับเป็นทักษะถ้ามีตัวเลือกที่เป็นทักษะจริงอย่างน้อยหนึ่งตัว
+        return any(is_skill(a) for a in alts)
     toks = _tokens(s)
     if not toks:
         return False
@@ -167,7 +191,16 @@ def matching_owned(required: str, owned: set[str]) -> str | None:
 
     วนบน sorted() ไม่ใช่ set: ผลลัพธ์ต้องเหมือนเดิมทุกรอบ ไม่งั้นหลักฐานที่ HR เห็น
     จะสลับไปมาโดยที่คะแนนไม่เปลี่ยน
+
+    กลุ่ม "A | B" ลองทีละตัวเลือกตามลำดับใน JD แล้วคืนตัวแรกที่ตรง — ลำดับคงที่เหมือนกัน
     """
+    alts = alternatives(required)
+    if len(alts) > 1:
+        for alt in alts:
+            hit = matching_owned(alt, owned)
+            if hit is not None:
+                return hit
+        return None
     req = canonical(required)
     if not req:
         return None

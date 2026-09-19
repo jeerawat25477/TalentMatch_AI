@@ -1,4 +1,5 @@
 import type { GapAnalysis } from "@/lib/types";
+import { skillLabel } from "@/lib/skill-group";
 
 // สองซีรีส์: Job Specs (สิ่งที่ตำแหน่งต้องการ) vs Candidate (สิ่งที่ผู้สมัครมี)
 // สีผ่านการตรวจ CVD แล้ว (ΔE 27 protan / 31 normal) และมี legend + ป้ายแกนกำกับเสมอ
@@ -19,12 +20,12 @@ type Axis = { label: string; job: number; candidate: number };
 function buildAxes(gap: GapAnalysis): Axis[] {
   // required = ความต้องการเต็ม (1.0), preferred = อยากได้ (0.7)
   const required = [...gap.matched_required, ...gap.missing_required].map((s) => ({
-    label: s,
+    label: skillLabel(s),
     job: 1,
     candidate: gap.matched_required.includes(s) ? 1 : 0,
   }));
   const preferred = [...gap.matched_preferred, ...gap.missing_preferred].map((s) => ({
-    label: s,
+    label: skillLabel(s),
     job: 0.7,
     candidate: gap.matched_preferred.includes(s) ? 0.7 : 0,
   }));

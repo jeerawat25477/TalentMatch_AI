@@ -16,6 +16,7 @@ import ScoreBreakdown from "@/components/score-breakdown";
 import SkillGap from "@/components/skill-gap";
 import StageStepper from "@/components/stage-stepper";
 import StatusBadge from "@/components/status-badge";
+import { skillLabel } from "@/lib/skill-group";
 import {
   fetcher,
   resumeCandidate,
@@ -952,7 +953,7 @@ export default function CandidateDeepDive() {
             c.gap_analysis.missing_preferred.length}{" "}
           ข้อ
           {c.gap_analysis.missing_required.length > 0 && (
-            <> · ยังขาด: {c.gap_analysis.missing_required.join(", ")}</>
+            <> · ยังขาด: {c.gap_analysis.missing_required.map(skillLabel).join(", ")}</>
           )}
         </AiInsight>
       )}

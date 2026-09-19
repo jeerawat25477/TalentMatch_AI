@@ -128,6 +128,32 @@ class TestWarnings:
     def test_ประโยคในฝั่งอยากได้ไม่เตือน(self):
         assert self._phrase(["Python"], ["ใช้ AI ในการเขียนโปรแกรม"]) == []
 
+    def test_กลุ่มยาวไม่ถูกเตือนว่าเป็นประโยค_แต่ตัวเลือกที่เป็นประโยคถูกเตือน(self):
+        assert self._phrase(["PyTorch | TensorFlow | Scikit-learn | Hugging Face | Keras"]) == []
+        w = self._phrase(["Python | ใช้ AI ในการเขียนโปรแกรม"])
+        assert len(w) == 1 and '"ใช้ AI ในการเขียนโปรแกรม"' in w[0]
+
+
+class TestNormalizeGroups:
+    def test_จัดรูปกลุ่ม(self):
+        r = normalize_criteria([" PyTorch |TensorFlow |  | pytorch "], [])
+        assert r["required_skills"] == ["PyTorch | TensorFlow"]
+
+    def test_เหลือตัวเดียวเป็นทักษะธรรมดา(self):
+        assert normalize_criteria(["Python | python"], [])["required_skills"] == ["Python"]
+
+    def test_ตัวเลือกที่ไม่ใช่ทักษะถูกตัดและแจ้ง(self):
+        r = normalize_criteria(["Python | product owners"], [])
+        assert r["required_skills"] == ["Python"] and r["dropped"] == ["product owners"]
+
+    def test_กลุ่มซ้ำไม่สนลำดับ_ฝั่งต้องมีชนะ(self):
+        r = normalize_criteria(["AWS | GCP"], ["GCP | AWS", "Docker"])
+        assert r["required_skills"] == ["AWS | GCP"] and r["preferred_skills"] == ["Docker"]
+
+    def test_กลุ่มกับทักษะเดี่ยวไม่นับว่าซ้ำกัน(self):
+        r = normalize_criteria(["Python", "Python | R"], [])
+        assert r["required_skills"] == ["Python", "Python | R"]
+
 
 class TestNeedsRecheck:
     def test_ไม่เคยคำนวณใหม่(self):
@@ -385,8 +411,9 @@ class TestReanalyze:
         res = client.post(f"/api/v1/jobs/{jid}/criteria/reanalyze")
         assert res.status_code == 200, res.text
         body = res.json()
-        assert body["required_skills"] == ["Python"]
-        assert body["preferred_skills"] == ["PyTorch", "TensorFlow", "Hugging Face"]
+        # "Python and PyTorch, TensorFlow, or Hugging Face" → กลุ่ม "หรือ" เป็นข้อบังคับข้อเดียว
+        assert body["required_skills"] == ["Python", "PyTorch | TensorFlow | Hugging Face"]
+        assert body["preferred_skills"] == []
         # คนที่รู้ Python + PyTorch: เดิมตรง 2 จาก 5 ข้อบังคับ ตอนนี้บังคับครบ
         impact = {i["candidate_id"]: i for i in body["impact"]}
         assert impact[strong]["new_score"] > impact[strong]["old_score"]
@@ -401,11 +428,12 @@ class TestReanalyze:
         with get_conn() as conn:
             row = conn.execute("SELECT jd_extraction, ai_criteria FROM jobs WHERE id = %s", (jid,)).fetchone()
         assert [i["necessity"] for i in row["jd_extraction"]["items"]] == ["must", "one_of", "one_of", "one_of"]
-        assert row["ai_criteria"]["required_skills"] == ["Python"]
+        assert row["ai_criteria"]["required_skills"] == ["Python", "PyTorch | TensorFlow | Hugging Face"]
         # HR แก้เองหลังจากนั้น แล้วกดคืนค่า → ได้ผลอ่านล่าสุด ไม่ใช่ 5 ข้อบังคับเดิม
         client.put(f"/api/v1/jobs/{jid}/criteria", json={"required_skills": ["Go"], "preferred_skills": []})
         res = client.post(f"/api/v1/jobs/{jid}/criteria/reset")
-        assert res.json()["job"]["parsed_criteria"]["required_skills"] == ["Python"]
+        assert res.json()["job"]["parsed_criteria"]["required_skills"] == [
+            "Python", "PyTorch | TensorFlow | Hugging Face"]
 
     def test_บันทึกหลังอ่านใหม่แล้วคะแนนเปลี่ยนตาม(self, client, job, reanalyze):
         jid, (strong, _) = job
