@@ -106,6 +106,28 @@ class TestWarnings:
     def test_ปกติไม่มีคำเตือน(self):
         assert criteria_warnings(["Python"], ["Git"]) == []
 
+    def _phrase(self, req, pref=()):
+        return [w for w in criteria_warnings(list(req), list(pref)) if "ดูเป็นประโยค" in w]
+
+    def test_ประโยคไทยที่มีช่องว่าง(self):
+        w = self._phrase(["Python", "ใช้ AI ในการเขียนโปรแกรม", "ความรู้ด้าน AI"])
+        assert len(w) == 1 and '"ใช้ AI ในการเขียนโปรแกรม"' in w[0] and '"ความรู้ด้าน AI"' in w[0]
+
+    def test_ภาษาอังกฤษยาวเกินห้าคำหรือเกิน_40_ตัว(self):
+        assert self._phrase(["experience building scalable backend services"])
+        assert self._phrase(["A" * 41])
+
+    def test_รวมเป็นข้อความเดียว_แสดงไม่เกินสามชื่อ(self):
+        w = self._phrase([f"ประโยค ที่ {i}" for i in range(5)])
+        assert len(w) == 1 and "และอีก 2 ข้อ" in w[0] and "ประโยค ที่ 3" not in w[0]
+
+    def test_ชื่อปกติไม่เตือน(self):
+        assert self._phrase(["Prompt Engineering", "CI/CD", "Retrieval-Augmented Generation (RAG)",
+                             "การวิเคราะห์ข้อมูล", "Google Cloud Platform"]) == []
+
+    def test_ประโยคในฝั่งอยากได้ไม่เตือน(self):
+        assert self._phrase(["Python"], ["ใช้ AI ในการเขียนโปรแกรม"]) == []
+
 
 class TestNeedsRecheck:
     def test_ไม่เคยคำนวณใหม่(self):

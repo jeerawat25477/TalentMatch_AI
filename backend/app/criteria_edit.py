@@ -12,6 +12,7 @@ jd_analyzer ดึงทักษะจาก JD ครั้งเดียว�
   หรือขั้นบนกระดาน · คนที่แบนด์เปลี่ยนขึ้นป้ายให้ HR ตรวจเอง (ผู้ใช้ตัดสิน 2026-09-18)
 - ส่วนที่เป็นกฎล้วนเป็นฟังก์ชันบริสุทธิ์ ทดสอบได้โดยไม่ต้องมี DB
 """
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -77,7 +78,33 @@ def criteria_warnings(required: list[str], preferred: list[str]) -> list[str]:
             f"ทักษะที่ต้องมีมี {len(required)} ข้อ — ทุกข้อนับเป็นข้อบังคับ ถ้าบางข้อเป็น"
             "ตัวเลือกแบบ \"หรือ\" หรือเป็นหน้าที่งาน คะแนนของทุกคนจะต่ำเกินจริง"
         )
+    phrases = [s for s in required if looks_like_phrase(s)]
+    if phrases:
+        shown = ", ".join(f'"{s}"' for s in phrases[:3])
+        more = f" และอีก {len(phrases) - 3} ข้อ" if len(phrases) > 3 else ""
+        warnings.append(
+            f"ทักษะบางข้อดูเป็นประโยค อาจไม่ตรงกับเรซูเม่ใครเลย ควรแก้ให้สั้น: {shown}{more}"
+        )
     return warnings
+
+
+_THAI = re.compile(r"[฀-๿]")
+PHRASE_MAX_WORDS = 4
+PHRASE_MAX_CHARS = 40
+
+
+def looks_like_phrase(skill: str) -> bool:
+    """ชื่อทักษะที่ดูเป็นประโยคมากกว่าชื่อ — ฟังก์ชันบริสุทธิ์.
+
+    AI เคยใส่ "ใช้ AI ในการเขียนโปรแกรม" เป็นข้อบังคับ (Software Engineer 31854880) ไม่มีใครเขียน
+    แบบนี้ในเรซูเม่ ทุกคนจึงขาดข้อนี้เท่ากันหมด · ภาษาไทยไม่เว้นวรรคระหว่างคำ ชื่อไทยที่มีช่องว่าง
+    จึงมักเป็นวลี ("ความรู้ด้าน AI") ส่วนชื่ออังกฤษดูจากจำนวนคำและความยาว
+    ใช้เตือน HR เท่านั้น — ไม่แก้ชื่อหรือคะแนนให้เอง
+    """
+    s = skill.strip()
+    if _THAI.search(s) and " " in s:
+        return True
+    return len(s.split()) > PHRASE_MAX_WORDS or len(s) > PHRASE_MAX_CHARS
 
 
 def needs_recheck(
