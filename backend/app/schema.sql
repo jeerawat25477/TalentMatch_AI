@@ -89,6 +89,12 @@ ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS confidence VARCHAR(10);
 -- "เกณฑ์เปลี่ยน ตรวจอีกครั้ง" เมื่อแบนด์เปลี่ยน (ระบบไม่เดินกราฟใหม่เอง ให้ HR ตัดสิน)
 ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS rescored_from INT;
 ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS rescored_at TIMESTAMP WITH TIME ZONE;
+-- ร่างอีเมลฉบับที่ HR แก้เองและกดบันทึก — **คนละคอลัมน์กับ email_draft โดยตั้งใจ**
+-- email_draft เป็นของ email_drafter: กราฟเดินรอบใหม่แล้วเขียนทับ และ runner ตั้งเป็น
+-- NULL ได้เมื่อ drafter ล้ม ถ้าเก็บร่างของ HR ไว้ที่นั่น งานที่พิมพ์เองจะหายโดยไม่มีใครรู้
+-- NULL = ยังไม่เคยแก้/กดกลับไปใช้ร่างของ AI · {subject, body} เหมือน email_draft
+ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS email_draft_edited JSONB;
+ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS email_draft_edited_at TIMESTAMP WITH TIME ZONE;
 
 CREATE TABLE IF NOT EXISTS hr_decisions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

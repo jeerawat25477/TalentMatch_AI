@@ -10,6 +10,7 @@ import EmailTemplatePicker from "@/components/email-template-picker";
 import HireEmployeeDialog from "@/components/hire-employee-dialog";
 import InterviewGuide from "@/components/interview-guide";
 import {
+  formatSchedule,
   InterviewScheduleDialog,
   InterviewScheduleSummary,
 } from "@/components/interview-schedule";
@@ -20,20 +21,24 @@ import SkillGap from "@/components/skill-gap";
 import StatusBadge from "@/components/status-badge";
 import WorkingNote from "@/components/working-note";
 import {
+  clearEmailDraft,
   fetcher,
   resumeCandidate,
   searchCandidates,
+  saveEmailDraft,
   sendEmail,
   setStage,
   submitDecision,
 } from "@/lib/api";
 import {
+  appendScheduleLine,
   BANDS,
   CONFIDENCE,
   initials,
   INTERVIEW_RESULT,
   normalizeQuestions,
   QUEUE_STATE,
+  scheduleLine,
   scoreBand,
 } from "@/lib/types";
 import type {
@@ -66,6 +71,8 @@ export default function CandidateDeepDive() {
   const [sendError, setSendError] = useState<string | null>(null);
   const [showHire, setShowHire] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
   const [showOutcome, setShowOutcome] = useState(false);
   const [resuming, setResuming] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
@@ -75,15 +82,34 @@ export default function CandidateDeepDive() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [hits, setHits] = useState<CandidateSearchHit[] | null>(null);
   const seeded = useRef(false);
+  // เก็บสถานะ "ยังไม่บันทึก" ไว้ใน ref เพราะ effect เตือนก่อนปิดแท็บถูกประกาศก่อนจุดที่
+  // คำนวณค่านั้นได้ (ต้องอยู่เหนือ early return ตามกฎ hooks)
+  const unsavedRef = useRef(false);
   const router = useRouter();
 
-  // ซิงก์ร่างอีเมลจาก backend เมื่อมีข้อมูลใหม่ (แก้ต่อในเครื่องได้)
+  // ซิงก์ร่างอีเมลจาก backend — **ฉบับที่ HR บันทึกไว้มาก่อนฉบับของ AI เสมอ**
+  // (deps เป็นค่าจากเซิร์ฟเวอร์ ไม่ใช่ค่าในช่อง จึงไม่ทับสิ่งที่กำลังพิมพ์อยู่ตอน poll)
   useEffect(() => {
-    if (c?.email_draft?.body) setEmailBody(c.email_draft.body);
-  }, [c?.email_draft?.body]);
+    const body = c?.email_draft_edited?.body ?? c?.email_draft?.body;
+    if (body) setEmailBody(body);
+  }, [c?.email_draft_edited?.body, c?.email_draft?.body]);
   useEffect(() => {
-    if (c?.email_draft?.subject) setEmailSubject(c.email_draft.subject);
-  }, [c?.email_draft?.subject]);
+    const subject = c?.email_draft_edited?.subject ?? c?.email_draft?.subject;
+    if (subject) setEmailSubject(subject);
+  }, [c?.email_draft_edited?.subject, c?.email_draft?.subject]);
+  // เตือนก่อนปิดแท็บ/ออกจากหน้าเมื่อร่างยังไม่ได้บันทึก — เบราว์เซอร์แสดงข้อความของตัวเอง
+  // (กำหนดข้อความเองไม่ได้) แค่ preventDefault ก็พอให้ถามก่อน
+  useEffect(() => {
+    if (!unsavedRef.current) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      if (!unsavedRef.current) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  });
+
   // ผู้รับดีฟอลต์จากอีเมลที่แกะได้ แต่ HR แก้ได้ก่อนส่ง (ด่านกัน spam relay)
   useEffect(() => {
     if (c?.email) setEmailTo(c.email);
@@ -115,6 +141,39 @@ export default function CandidateDeepDive() {
       setHits(null);
     } finally {
       setSearching(false);
+    }
+  }
+
+  /** บันทึกสิ่งที่พิมพ์อยู่ตอนนี้เป็นร่างของ HR — ไม่ส่งอะไรทั้งสิ้น */
+  async function handleSaveDraft() {
+    setSavingDraft(true);
+    setDraftError(null);
+    try {
+      await saveEmailDraft(candidate_id, emailSubject, emailBody);
+      await mutate();
+    } catch (e) {
+      setDraftError(e instanceof Error ? e.message : "บันทึกร่างไม่สำเร็จ");
+    } finally {
+      setSavingDraft(false);
+    }
+  }
+
+  /** ทิ้งร่างของ HR แล้วเอาร่างของ AI กลับมาใส่ช่อง (ร่างของ AI ไม่เคยถูกแตะ) */
+  async function handleRevertDraft() {
+    if (!confirm("ทิ้งร่างที่แก้ไว้ แล้วกลับไปใช้ร่างของ AI?")) return;
+    setSavingDraft(true);
+    setDraftError(null);
+    try {
+      await clearEmailDraft(candidate_id);
+      if (c?.email_draft) {
+        setEmailSubject(c.email_draft.subject);
+        setEmailBody(c.email_draft.body);
+      }
+      await mutate();
+    } catch (e) {
+      setDraftError(e instanceof Error ? e.message : "ยกเลิกร่างไม่สำเร็จ");
+    } finally {
+      setSavingDraft(false);
     }
   }
 
@@ -167,6 +226,18 @@ export default function CandidateDeepDive() {
 
   const band = BANDS[scoreBand(c.fit_score)];
   const profile = c.parsed_resume;
+  // ร่างที่บันทึกไว้ล่าสุด (ของ HR ถ้ามี ไม่งั้นของ AI) — ใช้เทียบว่ามีอะไรยังไม่ได้บันทึก
+  const savedSubject = c.email_draft_edited?.subject ?? c.email_draft?.subject ?? "";
+  const savedBody = c.email_draft_edited?.body ?? c.email_draft?.body ?? "";
+  // มีร่างให้แก้ถ้ามีฝั่งใดฝั่งหนึ่ง — runner ตั้ง email_draft เป็น NULL ได้เมื่อ drafter ล้ม
+  // ถ้าผูกฟอร์มไว้กับร่างของ AI อย่างเดียว ร่างที่ HR บันทึกไว้จะเข้าไม่ถึงทั้งที่ยังอยู่ใน DB
+  const hasDraft = Boolean(c.email_draft || c.email_draft_edited);
+  // ชนิดอีเมลมาจากร่างของ AI · ไม่มีก็อนุมานจากคำตัดสิน (ใช้แค่กรองเทมเพลตกับป้ายหัวการ์ด)
+  const draftKind =
+    c.email_draft?.kind ?? (c.hr_decision === "rejected" ? "rejection" : "invitation");
+  const draftDirty =
+    hasDraft && (emailSubject !== savedSubject || emailBody !== savedBody);
+  unsavedRef.current = draftDirty;
 
   return (
     <div className="space-y-md">
@@ -435,19 +506,19 @@ export default function CandidateDeepDive() {
           <h3 className="text-headline-md text-on-surface flex items-center gap-xs mb-sm">
             <span className="material-symbols-outlined text-primary">mail</span>
             ร่างอีเมล
-            {c.email_draft && (
+            {hasDraft && (
               <span
                 className={`text-label-sm px-2.5 py-1 rounded-full ${
-                  c.email_draft.kind === "invitation"
+                  draftKind === "invitation"
                     ? "bg-secondary-container/40 text-on-secondary-container"
                     : "bg-error-container/60 text-on-error-container"
                 }`}
               >
-                {c.email_draft.kind === "invitation" ? "เชิญสัมภาษณ์" : "ปฏิเสธ"}
+                {draftKind === "invitation" ? "เชิญสัมภาษณ์" : "ปฏิเสธ"}
               </span>
             )}
           </h3>
-          {c.email_draft ? (
+          {hasDraft ? (
             <div className="space-y-xs">
               {c.email_sent_at && (
                 <div className="flex items-center gap-xs text-label-md text-secondary rounded-lg bg-secondary-container/20 px-sm py-xs">
@@ -471,12 +542,18 @@ export default function CandidateDeepDive() {
 
               {/* เทมเพลตที่บันทึกไว้ — เติมช่องให้เฉย ๆ HR ยังต้องตรวจและกดส่งเอง */}
               <EmailTemplatePicker
-                kind={c.email_draft.kind}
+                kind={draftKind}
                 subject={emailSubject}
                 body={emailBody}
                 vars={{
                   candidate_name: c.full_name,
                   job_title: job?.title ?? "",
+                  // ยังไม่มีวันนัด = ไม่ส่งค่า → fillTemplate ปล่อย {interview_datetime}
+                  // ค้างไว้ให้เห็น ไม่แทนด้วยค่าว่างจนอ่านไม่ออกว่าตกอะไรไป
+                  interview_datetime: c.scheduled_at
+                    ? formatSchedule(c.scheduled_at)
+                    : null,
+                  interview_location: c.location,
                 }}
                 onApply={(s, b) => {
                   setEmailSubject(s);
@@ -513,6 +590,94 @@ export default function CandidateDeepDive() {
                   className="input-glass w-full resize-y mt-0.5"
                 />
               </label>
+
+              {/* แทรกวันนัดลงเนื้อความ — ระบบรู้วันนัดอยู่แล้ว ไม่ควรให้ HR พิมพ์เอง
+                  กดซ้ำไม่ได้บรรทัดซ้ำ (appendScheduleLine เช็คให้) */}
+              {c.scheduled_at && (
+                <button
+                  type="button"
+                  className="btn-secondary-glass text-label-sm py-1"
+                  onClick={() =>
+                    setEmailBody((prev) =>
+                      appendScheduleLine(
+                        prev,
+                        scheduleLine(formatSchedule(c.scheduled_at!), c.location),
+                      ),
+                    )
+                  }
+                >
+                  <span className="material-symbols-outlined text-[16px]">event</span>
+                  แทรกวันนัดลงในอีเมล
+                </button>
+              )}
+
+              {/* เชิญสัมภาษณ์แต่ยังไม่มีวันนัดในระบบ — ส่งไปแล้วตารางสัมภาษณ์จะว่างเปล่า
+                  และผู้สมัครก็ไม่รู้ว่าต้องมาวันไหน */}
+              {draftKind === "invitation" && !c.scheduled_at && (
+                <div
+                  role="note"
+                  className="flex items-start gap-xs p-sm rounded-lg border border-tertiary/40 bg-tertiary-container/10"
+                >
+                  <span className="material-symbols-outlined text-tertiary text-[18px] flex-none">
+                    event_busy
+                  </span>
+                  <p className="text-label-md text-on-surface flex-1 min-w-0">
+                    ยังไม่มีวันนัดในระบบ — อีเมลเชิญที่ไม่มีวันเวลาจะทำให้ผู้สมัครต้องถามกลับ
+                    และนัดนี้จะไม่ขึ้นในตารางสัมภาษณ์
+                  </p>
+                  {c.board_stage && c.board_stage !== "hired" && c.board_stage !== "declined" && (
+                    <button
+                      className="btn-tonal text-label-sm py-1 flex-none"
+                      onClick={() => setShowSchedule(true)}
+                    >
+                      เพิ่มวันนัด
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* บันทึกร่าง — เดิมที่พิมพ์แก้อยู่ในหน้าจอเท่านั้น ออกจากหน้าแล้วหายหมด
+                  ไม่ autosave: กดเองชัดเจนกว่า และไม่ยิง request รัว ๆ ระหว่างพิมพ์ */}
+              <div className="flex items-center gap-xs flex-wrap pt-xs border-t border-outline-variant/40">
+                <button
+                  type="button"
+                  onClick={handleSaveDraft}
+                  disabled={savingDraft || !draftDirty || !emailSubject || !emailBody}
+                  className="btn-tonal text-label-sm py-1 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-[16px]">save</span>
+                  {savingDraft ? "กำลังบันทึก…" : "บันทึกร่าง"}
+                </button>
+                {draftDirty ? (
+                  <span className="text-label-sm text-tertiary">ยังไม่ได้บันทึก</span>
+                ) : c.email_draft_edited_at ? (
+                  <span className="text-label-sm text-on-surface-variant">
+                    ร่างที่คุณแก้ไว้ · บันทึกเมื่อ{" "}
+                    {new Date(c.email_draft_edited_at).toLocaleString("th-TH", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </span>
+                ) : (
+                  <span className="text-label-sm text-outline">ร่างของ AI</span>
+                )}
+                {c.email_draft_edited && (
+                  <button
+                    type="button"
+                    onClick={handleRevertDraft}
+                    disabled={savingDraft}
+                    className="text-label-sm text-on-surface-variant hover:text-primary ms-auto"
+                  >
+                    กลับไปใช้ร่างของ AI
+                  </button>
+                )}
+              </div>
+
+              {draftError && (
+                <p className="text-error text-label-md" role="alert">
+                  {draftError}
+                </p>
+              )}
 
               {sendError && (
                 <p className="text-error text-label-md" role="alert">

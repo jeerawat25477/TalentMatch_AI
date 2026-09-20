@@ -312,20 +312,17 @@ export interface EmailTemplate {
 }
 
 /**
- * ตัวแปรที่แทนที่ได้ในเทมเพลต — เติมให้ตอน "เลือก" เทมเพลตเท่านั้น
- * HR ยังเห็นและแก้ผลลัพธ์ได้ก่อนกดส่งเสมอ (ไม่มี auto-send)
+ * ตัวแปรเทมเพลต + ตัวช่วยร่างอีเมล ย้ายไปอยู่ lib/email-draft.ts (ฟังก์ชันบริสุทธิ์
+ * เทสได้ด้วย npm run test:unit) · re-export ไว้ที่นี่ โค้ดเดิมที่ import จาก "@/lib/types"
+ * จึงไม่ต้องแก้ · HR ยังเห็นและแก้ผลลัพธ์ได้ก่อนกดส่งเสมอ (ไม่มี auto-send)
  */
-export const TEMPLATE_VARS = ["{candidate_name}", "{job_title}"] as const;
-
-/** แทนค่าตัวแปรในเทมเพลต · ตัวที่ไม่รู้จักปล่อยไว้ตามเดิม ไม่ลบทิ้งเงียบ ๆ */
-export function fillTemplate(
-  text: string,
-  vars: { candidate_name: string; job_title: string },
-): string {
-  return text
-    .replaceAll("{candidate_name}", vars.candidate_name)
-    .replaceAll("{job_title}", vars.job_title);
-}
+export {
+  TEMPLATE_VARS,
+  fillTemplate,
+  scheduleLine,
+  appendScheduleLine,
+} from "./email-draft";
+export type { TemplateVars } from "./email-draft";
 
 export interface EmailSendResult {
   candidate_id: string;
@@ -406,6 +403,13 @@ export interface CandidateDetail extends CandidateSummary {
   /** วันเวลานัดสัมภาษณ์จาก hiring_stage — null = ยังไม่ได้ตั้ง */
   scheduled_at: string | null;
   location: string | null;
+  /**
+   * ร่างอีเมลฉบับที่ HR แก้เองและกดบันทึก — null = ยังไม่เคยแก้
+   * คนละคอลัมน์กับ email_draft ของ AI: กราฟเดินรอบใหม่เขียนทับ/ล้าง email_draft ได้
+   * แต่ฉบับนี้ไม่ถูกแตะ · หน้าเว็บใช้ฉบับนี้ก่อนถ้ามี
+   */
+  email_draft_edited: { subject: string; body: string } | null;
+  email_draft_edited_at: string | null;
   /** เวลาที่ AI ให้คะแนนเสร็จ (evaluations.created_at) — null = ยังไม่มีผลวิเคราะห์ */
   evaluated_at: string | null;
   /** เวลาที่รับเข้าเป็นพนักงาน — null = ยังไม่ได้รับเข้า (คู่กับ employee_id) */

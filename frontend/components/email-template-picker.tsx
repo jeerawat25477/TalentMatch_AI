@@ -7,7 +7,7 @@ import {
   listEmailTemplates,
 } from "@/lib/api";
 import { fillTemplate } from "@/lib/types";
-import type { EmailDraft, EmailTemplate } from "@/lib/types";
+import type { EmailDraft, EmailTemplate, TemplateVars } from "@/lib/types";
 
 /**
  * เลือก/บันทึกเทมเพลตอีเมลที่ใช้ซ้ำ — เป็นชั้นอำนวยความสะดวกล้วน ๆ
@@ -26,7 +26,8 @@ export default function EmailTemplatePicker({
   kind: EmailDraft["kind"];
   subject: string;
   body: string;
-  vars: { candidate_name: string; job_title: string };
+  /** ค่าที่ใช้แทนตัวแปรในเทมเพลต — ตัวที่ยังไม่มีค่า (เช่นยังไม่ได้นัด) ถูกปล่อยไว้ */
+  vars: TemplateVars;
   onApply: (subject: string, body: string) => void;
 }) {
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
@@ -146,7 +147,9 @@ export default function EmailTemplatePicker({
       </div>
 
       <p className="text-label-sm text-outline">
-        ใช้ <code className="text-on-surface-variant">{"{candidate_name}"}</code> และ{" "}
+        ใช้ <code className="text-on-surface-variant">{"{candidate_name}"}</code>,{" "}
+        <code className="text-on-surface-variant">{"{interview_datetime}"}</code>,{" "}
+        <code className="text-on-surface-variant">{"{interview_location}"}</code> และ{" "}
         <code className="text-on-surface-variant">{"{job_title}"}</code>{" "}
         ในเทมเพลตได้ ระบบจะแทนค่าให้ตอนเลือกใช้
       </p>

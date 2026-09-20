@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:unit": "tsc lib/calendar-link.ts lib/calendar-link.test.ts lib/score-breakdown.ts lib/score-breakdown.test.ts lib/skill-group.ts lib/skill-group.test.ts --outDir /tmp/unit-test --module commonjs --target es2022 --types node --esModuleInterop --skipLibCheck && node --test /tmp/unit-test/"
+    "test:unit": "tsc lib/calendar-link.ts lib/calendar-link.test.ts lib/score-breakdown.ts lib/score-breakdown.test.ts lib/skill-group.ts lib/skill-group.test.ts lib/email-draft.ts lib/email-draft.test.ts --outDir /tmp/unit-test --module commonjs --target es2022 --types node --esModuleInterop --skipLibCheck && node --test /tmp/unit-test/"
   },
   "dependencies": {
     "lucide-react": "^1.28.0",

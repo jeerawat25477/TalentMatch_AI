@@ -247,6 +247,11 @@ class CandidateDetail(CandidateSummary):
     # สองเวลานี้มีไว้ให้ไทม์ไลน์รายคนเรียงเหตุการณ์ได้ครบ — ค่าที่เก็บอยู่แล้วในตารางอื่น
     # ไม่ใช่ข้อมูลใหม่ · None = เหตุการณ์นั้นยังไม่เกิด (แถวเก่าที่ถูกปฏิเสธไปแล้วจะ
     # ไม่มีทั้งคู่) ฝั่งหน้าเว็บกรองจุดที่เป็น null ทิ้ง ไม่ใช่โชว์จุดว่าง
+    # ร่างอีเมลฉบับที่ HR แก้เองและกดบันทึก {subject, body} — None = ยังไม่เคยแก้
+    # คนละคอลัมน์กับ email_draft ของ AI โดยตั้งใจ: กราฟเดินรอบใหม่เขียนทับหรือล้าง
+    # คอลัมน์นั้นได้ ถ้าเก็บร่างของ HR ไว้ที่นั่น งานที่พิมพ์เองจะหายโดยไม่มีใครรู้
+    email_draft_edited: Optional[dict[str, Any]] = None
+    email_draft_edited_at: Optional[datetime] = None
     evaluated_at: Optional[datetime] = None   # evaluations.created_at (AI ให้คะแนนเสร็จ)
     hired_at: Optional[datetime] = None       # employees.hired_at (employee_id มีอยู่แล้ว)
     # องค์ประกอบคะแนนทีละฝั่ง คำนวณตอนอ่านจาก gap_analysis (ไม่ได้เก็บลง DB)
@@ -291,6 +296,29 @@ class EmailSendIn(BaseModel):
     to: EmailStr
     subject: str = Field(..., min_length=1, max_length=500)
     body: str = Field(..., min_length=1)
+
+
+class EmailDraftIn(BaseModel):
+    """ร่างอีเมลฉบับที่ HR แก้เองแล้วกดบันทึก — เก็บไว้เฉย ๆ ไม่ได้ส่ง.
+
+    ไม่มีฟิลด์ `to`: ผู้รับยังต้องยืนยันบนจอตอนกดส่งทุกครั้ง (ดู EmailSendIn) การเก็บ
+    ผู้รับไว้ในร่างจะกลายเป็นค่าที่ค่อย ๆ เก่าแล้วถูกส่งโดยไม่มีใครอ่านซ้ำ
+    """
+    subject: str = Field(..., min_length=1, max_length=500)
+    body: str = Field(..., min_length=1)
+
+
+class EmailDraftOut(BaseModel):
+    candidate_id: UUID
+    subject: str
+    body: str
+    edited_at: datetime
+
+
+class EmailDraftDeleteOut(BaseModel):
+    """ลบร่างของ HR แล้วกลับไปใช้ร่างของ AI (ร่างของ AI ไม่เคยถูกแตะ)."""
+    candidate_id: UUID
+    cleared: bool = True
 
 
 class EmailSendOut(BaseModel):

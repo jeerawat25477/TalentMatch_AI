@@ -316,6 +316,24 @@ export const setEmailIntake = (enabled: boolean) =>
 export const getBoard = (jobId: string) =>
   request<BoardItem[]>(`/api/v1/jobs/${jobId}/board`);
 
+/** บันทึกร่างอีเมลที่ HR แก้เอง — เก็บอย่างเดียว ไม่ส่ง (การส่งยังต้องกดปุ่มส่งแยก) */
+export const saveEmailDraft = (candidateId: string, subject: string, body: string) =>
+  request<{ candidate_id: string; subject: string; body: string; edited_at: string }>(
+    `/api/v1/candidates/${candidateId}/email/draft`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subject, body }),
+    },
+  );
+
+/** ทิ้งร่างของ HR กลับไปใช้ร่างของ AI (ร่างของ AI ไม่เคยถูกแตะ) */
+export const clearEmailDraft = (candidateId: string) =>
+  request<{ candidate_id: string; cleared: boolean }>(
+    `/api/v1/candidates/${candidateId}/email/draft`,
+    { method: "DELETE" },
+  );
+
 /** ตารางนัดสัมภาษณ์รวมทุกตำแหน่ง — ช่วงเวลาเป็น ISO พร้อมโซนเวลา (backend ไม่เดาโซนให้) */
 export const getInterviews = (fromIso?: string, toIso?: string) => {
   const q = new URLSearchParams();

@@ -3,6 +3,7 @@ import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException
+from psycopg.types.json import Json
 
 from app.agents.runner import active_candidates, reserve_candidates
 from app.auth import get_current_user
@@ -13,6 +14,9 @@ from app.schemas import (
     BulkDecisionAccepted,
     BulkDecisionIn,
     BulkDecisionSkip,
+    EmailDraftDeleteOut,
+    EmailDraftIn,
+    EmailDraftOut,
     EmailSendIn,
     EmailSendOut,
     HRDecisionIn,
@@ -154,6 +158,64 @@ def submit_decision(candidate_id: str, payload: HRDecisionIn) -> HRDecisionOut:
         {"decision": payload.decision, "notes": payload.notes},
     )
     return HRDecisionOut(**row)
+
+
+def _require_evaluation(conn, candidate_id: str) -> None:
+    """ต้องมีแถว evaluations ก่อน — คอลัมน์อีเมลทั้งหมดอยู่บนตารางนั้น.
+
+    ใช้ร่วมกันทั้งการส่งและการบันทึกร่าง ข้อความจึงตรงกันเสมอ
+    """
+    row = conn.execute(
+        "SELECT candidate_id FROM evaluations WHERE candidate_id = %s", (candidate_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(
+            status_code=404, detail="ยังไม่มีผลประเมินของผู้สมัครนี้ ยังไม่มีร่างอีเมลให้แก้"
+        )
+
+
+@router.put("/{candidate_id}/email/draft", response_model=EmailDraftOut)
+def save_email_draft(candidate_id: str, payload: EmailDraftIn) -> EmailDraftOut:
+    """บันทึกร่างอีเมลที่ HR แก้เอง — ไม่ส่งอะไรทั้งสิ้น.
+
+    เดิมข้อความที่ HR พิมพ์แก้อยู่ในหน้าจอเท่านั้น ออกจากหน้าแล้วกลับมาก็หายกลับไปเป็น
+    ร่างของ AI · เก็บลง email_draft_edited ซึ่งเป็นคนละคอลัมน์กับ email_draft ของ
+    email_drafter เพราะกราฟเดินรอบใหม่เขียนทับคอลัมน์นั้น และ runner ตั้งเป็น NULL ได้
+    เมื่อ drafter ล้ม — ร่างของ HR ต้องรอดทั้งสองกรณี
+    """
+    with get_conn() as conn:
+        _require_evaluation(conn, candidate_id)
+        row = conn.execute(
+            """UPDATE evaluations
+                  SET email_draft_edited = %s,
+                      email_draft_edited_at = timezone('utc'::text, now())
+                WHERE candidate_id = %s
+            RETURNING candidate_id, email_draft_edited_at""",
+            (Json({"subject": payload.subject, "body": payload.body}), candidate_id),
+        ).fetchone()
+        conn.commit()
+    log.info("บันทึกร่างอีเมลที่ HR แก้ของผู้สมัคร %s", candidate_id)
+    return EmailDraftOut(
+        candidate_id=row["candidate_id"],
+        subject=payload.subject,
+        body=payload.body,
+        edited_at=row["email_draft_edited_at"],
+    )
+
+
+@router.delete("/{candidate_id}/email/draft", response_model=EmailDraftDeleteOut)
+def clear_email_draft(candidate_id: str) -> EmailDraftDeleteOut:
+    """ทิ้งร่างของ HR แล้วกลับไปใช้ร่างของ AI — ร่างของ AI ไม่เคยถูกแตะ จึงไม่ต้องกู้อะไร."""
+    with get_conn() as conn:
+        _require_evaluation(conn, candidate_id)
+        conn.execute(
+            """UPDATE evaluations
+                  SET email_draft_edited = NULL, email_draft_edited_at = NULL
+                WHERE candidate_id = %s""",
+            (candidate_id,),
+        )
+        conn.commit()
+    return EmailDraftDeleteOut(candidate_id=candidate_id)
 
 
 @router.post("/{candidate_id}/email/send", response_model=EmailSendOut)

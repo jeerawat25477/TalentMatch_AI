@@ -413,6 +413,7 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
                    e.interview_plan, e.email_draft, e.email_sent_at, e.email_sent_to,
                    COALESCE(e.email_send_count, 0) AS email_send_count,
                    e.similar_candidates, e.bias_revision, e.skill_evidence,
+                   e.email_draft_edited, e.email_draft_edited_at,
                    e.score_explanation, e.confidence, (e.id IS NOT NULL) AS has_eval,
                    e.created_at AS evaluated_at,
                    emp.id AS employee_id, emp.hired_at, hd.decision AS hr_decision,
