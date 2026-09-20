@@ -716,3 +716,23 @@ export interface FunnelStage {
   label: string;
   count: number;
 }
+
+/**
+ * มิเรอร์ InterviewSlot ใน backend/app/schemas.py (GET /api/v1/interviews)
+ *
+ * รวมทุกตำแหน่ง เรียงตามเวลาแล้วจาก backend · ไม่รวมคนที่ยุติแล้วและคนที่จ้างแล้ว
+ */
+export interface InterviewSlot {
+  candidate_id: string;
+  full_name: string;
+  job_id: string;
+  job_title: string;
+  /** ISO มีโซนเวลาเสมอ */
+  scheduled_at: string;
+  location: string | null;
+  stage: BoardStage;
+  /** null = ยังไม่บันทึกผลสัมภาษณ์ */
+  interview_result: InterviewResult | null;
+  /** เลยเวลานัดแล้วแต่ยังไม่บันทึกผล */
+  overdue: boolean;
+}

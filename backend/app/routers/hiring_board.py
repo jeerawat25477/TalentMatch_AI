@@ -9,13 +9,14 @@ state ของกราฟ · อ่านผลที่กราฟทิ้�
 HR กดโดยไม่มีเหตุผลที่อธิบายได้
 """
 import logging
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.auth import get_current_user
 from app.database import get_conn
 from app.hiring_board import board_stage, has_screening_conflict, is_board_eligible
-from app.schemas import BoardItem, FunnelStage, StageUpdate
+from app.schemas import BoardItem, FunnelStage, InterviewSlot, StageUpdate
 
 log = logging.getLogger(__name__)
 
@@ -295,3 +296,65 @@ def update_stage(candidate_id: str, payload: StageUpdate) -> BoardItem:
         scheduled_at=stage_row["scheduled_at"],
         location=stage_row["location"],
     )
+
+
+def _is_overdue(scheduled_at: datetime, has_outcome: bool, now: datetime) -> bool:
+    """นัดที่เลยเวลามาแล้วแต่ยังไม่มีใครบันทึกผล — ฟังก์ชันบริสุทธิ์ ทดสอบได้โดยไม่ต้องมี DB.
+
+    ตรงเวลานัดพอดียังไม่นับว่าเลย (สัมภาษณ์เพิ่งเริ่ม) · ทั้งสองค่าเป็นเวลาแบบมีโซนเสมอ
+    (คอลัมน์เป็น timestamptz และ now ส่งมาจาก datetime.now(timezone.utc)) เทียบกันตรง ๆ
+    ได้โดยไม่ต้องแปลงโซน — ห้ามรับเวลาแบบไม่มีโซนเข้ามาที่นี่ Python จะโยน TypeError
+    """
+    return now > scheduled_at and not has_outcome
+
+
+@router.get("/interviews", response_model=list[InterviewSlot])
+def list_interviews(
+    from_: datetime | None = Query(None, alias="from"),
+    to: datetime | None = Query(None),
+) -> list[InterviewSlot]:
+    """ตารางนัดสัมภาษณ์รวมทุกตำแหน่ง เรียงตามเวลา — อ่านอย่างเดียว ไม่เขียนอะไรทั้งสิ้น.
+
+    ช่วงเวลา **ฝั่งหน้าเว็บคำนวณแล้วส่งมาเป็น ISO พร้อมโซนเวลา** backend ไม่เดาว่า
+    "วันนี้" ของผู้ใช้เริ่มกี่โมง — บทเรียนเดียวกับ StageUpdate.scheduled_at ที่บังคับ
+    AwareDatetime เพราะเวลาแบบไม่มีโซนกลายเป็นคนละเวลาแบบเงียบ ๆ · ไม่ส่งช่วงมา = ทั้งหมด
+
+    ตัดสองกลุ่มออก ไม่ใช่เพราะไม่มีข้อมูล แต่เพราะไม่ใช่นัดที่ยังต้องไป:
+    ผู้สมัครที่ยุติแล้ว ('declined') และคนที่รับเข้าเป็นพนักงานไปแล้ว — วันนัดเก่าของสองกลุ่มนี้
+    ค้างอยู่ในคอลัมน์เดิมเสมอ (ไม่มีใครลบ) ถ้าไม่กรองก็จะรกตารางไปตลอด
+    """
+    clauses = ["hs.scheduled_at IS NOT NULL", "hs.stage <> 'declined'", "emp.id IS NULL"]
+    params: list = []
+    if from_ is not None:
+        clauses.append("hs.scheduled_at >= %s")
+        params.append(from_)
+    if to is not None:
+        clauses.append("hs.scheduled_at <= %s")
+        params.append(to)
+
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT c.id AS candidate_id, c.full_name, c.job_id, j.title AS job_title,
+                   hs.scheduled_at, hs.location, hs.stage,
+                   io.result AS interview_result,
+                   (io.candidate_id IS NOT NULL) AS has_outcome
+              FROM hiring_stage hs
+              JOIN candidates c ON c.id = hs.candidate_id
+              JOIN jobs j       ON j.id = c.job_id
+              LEFT JOIN employees emp        ON emp.candidate_id = c.id
+              LEFT JOIN interview_outcome io ON io.candidate_id = c.id
+             WHERE {" AND ".join(clauses)}
+             ORDER BY hs.scheduled_at
+            """,
+            params,
+        ).fetchall()
+
+    now = datetime.now(timezone.utc)
+    return [
+        InterviewSlot(
+            **{k: v for k, v in r.items() if k != "has_outcome"},
+            overdue=_is_overdue(r["scheduled_at"], r["has_outcome"], now),
+        )
+        for r in rows
+    ]

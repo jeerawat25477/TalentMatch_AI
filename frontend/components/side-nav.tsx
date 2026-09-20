@@ -2,6 +2,7 @@
 
 import {
   Briefcase,
+  CalendarDays,
   Inbox,
   LogOut,
   Monitor,
@@ -31,6 +32,7 @@ import Tooltip from "./tooltip";
 
 const LINKS = [
   { href: "/", icon: Briefcase, label: "ตำแหน่งงาน" },
+  { href: "/interviews", icon: CalendarDays, label: "ตารางสัมภาษณ์" },
   { href: "/intake", icon: Inbox, label: "รับสมัครทางอีเมล", badge: true },
   { href: "/search", icon: Search, label: "ค้นหาผู้สมัคร" },
   { href: "/employees", icon: Users, label: "พนักงาน" },

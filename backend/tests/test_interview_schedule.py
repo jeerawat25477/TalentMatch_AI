@@ -10,7 +10,8 @@
    ในไทยจะกลายเป็นสามทุ่มในปฏิทินแบบเงียบ ๆ
 4. หน้ากระดาน, response ของ PATCH และหน้ารายละเอียดเห็นค่าเดียวกัน
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,7 +19,7 @@ from fastapi.testclient import TestClient
 from app.auth import get_current_user
 from app.database import get_conn
 from app.main import app
-from app.routers.hiring_board import _schedule_patch
+from app.routers.hiring_board import _is_overdue, _schedule_patch
 from app.schemas import StageUpdate
 
 PASS_SCORE = 85  # ขึ้นกระดานเอง
@@ -50,6 +51,12 @@ class TestSchedulePatch:
 
 
 # ---------- ฝั่ง endpoint (ใช้ DB จริงในคอนเทนเนอร์) ----------
+
+
+@pytest.fixture
+def anon() -> TestClient:
+    """ไม่ล็อกอิน — ใช้ยืนยันว่า endpoint ใหม่ถูกกันด้วย JWT เหมือนทุกเส้นทางอื่น."""
+    return TestClient(app)
 
 
 @pytest.fixture
@@ -183,3 +190,107 @@ class TestSurfacedEverywhere:
         detail = client.get(f"/api/v1/candidates/{cid}").json()
         assert card["scheduled_at"] is None and card["location"] is None
         assert detail["scheduled_at"] is None and detail["location"] is None
+
+
+# ---------- ตารางนัดสัมภาษณ์รวมทุกตำแหน่ง (GET /api/v1/interviews) ----------
+
+
+class TestIsOverdue:
+    """นัดที่เลยเวลาแล้วแต่ยังไม่บันทึกผล (ฟังก์ชันบริสุทธิ์ ไม่ต่อ DB)."""
+
+    NOW = datetime(2026, 9, 21, 12, 0, tzinfo=timezone.utc)
+
+    def test_เลยเวลาแล้วยังไม่บันทึกผลคือค้าง(self):
+        assert _is_overdue(self.NOW - timedelta(hours=2), False, self.NOW) is True
+
+    def test_เลยเวลาแล้วแต่บันทึกผลแล้วไม่ค้าง(self):
+        assert _is_overdue(self.NOW - timedelta(hours=2), True, self.NOW) is False
+
+    def test_ยังไม่ถึงเวลานัดไม่ค้าง(self):
+        assert _is_overdue(self.NOW + timedelta(hours=2), False, self.NOW) is False
+
+    def test_ตรงเวลานัดพอดียังไม่นับว่าเลย(self):
+        """สัมภาษณ์เพิ่งเริ่ม ขึ้นป้ายค้างทันทีตอนถึงเวลาคือรบกวนเปล่า ๆ."""
+        assert _is_overdue(self.NOW, False, self.NOW) is False
+
+
+class TestListInterviews:
+    @pytest.fixture
+    def scheduled_job(self):
+        """ตำแหน่งที่มีนัดหลายแบบ — ไว้เช็คลำดับ ช่วงเวลา และกลุ่มที่ต้องถูกตัดออก."""
+        base = datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc)
+        people = [
+            # (ชื่อ, ขั้น, นัดเมื่อ, รับเข้าแล้ว)
+            ("นัดวันที่สาม", "scheduled", base + timedelta(days=2), False),
+            ("นัดวันแรก", "scheduled", base, False),
+            ("ยุติแล้ว", "declined", base + timedelta(days=1), False),
+            ("จ้างแล้ว", "offer", base + timedelta(days=1), True),
+            ("ไม่มีวันนัด", "invited", None, False),
+        ]
+        with get_conn() as conn:
+            job = conn.execute(
+                "INSERT INTO jobs (title, raw_text) VALUES (%s, %s) RETURNING id",
+                ("เทสตารางสัมภาษณ์ (ลบได้)", "ต้องมี Python"),
+            ).fetchone()
+            for name, stage, when, hired in people:
+                cand = conn.execute(
+                    "INSERT INTO candidates (job_id, full_name) VALUES (%s, %s) RETURNING id",
+                    (job["id"], name),
+                ).fetchone()
+                conn.execute(
+                    """INSERT INTO hiring_stage (candidate_id, stage, scheduled_at)
+                       VALUES (%s, %s, %s)""",
+                    (cand["id"], stage, when),
+                )
+                if hired:
+                    conn.execute(
+                        """INSERT INTO employees (candidate_id, job_id, full_name, position)
+                           VALUES (%s, %s, %s, %s)""",
+                        (cand["id"], job["id"], name, "Backend Developer"),
+                    )
+            conn.commit()
+        yield str(job["id"]), base
+        with get_conn() as conn:
+            conn.execute("DELETE FROM employees WHERE job_id = %s", (job["id"],))
+            conn.execute("DELETE FROM candidates WHERE job_id = %s", (job["id"],))
+            conn.execute("DELETE FROM jobs WHERE id = %s", (job["id"],))
+            conn.commit()
+
+    def _of_job(self, client, job_id, params=""):
+        """เฉพาะนัดของตำแหน่งที่เทสสร้าง — ฐานข้อมูลจริงมีนัดของงานอื่นปนอยู่ได้."""
+        rows = client.get(f"/api/v1/interviews{params}").json()
+        return [r for r in rows if r["job_id"] == job_id]
+
+    def test_ต้องล็อกอินก่อนดูตาราง(self, anon):
+        assert anon.get("/api/v1/interviews").status_code == 401
+
+    def test_เรียงตามเวลาและตัดคนที่ยุติหรือจ้างแล้วออก(self, client, scheduled_job):
+        job_id, _ = scheduled_job
+        rows = self._of_job(client, job_id)
+        # "ไม่มีวันนัด" ไม่มี scheduled_at · "ยุติแล้ว" กับ "จ้างแล้ว" ถูกกรองทิ้ง
+        assert [r["full_name"] for r in rows] == ["นัดวันแรก", "นัดวันที่สาม"]
+        assert rows[0]["job_title"] == "เทสตารางสัมภาษณ์ (ลบได้)"
+        assert rows[0]["stage"] == "scheduled"
+
+    def test_กรองตามช่วงเวลาที่ส่งมา(self, client, scheduled_job):
+        job_id, base = scheduled_job
+        start = (base + timedelta(days=1)).isoformat()
+        rows = self._of_job(client, job_id, f"?from={quote(start)}")
+        assert [r["full_name"] for r in rows] == ["นัดวันที่สาม"]
+
+        end = (base + timedelta(days=1)).isoformat()
+        rows = self._of_job(client, job_id, f"?to={quote(end)}")
+        assert [r["full_name"] for r in rows] == ["นัดวันแรก"]
+
+    def test_นัดในอนาคตยังไม่ค้าง(self, client, scheduled_job):
+        """fixture ตั้งนัดไว้ปี 2026-10 ซึ่งอยู่ข้างหน้า — ต้องไม่ขึ้นป้ายค้าง."""
+        job_id, _ = scheduled_job
+        assert all(r["overdue"] is False for r in self._of_job(client, job_id))
+
+    def test_ไม่มีนัดเลยได้ลิสต์ว่างไม่ใช่_error(self, client, scheduled_job):
+        """ช่วงเวลาที่ไม่มีนัดอยู่เลย — หน้าเว็บต้องได้ [] ไม่ใช่ 500."""
+        job_id, base = scheduled_job
+        far = (base + timedelta(days=365)).isoformat()
+        r = client.get(f"/api/v1/interviews?from={quote(far)}")
+        assert r.status_code == 200
+        assert [x for x in r.json() if x["job_id"] == job_id] == []

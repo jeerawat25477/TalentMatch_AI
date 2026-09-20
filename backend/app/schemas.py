@@ -537,3 +537,25 @@ class FunnelStage(BaseModel):
     """
     label: str
     count: int
+
+
+class InterviewSlot(BaseModel):
+    """หนึ่งนัดสัมภาษณ์ในตารางรวมทุกตำแหน่ง (GET /interviews).
+
+    อ่านจาก hiring_stage.scheduled_at ล้วน — ไม่มีตารางนัดแยก เพราะวันนัดเป็นสมบัติของ
+    "ขั้นที่ผู้สมัครอยู่" ไม่ใช่ของกิจกรรมอิสระ (คนหนึ่งมีนัดที่ยังไม่ผ่านได้ครั้งเดียว)
+    """
+    candidate_id: UUID
+    full_name: str
+    job_id: UUID
+    job_title: str
+    scheduled_at: datetime
+    location: Optional[str] = None
+    stage: BoardStage
+    # ผลสัมภาษณ์ถ้าบันทึกแล้ว — None = ยังไม่บันทึก
+    interview_result: Optional[InterviewResult] = None
+    # เลยเวลานัดมาแล้วแต่ยังไม่บันทึกผล — ให้ HR เห็นว่าอะไรค้างอยู่
+    overdue: bool = False
+
+
+InterviewSlot.model_rebuild()

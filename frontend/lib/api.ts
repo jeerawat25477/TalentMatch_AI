@@ -22,6 +22,7 @@ import type {
   EmployeeStatus,
   InterviewOutcome,
   InterviewOutcomeUpsert,
+  InterviewSlot,
   Job,
   JDReview,
   JobDeleteResult,
@@ -314,6 +315,15 @@ export const setEmailIntake = (enabled: boolean) =>
 // ---------- กระดานติดตามผู้สมัคร ----------
 export const getBoard = (jobId: string) =>
   request<BoardItem[]>(`/api/v1/jobs/${jobId}/board`);
+
+/** ตารางนัดสัมภาษณ์รวมทุกตำแหน่ง — ช่วงเวลาเป็น ISO พร้อมโซนเวลา (backend ไม่เดาโซนให้) */
+export const getInterviews = (fromIso?: string, toIso?: string) => {
+  const q = new URLSearchParams();
+  if (fromIso) q.set("from", fromIso);
+  if (toIso) q.set("to", toIso);
+  const qs = q.toString();
+  return request<InterviewSlot[]>(`/api/v1/interviews${qs ? `?${qs}` : ""}`);
+};
 
 // ⚠️ ส่ง stage: "hired" มาที่นี่จะได้ 400 — การรับเข้าเป็นพนักงานมีเอนด์พอยต์ของตัวเอง
 // (hireCandidate) เพราะต้องกรอกตำแหน่ง/เงินเดือน/วันเริ่มงานด้วย
