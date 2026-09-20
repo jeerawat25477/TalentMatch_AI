@@ -9,17 +9,22 @@ import CandidateTimeline from "@/components/candidate-timeline";
 import EmailTemplatePicker from "@/components/email-template-picker";
 import HireEmployeeDialog from "@/components/hire-employee-dialog";
 import InterviewGuide from "@/components/interview-guide";
-import { InterviewScheduleSummary } from "@/components/interview-schedule";
+import {
+  InterviewScheduleDialog,
+  InterviewScheduleSummary,
+} from "@/components/interview-schedule";
 import InterviewOutcomeDialog from "@/components/interview-outcome-dialog";
 import RadarChart from "@/components/radar-chart";
 import ScoreBreakdown from "@/components/score-breakdown";
 import SkillGap from "@/components/skill-gap";
 import StatusBadge from "@/components/status-badge";
+import WorkingNote from "@/components/working-note";
 import {
   fetcher,
   resumeCandidate,
   searchCandidates,
   sendEmail,
+  setStage,
   submitDecision,
 } from "@/lib/api";
 import {
@@ -60,6 +65,7 @@ export default function CandidateDeepDive() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [showHire, setShowHire] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
   const [showOutcome, setShowOutcome] = useState(false);
   const [resuming, setResuming] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
@@ -327,12 +333,26 @@ export default function CandidateDeepDive() {
       {/* คำถามสัมภาษณ์ + ร่างอีเมล */}
       <div className="grid gap-md lg:grid-cols-2">
         <section className="glass-card rounded-2xl p-md">
-          <h3 className="text-headline-md text-on-surface flex items-center gap-xs mb-sm">
-            <span className="material-symbols-outlined text-primary">quiz</span>
-            คำถามสัมภาษณ์
-          </h3>
+          {/* ปุ่มวันนัดอยู่มุมขวาบนของการ์ด ระดับเดียวกับหัวข้อ — เป็นการกระทำของทั้งการ์ด
+              ไม่ใช่ของบล็อกใดบล็อกหนึ่งข้างใน */}
+          <div className="flex items-start justify-between gap-xs flex-wrap mb-sm">
+            <h3 className="text-headline-md text-on-surface flex items-center gap-xs">
+              <span className="material-symbols-outlined text-primary">quiz</span>
+              คำถามสัมภาษณ์
+            </h3>
+            {c.board_stage && c.board_stage !== "hired" && c.board_stage !== "declined" && (
+              <button
+                className="btn-tonal text-label-sm py-1"
+                onClick={() => setShowSchedule(true)}
+              >
+                <span className="material-symbols-outlined text-[16px]">event</span>
+                {c.scheduled_at ? "แก้วันนัดสัมภาษณ์" : "เพิ่มวันนัดสัมภาษณ์"}
+              </button>
+            )}
+          </div>
           {/* วันนัดอยู่เหนือคำถาม: HR เปิดหน้านี้ก่อนเข้าห้องสัมภาษณ์ สิ่งแรกที่ต้องรู้คือนัดกี่โมงที่ไหน
-              แก้วันนัดทำที่หน้ากระดาน ที่นี่แสดงอย่างเดียว */}
+              กรอก/แก้ได้จากปุ่มมุมขวาบน ใช้โมดัลและ endpoint ตัวเดียวกับหน้ากระดาน (setStage
+              บนแถว hiring_stage เดียวกัน คนละหนึ่งแถว) สองหน้าจึงไม่มีทางเห็นวันนัดไม่ตรงกัน */}
           {c.scheduled_at && (
             <div className="mb-sm">
               <InterviewScheduleSummary
@@ -343,7 +363,11 @@ export default function CandidateDeepDive() {
               />
             </div>
           )}
-          <InterviewGuide plan={c.interview_plan} />
+          {normalizeQuestions(c.interview_plan).length === 0 && c.queue_status ? (
+            <WorkingNote status={c.queue_status} what="คำถามสัมภาษณ์" />
+          ) : (
+            <InterviewGuide plan={c.interview_plan} />
+          )}
 
           {/* บันทึกผลสัมภาษณ์จริง — โผล่เฉพาะคนที่มีคำถามให้ถาม (คนที่ถูกปฏิเสธไม่มีแผน
               สัมภาษณ์ ปุ่มนี้จึงไม่ควรมีอยู่ในสายตาเขา) */}
@@ -513,7 +537,11 @@ export default function CandidateDeepDive() {
               </button>
             </div>
           ) : (
-            <p className="text-label-md text-outline">ยังไม่มีร่างอีเมล</p>
+            c.queue_status ? (
+              <WorkingNote status={c.queue_status} what="ร่างอีเมล" />
+            ) : (
+              <p className="text-label-md text-outline">ยังไม่มีร่างอีเมล</p>
+            )
           )}
         </section>
       </div>
@@ -952,6 +980,26 @@ export default function CandidateDeepDive() {
             </button>
           </div>
         )
+      )}
+
+      {showSchedule && c.board_stage && (
+        <InterviewScheduleDialog
+          candidateName={c.full_name}
+          initialScheduledAt={c.scheduled_at}
+          initialLocation={c.location}
+          onSave={async (scheduledAt, location) => {
+            // ส่งขั้นเดิมกลับไป = ไม่ย้ายขั้น (backend ไม่ขยับ moved_at) เหมือนที่กระดานทำ
+            // ตั้งใจไม่ย้าย invited -> scheduled ให้อัตโนมัติ เพราะกระดานก็ไม่ย้าย
+            // ถ้าที่นี่ย้ายเอง สองหน้าจะทำคนละอย่างกับการกระทำเดียวกัน
+            await setStage(candidate_id, c.board_stage!, undefined, {
+              scheduled_at: scheduledAt,
+              location,
+            });
+            await mutate();
+            setShowSchedule(false);
+          }}
+          onClose={() => setShowSchedule(false)}
+        />
       )}
 
       {showHire && (
