@@ -11,6 +11,7 @@ import CandidateCard from "@/components/candidate-card";
 import ConfirmDialog from "@/components/confirm-dialog";
 import CriteriaEditorDialog from "@/components/criteria-editor-dialog";
 import FileUpload from "@/components/file-upload";
+import PipelineFunnel from "@/components/pipeline-funnel";
 import { bulkDecision, fetcher } from "@/lib/api";
 import { JOB_STATUS, scoreBand } from "@/lib/types";
 import { skillLabel } from "@/lib/skill-group";
@@ -18,6 +19,7 @@ import type {
   BulkDecisionResult,
   CandidateSummary,
   Decision,
+  FunnelStage,
   Job,
   ScoreBand,
 } from "@/lib/types";
@@ -47,6 +49,12 @@ export default function JobDashboard() {
 
   const { data: job, mutate: mutateJob } = useSWR<Job>(`/api/v1/jobs/${id}`, fetcher);
   const [editingCriteria, setEditingCriteria] = useState(false);
+  // กรวยรวมทั้งตำแหน่ง — อ่านอย่างเดียว นับจากข้อมูลชุดเดียวกับกระดาน
+  const { data: funnel } = useSWR<FunnelStage[]>(
+    `/api/v1/jobs/${id}/funnel`,
+    fetcher,
+    { refreshInterval: 4000 },
+  );
   const { data: candidates, mutate } = useSWR<CandidateSummary[]>(
     `/api/v1/jobs/${id}/candidates`,
     fetcher,
@@ -223,6 +231,8 @@ export default function JobDashboard() {
           onReanalyzed={() => mutateJob()}
         />
       )}
+
+      {funnel && <PipelineFunnel stages={funnel} />}
 
       {/* AI insight — คำนวณจากข้อมูลจริงเท่านั้น */}
       {scored.length > 0 && (

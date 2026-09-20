@@ -522,3 +522,13 @@ class StageUpdate(BaseModel):
     scheduled_at: Optional[AwareDatetime] = None
     # ข้อความอิสระ ไม่ validate รูปแบบ มีแค่เพดานความยาวกันข้อมูลขยะ
     location: Optional[str] = Field(None, max_length=500)
+
+
+class FunnelStage(BaseModel):
+    """หนึ่งขั้นของ funnel รวมผู้สมัครทั้งตำแหน่ง (GET /jobs/{id}/funnel).
+
+    เป็นเซตซ้อนกันเสมอ: คนที่อยู่ขั้นหลังถูกนับรวมในทุกขั้นก่อนหน้าด้วย จำนวนจึง
+    ลดหลั่นลงเท่านั้น ห้ามเพิ่มขึ้น (ดู routers/hiring_board.py::_funnel_flags)
+    """
+    label: str
+    count: int

@@ -17,6 +17,7 @@ from app.auth import get_current_user
 from app.database import get_conn
 from app.hiring_board import board_stage, has_screening_conflict, is_board_eligible
 from app.main import app
+from app.routers.hiring_board import _FUNNEL_LABELS, _funnel_flags
 
 PASS_SCORE = 85     # > AUTO_ADVANCE_ABOVE
 REVIEW_SCORE = 60   # 50-70 — กราฟหยุดรอ HR
@@ -293,3 +294,165 @@ class TestDeletionStillWorks:
 
         assert client.delete(f"/api/v1/candidates/{cid}").status_code == 200
         assert _stage_rows(cid) == 0
+
+
+# ---------- funnel รวมผู้สมัครทั้งตำแหน่ง ----------
+
+# ค่าที่เป็นไปได้ของแต่ละแกน ใช้ไล่ทุกคู่ผสมเพื่อยืนยันว่ากรวยไม่มีวันกว้างขึ้นตอนปลาย
+_STAGES = [None, "invited", "scheduled", "interviewed", "offer", "declined"]
+_DECISIONS = [None, "approved", "rejected"]
+_SCORES = [None, PASS_SCORE, REVIEW_SCORE, FAIL_SCORE]
+
+
+class TestFunnelFlags:
+    """กฎว่าใครถูกนับในขั้นไหน (ฟังก์ชันบริสุทธิ์ ไม่ต่อ DB)."""
+
+    @pytest.mark.parametrize("has_outcome", [False, True])
+    @pytest.mark.parametrize("has_employee", [False, True])
+    @pytest.mark.parametrize("score", _SCORES)
+    @pytest.mark.parametrize("decision", _DECISIONS)
+    @pytest.mark.parametrize("stage", _STAGES)
+    def test_ขั้นหลังต้องซ้อนอยู่ในขั้นก่อนเสมอ(
+        self, stage, decision, score, has_employee, has_outcome
+    ):
+        """เงื่อนไขเดียวที่ทำให้กรวยอ่านรู้เรื่อง: จำนวนลดหลั่นลงเท่านั้น ห้ามเพิ่ม."""
+        flags = _funnel_flags(stage, has_employee, decision, score, has_outcome)
+        assert len(flags) == len(_FUNNEL_LABELS)
+        assert flags[0] is True
+        for earlier, later in zip(flags, flags[1:]):
+            assert earlier or not later, flags
+
+    def test_คนที่รับเข้าแล้วถูกนับครบทุกขั้น(self):
+        """แม้ไม่เคยมีแถว hiring_stage (ปุ่มรับเข้าไม่สร้างแถวขั้น) และคะแนนตกเกณฑ์ —
+        ถ้าไล่ and จากบนลงล่าง คนคนนี้จะหายไปจากทุกขั้นเงียบ ๆ."""
+        assert _funnel_flags(None, True, "rejected", FAIL_SCORE, False) == [True] * 5
+
+    def test_บันทึกผลสัมภาษณ์แล้วนับว่าสัมภาษณ์แล้ว(self):
+        """HR อาจกรอกผลโดยไม่ได้ลากการ์ดไปขั้น 'สัมภาษณ์แล้ว'."""
+        flags = _funnel_flags("scheduled", False, None, PASS_SCORE, True)
+        assert flags == [True, True, True, True, False]
+
+    def test_นัดแล้วยังไม่นับว่าสัมภาษณ์แล้ว(self):
+        assert _funnel_flags("scheduled", False, None, PASS_SCORE, False) == [
+            True, True, True, False, False
+        ]
+
+    def test_ยื่นข้อเสนอแล้วนับว่าผ่านสัมภาษณ์มาแล้ว(self):
+        assert _funnel_flags("offer", False, None, PASS_SCORE, False) == [
+            True, True, True, True, False
+        ]
+
+    def test_ผู้สมัครถอนตัวไม่นับว่าถูกนัด_แต่ยังผ่านคัดกรอง(self):
+        """'declined' คือถอนตัว — แต่มีแถวแล้วแปลว่าผ่านคัดกรองมาแล้ว (กฎเดียวกับกระดาน)."""
+        assert _funnel_flags("declined", False, None, FAIL_SCORE, False) == [
+            True, True, False, False, False
+        ]
+
+    def test_คะแนนไม่ถึงและไม่มีอะไรเลยนับแค่ขั้นสมัคร(self):
+        assert _funnel_flags(None, False, None, FAIL_SCORE, False) == [
+            True, False, False, False, False
+        ]
+
+    def test_ขั้นคัดกรองใช้เกณฑ์เดียวกับกระดานไม่ใช่เลข_70_ที่พิมพ์ซ้ำ(self, monkeypatch):
+        """เลื่อนเส้นแบ่งใน bands แล้วตัวเลข funnel ต้องเลื่อนตาม ไม่งั้นคือมีสองมาตรฐาน."""
+        assert _funnel_flags(None, False, None, REVIEW_SCORE, False)[1] is False
+        monkeypatch.setattr(bands, "AUTO_ADVANCE_ABOVE", REVIEW_SCORE - 1)
+        assert _funnel_flags(None, False, None, REVIEW_SCORE, False)[1] is True
+
+
+class TestGetFunnel:
+    def test_ต้องล็อกอินก่อนดู_funnel(self, anon, job_and_candidate):
+        job_id, _ = job_and_candidate
+        assert anon.get(f"/api/v1/jobs/{job_id}/funnel").status_code == 401
+
+    def test_ตำแหน่งที่ยังไม่มีผู้สมัครได้ศูนย์ทุกขั้นไม่ใช่_error(self, client):
+        with get_conn() as conn:
+            job = conn.execute(
+                "INSERT INTO jobs (title, raw_text) VALUES (%s, %s) RETURNING id",
+                ("เทส funnel ว่าง (ลบได้)", "ต้องมี Python"),
+            ).fetchone()
+            conn.commit()
+        try:
+            r = client.get(f"/api/v1/jobs/{job['id']}/funnel")
+            assert r.status_code == 200
+            assert [s["count"] for s in r.json()] == [0] * len(_FUNNEL_LABELS)
+            assert [s["label"] for s in r.json()] == _FUNNEL_LABELS
+        finally:
+            with get_conn() as conn:
+                conn.execute("DELETE FROM jobs WHERE id = %s", (job["id"],))
+                conn.commit()
+
+    @pytest.fixture
+    def job_every_stage(self):
+        """ตำแหน่งที่มีคนอยู่ครบทุกขั้น คนละหนึ่งคน + คนคะแนนตกที่ไม่ผ่านคัดกรอง."""
+        people = [
+            # (ชื่อ, คะแนน, ขั้นในตาราง, มีผลสัมภาษณ์, รับเข้าแล้ว)
+            ("ตกคัดกรอง", FAIL_SCORE, None, False, False),
+            ("ผ่านคัดกรองเฉย ๆ", PASS_SCORE, None, False, False),
+            ("นัดแล้ว", PASS_SCORE, "scheduled", False, False),
+            ("สัมภาษณ์แล้ว", PASS_SCORE, "interviewed", True, False),
+            ("รับเข้าแล้ว", PASS_SCORE, "offer", True, True),
+        ]
+        with get_conn() as conn:
+            job = conn.execute(
+                "INSERT INTO jobs (title, raw_text) VALUES (%s, %s) RETURNING id",
+                ("เทส funnel ครบขั้น (ลบได้)", "ต้องมี Python"),
+            ).fetchone()
+            for name, score, stage, outcome, hired in people:
+                cand = conn.execute(
+                    "INSERT INTO candidates (job_id, full_name) VALUES (%s, %s) RETURNING id",
+                    (job["id"], name),
+                ).fetchone()
+                conn.execute(
+                    """INSERT INTO evaluations (job_id, candidate_id, fit_score)
+                       VALUES (%s, %s, %s)""",
+                    (job["id"], cand["id"], score),
+                )
+                if stage:
+                    conn.execute(
+                        "INSERT INTO hiring_stage (candidate_id, stage) VALUES (%s, %s)",
+                        (cand["id"], stage),
+                    )
+                if outcome:
+                    conn.execute(
+                        "INSERT INTO interview_outcome (candidate_id, result) VALUES (%s, 'pass')",
+                        (cand["id"],),
+                    )
+                if hired:
+                    conn.execute(
+                        """INSERT INTO employees (candidate_id, job_id, full_name, position)
+                           VALUES (%s, %s, %s, %s)""",
+                        (cand["id"], job["id"], name, "Backend Developer"),
+                    )
+            conn.commit()
+        yield str(job["id"])
+        with get_conn() as conn:
+            conn.execute("DELETE FROM employees WHERE job_id = %s", (job["id"],))
+            conn.execute("DELETE FROM candidates WHERE job_id = %s", (job["id"],))
+            conn.execute("DELETE FROM jobs WHERE id = %s", (job["id"],))
+            conn.commit()
+
+    def test_นับครบทุกขั้นและลดหลั่นลง(self, client, job_every_stage):
+        counts = [
+            s["count"]
+            for s in client.get(f"/api/v1/jobs/{job_every_stage}/funnel").json()
+        ]
+        # สมัคร 5 · ผ่านคัดกรอง 4 (ตัดคนคะแนนตก) · ถูกนัด 3 · สัมภาษณ์ 2 · รับเข้า 1
+        assert counts == [5, 4, 3, 2, 1]
+
+    def test_ขั้นคัดกรองตรงกับจำนวนการ์ดบนกระดานจริง(self, client, job_every_stage):
+        """สองหน้าต้องไม่บอกคนละเลข — เหตุผลที่ funnel เรียก is_board_eligible ตัวเดียวกัน."""
+        funnel = client.get(f"/api/v1/jobs/{job_every_stage}/funnel").json()
+        board = client.get(f"/api/v1/jobs/{job_every_stage}/board").json()
+        assert funnel[1]["count"] == len(board)
+
+    def test_funnel_ต้องไม่สร้างแถว_hiring_stage(self, client, job_every_stage):
+        """อ่านอย่างเดียวเหมือน get_board — write-on-read ทำให้ moved_at ไร้ความหมาย."""
+        sql = """SELECT count(*) AS n FROM hiring_stage hs
+                   JOIN candidates c ON c.id = hs.candidate_id WHERE c.job_id = %s"""
+        with get_conn() as conn:
+            before = conn.execute(sql, (job_every_stage,)).fetchone()["n"]
+        client.get(f"/api/v1/jobs/{job_every_stage}/funnel")
+        with get_conn() as conn:
+            after = conn.execute(sql, (job_every_stage,)).fetchone()["n"]
+        assert before == after == 3

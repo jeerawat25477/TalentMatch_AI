@@ -701,3 +701,14 @@ export interface StageUpdate {
   scheduled_at?: string | null;
   location?: string | null;
 }
+
+/**
+ * มิเรอร์ FunnelStage ใน backend/app/schemas.py (GET /api/v1/jobs/{id}/funnel)
+ *
+ * เป็นเซตซ้อนกัน: คนที่อยู่ขั้นหลังถูกนับรวมในขั้นก่อนหน้าด้วย count จึงลดหลั่นลงเท่านั้น
+ * — คอมโพเนนต์คิด % เทียบขั้นแรกได้ตรง ๆ โดยไม่ต้องบวกเอง
+ */
+export interface FunnelStage {
+  label: string;
+  count: number;
+}
