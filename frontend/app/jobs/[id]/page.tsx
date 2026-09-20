@@ -3,7 +3,6 @@
 import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import useSWR from "swr";
-import AiInsight from "@/components/ai-insight";
 import ApplyAddress from "@/components/apply-address";
 import Breadcrumb from "@/components/breadcrumb";
 import JobTabs from "@/components/job-tabs";
@@ -232,26 +231,25 @@ export default function JobDashboard() {
         />
       )}
 
-      {funnel && <PipelineFunnel stages={funnel} />}
-
-      {/* AI insight — คำนวณจากข้อมูลจริงเท่านั้น */}
-      {scored.length > 0 && (
-        <AiInsight>
-          วิเคราะห์แล้ว {scored.length} จาก {list.length} คน · ผ่านเกณฑ์{" "}
-          {passed.length} คน
-          {top && (
-            <>
-              {" "}
-              — คะแนนสูงสุดคือ <strong>{top.full_name}</strong> ({top.fit_score})
-            </>
-          )}
-          {needsReview.length > 0 && (
-            <>
-              {" "}
-              · มี {needsReview.length} คนอยู่ในช่วงก้ำกึ่ง รอการตัดสินใจของคุณ
-            </>
-          )}
-        </AiInsight>
+      {/* กรวย + สรุปหนึ่งบรรทัดในใบเดียวกัน — เดิมสรุปเป็นแถบแยกใต้กรวย แล้วพูดซ้ำกับทั้ง
+          ตัวเลขบนหัวหน้า (ผ่านเกณฑ์ / รอตัดสิน) และกรวยเอง · เหลือเฉพาะสองอย่างที่ไม่มีที่อื่น
+          คือความคืบหน้าการวิเคราะห์ กับคนคะแนนสูงสุด */}
+      {funnel && (
+        <PipelineFunnel
+          stages={funnel}
+          note={
+            scored.length > 0 ? (
+              <>
+                วิเคราะห์แล้ว {scored.length} จาก {list.length} คน
+                {top && (
+                  <>
+                    {" · "}คะแนนสูงสุดคือ <strong>{top.full_name}</strong> ({top.fit_score})
+                  </>
+                )}
+              </>
+            ) : undefined
+          }
+        />
       )}
 
       {/* Upload — ปิดรับสมัครแล้วอัปโหลดไม่ได้ (backend ตอบ 409 ด้วย) */}

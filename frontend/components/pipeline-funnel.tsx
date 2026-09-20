@@ -3,16 +3,23 @@ import type { FunnelStage } from "@/lib/types";
 // กรวยผู้สมัครรวมทั้งตำแหน่ง — แท่งแนวนอนลดหลั่นตามสัดส่วนของขั้นแรก
 // backend การันตีว่าเป็นเซตซ้อนกัน (ขั้นหลัง ≤ ขั้นก่อนเสมอ) จึงคิด % เทียบขั้นแรกได้ตรง ๆ
 // ไม่มี chart library ในโปรเจกต์นี้ และไม่ต้องมี — แท่งคือ div ที่กำหนดความกว้างเป็น %
-export default function PipelineFunnel({ stages }: { stages: FunnelStage[] }) {
+export default function PipelineFunnel({
+  stages,
+  note,
+}: {
+  stages: FunnelStage[];
+  /** สรุปสั้น ๆ ท้ายการ์ด (เดิมเป็นแถบ AI Insight แยกใบ ซึ่งพูดเรื่องเดียวกับกรวย) */
+  note?: React.ReactNode;
+}) {
   const total = stages[0]?.count ?? 0;
 
   return (
     <div className="glass-card rounded-2xl p-md">
       <p className="text-label-md font-semibold text-on-surface mb-0.5">
-        ผู้สมัครไปถึงขั้นไหนแล้ว
+        จำนวนผู้สมัครในแต่ละขั้น
       </p>
       <p className="text-label-sm text-on-surface-variant mb-sm">
-        นับสะสม — คนที่อยู่ขั้นล่างถูกนับในขั้นบนด้วย
+        นับคนที่มาถึงขั้นนั้น รวมคนที่ไปไกลกว่านั้นแล้ว — ตัวเลขจึงลดลงเรื่อย ๆ
       </p>
 
       {total === 0 ? (
@@ -44,6 +51,18 @@ export default function PipelineFunnel({ stages }: { stages: FunnelStage[] }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {note && (
+        <div className="mt-sm pt-sm border-t border-outline-variant/40 flex gap-xs items-start">
+          <span
+            className="material-symbols-outlined text-primary text-[18px] flex-none"
+            aria-hidden
+          >
+            lightbulb
+          </span>
+          <p className="text-label-md text-on-surface-variant leading-snug">{note}</p>
         </div>
       )}
     </div>

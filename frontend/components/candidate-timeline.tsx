@@ -1,162 +1,361 @@
-import { STAGE_LABEL } from "@/components/board-card";
+"use client";
+
+import Link from "next/link";
+import { useState } from "react";
+import { STAGE_LABEL, stageMoveWarning } from "@/components/board-card";
+import ConfirmDialog from "@/components/confirm-dialog";
+import { setStage } from "@/lib/api";
 import { INTERVIEW_RESULT } from "@/lib/types";
-import type { CandidateDetail } from "@/lib/types";
+import type { BoardStage, CandidateDetail } from "@/lib/types";
 
 /**
- * ไทม์ไลน์ของผู้สมัครหนึ่งคน — อ่านอย่างเดียว ประกอบจากเวลาที่ backend มีอยู่แล้ว
+ * เส้นทางของผู้สมัครหนึ่งคน — ประวัติที่เกิดแล้ว + ขั้นที่ยังไม่ถึง + ปุ่มย้ายขั้น ในที่เดียว
  *
- * **แสดงเฉพาะเหตุการณ์ที่เกิดจริง** จุดไหนไม่มีเวลาก็ไม่มีจุดนั้น ไม่ใช่โชว์จุดว่างไว้
- * ให้เดา — ผู้สมัครที่ถูกปฏิเสธไปแล้วไม่มีทั้งขั้นบนกระดาน ผลสัมภาษณ์ และวันรับเข้า
- * ซึ่งเป็นคนส่วนใหญ่ในระบบ ไทม์ไลน์ของเขาจึงมีแค่ 3-4 จุดและต้องดูปกติ ไม่ใช่ดูพัง
+ * เดิมแยกเป็นสองบล็อกบนหน้าเดียวกัน (ไทม์ไลน์อ่านอย่างเดียว กับแถบ "ความคืบหน้าหลังผ่าน
+ * คัดกรอง" ที่กดได้) แล้วสามขั้น — นัดสัมภาษณ์ สัมภาษณ์แล้ว รับเข้าแล้ว — โผล่ซ้ำกันทั้งสองที่
+ * โดยบอกคนละแบบ (อันหนึ่งมีเวลา อีกอันมีปุ่ม) รวมเป็นอันเดียวจึงเหลือแหล่งเดียวที่ตอบครบว่า
+ * "เกิดอะไรไปแล้วเมื่อไหร่ ตอนนี้อยู่ตรงไหน และกดอะไรได้ต่อ"
  *
- * แนวตั้ง ไม่ใช่แนวนอน: จำนวนจุดไม่คงที่ (3 ถึง 8) และข้อความกำกับเป็นภาษาไทยยาว ๆ
- * แนวนอนจะบีบจนอ่านไม่ออกบนมือถือ ส่วนแนวตั้งยาวขึ้นได้เรื่อย ๆ โดยไม่ต้องเลื่อนข้าง
+ * **เรียงตามลำดับของกระบวนการ ไม่ใช่ตามเวลา** — วันนัดสัมภาษณ์เป็นเวลาในอนาคต ถ้าเรียง
+ * ตามเวลามันจะเด้งไปท้ายสุดแซงเหตุการณ์ที่เกิดไปแล้ว และขั้นที่ยังไม่ถึงก็ไม่มีเวลาให้เรียงอยู่ดี
+ *
+ * เรียงซ้ายไปขวา และขึ้นบรรทัดใหม่เองเมื่อจอแคบ (ไม่ใช่เลื่อนแนวนอน ซึ่งซ่อนขั้นท้าย ๆ ไว้)
+ *
+ * ⚠️ ปุ่มย้ายขั้นเรียก `setStage` ตัวเดียวกับหน้ากระดาน และสถานะปัจจุบันอ่านจาก `board_stage`
+ * ที่ backend คำนวณด้วย `hiring_board.board_stage` — สองหน้าจึงไม่มีทางเห็นไม่ตรงกัน
  */
-type Event = {
-  /** เวลาที่ใช้เรียงลำดับ — จุดที่เป็น null ถูกกรองทิ้งก่อนถึงตรงนี้แล้ว */
-  at: Date;
+
+// บันไดหลักตามลำดับจริง — "ไม่ไปต่อ" อยู่นอกบันได จึงเป็นปุ่มแยก ไม่ใช่ขั้นที่ 6
+const LADDER: BoardStage[] = ["invited", "scheduled", "interviewed", "offer", "hired"];
+
+type Row = {
+  key: string;
   icon: string;
   label: string;
-  detail?: string | null;
-  /** เวลาที่ยังมาไม่ถึง (วันนัดในอนาคต) — จางลงและบอกว่ายังไม่เกิด */
-  upcoming?: boolean;
-  /** แสดงวันอย่างเดียว ไม่มีเวลา (interview_outcome.interviewed_at เก็บเป็น date) */
+  /** เวลาที่เกิดเหตุการณ์ — null ทั้งที่ done = เกิดแล้วแต่ไม่รู้เวลา */
+  at?: string | null;
+  /** เวลาเป็นวันที่ล้วน (YYYY-MM-DD) ไม่ต้องโชว์เวลานาฬิกา */
   dateOnly?: boolean;
+  done: boolean;
+  detail?: React.ReactNode;
+  /** ขั้นบนกระดานที่กดย้ายไปได้ — ไม่มี = แถวประวัติอ่านอย่างเดียว */
+  stage?: BoardStage;
 };
 
-function fmt(d: Date, dateOnly: boolean): string {
+function fmt(iso: string, dateOnly: boolean): string {
+  // date ล้วนต้องต่อเวลาเอง ไม่งั้นบางเบราว์เซอร์ตีเป็น UTC แล้ววันเลื่อนสำหรับโซน +07
+  const d = new Date(dateOnly ? `${iso}T00:00:00` : iso);
+  if (Number.isNaN(d.getTime())) return iso; // ค่าผิดรูป: โชว์ดิบ ๆ ดีกว่า Invalid Date
   return d.toLocaleString("th-TH", {
     dateStyle: "medium",
     ...(dateOnly ? {} : { timeStyle: "short" }),
   });
 }
 
-/** สร้างรายการเหตุการณ์จากข้อมูลที่มี — แยกออกมาให้อ่านง่ายและเรียงที่เดียว */
-function buildEvents(c: CandidateDetail): Event[] {
-  const events: Event[] = [];
-  const push = (
-    iso: string | null | undefined,
-    icon: string,
-    label: string,
-    detail?: string | null,
-    opts?: { dateOnly?: boolean },
-  ) => {
-    if (!iso) return;
-    // date ล้วน (YYYY-MM-DD) ต้องต่อเวลาเอง ไม่งั้นบางเบราว์เซอร์ตีเป็น UTC แล้ววัน
-    // เลื่อนไปหนึ่งวันสำหรับคนที่อยู่โซน +07
-    const at = new Date(opts?.dateOnly ? `${iso}T00:00:00` : iso);
-    if (Number.isNaN(at.getTime())) return;
-    events.push({ at, icon, label, detail, dateOnly: opts?.dateOnly });
-  };
+/** แถวทั้งหมดตามลำดับกระบวนการ — แยกออกมาให้อ่านง่ายและแก้ลำดับที่เดียว */
+function buildRows(c: CandidateDetail): Row[] {
+  const decided = c.hr_decision === "approved" || c.hr_decision === "rejected";
+  const onBoard = c.board_stage != null;
 
-  push(c.created_at, "upload_file", "รับเรซูเม่เข้าระบบ");
-  push(
-    c.evaluated_at,
-    "smart_toy",
-    "AI วิเคราะห์เสร็จ",
-    c.fit_score != null ? `คะแนน ${c.fit_score}` : null,
-  );
-  push(
-    c.hr_decided_at,
-    c.hr_decision === "rejected" ? "cancel" : "how_to_reg",
-    c.hr_decision === "rejected"
-      ? "HR ตัดสินว่าไม่ผ่าน"
-      : c.hr_decision === "approved"
-        ? "HR อนุมัติให้ไปต่อ"
-        : "HR บันทึกคำตัดสิน",
-    c.hr_notes,
-  );
-  push(
-    c.email_sent_at,
-    "mail",
-    c.email_send_count > 1 ? `ส่งอีเมลแล้ว ${c.email_send_count} ครั้ง` : "ส่งอีเมลแล้ว",
-    c.email_sent_to,
-  );
-  // ขั้นล่าสุดบนกระดาน — เก็บได้แถวเดียวต่อคน (hiring_stage.candidate_id เป็น PK)
-  // จึงเป็น "ขั้นล่าสุด" ไม่ใช่ประวัติทุกครั้งที่ย้าย ข้อความต้องไม่ทำให้เข้าใจผิด
-  if (c.board_stage && c.board_stage !== "hired") {
-    push(c.stage_moved_at, "flag", `ย้ายไปขั้น "${STAGE_LABEL[c.board_stage]}"`);
-  }
-  push(
-    c.interview_outcome?.interviewed_at,
-    "record_voice_over",
-    "สัมภาษณ์",
-    c.interview_outcome ? `ผล: ${INTERVIEW_RESULT[c.interview_outcome.result].label}` : null,
-    { dateOnly: true },
-  );
-  push(c.hired_at, "badge", "รับเข้าเป็นพนักงาน");
+  const history: Row[] = [
+    {
+      key: "applied",
+      icon: "upload_file",
+      label: "รับเรซูเม่เข้าระบบ",
+      at: c.created_at,
+      done: true,
+    },
+    {
+      key: "scored",
+      icon: "smart_toy",
+      label: "AI วิเคราะห์เสร็จ",
+      at: c.evaluated_at,
+      done: c.evaluated_at != null,
+      detail: c.fit_score != null ? `คะแนน ${c.fit_score}` : undefined,
+    },
+    {
+      key: "decided",
+      icon: c.hr_decision === "rejected" ? "cancel" : "how_to_reg",
+      label:
+        c.hr_decision === "rejected"
+          ? "HR ตัดสินว่าไม่ผ่าน"
+          : c.hr_decision === "approved"
+            ? "HR อนุมัติให้ไปต่อ"
+            : "HR ตัดสิน",
+      at: c.hr_decided_at,
+      done: decided,
+      detail: c.hr_notes ?? undefined,
+    },
+    {
+      key: "email",
+      icon: "mail",
+      label:
+        c.email_send_count > 1 ? `ส่งอีเมลแล้ว ${c.email_send_count} ครั้ง` : "ส่งอีเมล",
+      at: c.email_sent_at,
+      done: c.email_sent_at != null,
+      detail: c.email_sent_to ?? undefined,
+    },
+  ];
 
-  events.sort((a, b) => a.at.getTime() - b.at.getTime());
+  // ขั้นบนกระดานโผล่เฉพาะคนที่อยู่บนกระดาน — คนที่ไม่ผ่านคัดกรองไม่มีบันไดนี้ให้เดิน
+  if (!onBoard) return history;
 
-  // วันนัดสัมภาษณ์อยู่ท้ายสุดเสมอเมื่อยังไม่ถึง — มันคือสิ่งที่จะเกิด ไม่ใช่สิ่งที่เกิดแล้ว
-  // (ถ้าผ่านมาแล้วก็ยังอยู่ท้าย เพราะเป็นเวลาล่าสุดอยู่ดี เว้นแต่มีผลสัมภาษณ์ทีหลัง)
-  if (c.scheduled_at) {
-    const at = new Date(c.scheduled_at);
-    if (!Number.isNaN(at.getTime())) {
-      const upcoming = at.getTime() > Date.now();
-      const e: Event = {
-        at,
-        icon: "event",
-        label: upcoming ? "นัดสัมภาษณ์ (ยังไม่ถึง)" : "ถึงเวลานัดสัมภาษณ์",
-        detail: c.location,
-        upcoming,
-      };
-      const i = events.findIndex((x) => x.at.getTime() > at.getTime());
-      if (i === -1) events.push(e);
-      else events.splice(i, 0, e);
-    }
-  }
-  return events;
+  const current = c.board_stage as BoardStage;
+  const currentIdx = LADDER.indexOf(current); // -1 เมื่อ declined
+  const ladder: Row[] = LADDER.map((s, i) => ({
+    key: s,
+    stage: s,
+    icon: LADDER_ICON[s],
+    label: STAGE_LABEL[s],
+    // ผ่านมาแล้วหรือกำลังอยู่ที่ขั้นนี้ = เกิดแล้ว · declined (currentIdx -1) = ยังไม่ผ่านขั้นไหนเลย
+    done: currentIdx >= 0 && i <= currentIdx,
+    ...LADDER_TIME[s](c),
+  }));
+
+  // "รับเข้าแล้ว" ยึดระเบียนพนักงานเป็นหลัก เหมือนที่ backend อนุมาน stage='hired' จากตรงนั้น
+  const hiredRow = ladder[LADDER.indexOf("hired")];
+  hiredRow.done = hiredRow.done || c.employee_id != null;
+
+  return [...history, ...ladder];
 }
 
-export default function CandidateTimeline({ candidate }: { candidate: CandidateDetail }) {
-  const events = buildEvents(candidate);
+const LADDER_ICON: Record<BoardStage, string> = {
+  invited: "flag",
+  scheduled: "event",
+  interviewed: "record_voice_over",
+  offer: "handshake",
+  hired: "badge",
+  declined: "block",
+};
+
+/** เวลาที่รู้จริงของแต่ละขั้น — hiring_stage เก็บแถวเดียวต่อคน จึงมีเวลาเฉพาะขั้นล่าสุด */
+const LADDER_TIME: Record<
+  BoardStage,
+  (c: CandidateDetail) => Partial<Row>
+> = {
+  invited: (c) => (c.board_stage === "invited" ? { at: c.stage_moved_at } : {}),
+  scheduled: (c) => ({ at: c.scheduled_at, detail: c.location ?? undefined }),
+  interviewed: (c) => ({
+    at: c.interview_outcome?.interviewed_at,
+    dateOnly: true,
+    detail: c.interview_outcome ? (
+      <span
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-label-sm font-semibold ${
+          INTERVIEW_RESULT[c.interview_outcome.result].chip
+        }`}
+      >
+        <span className="material-symbols-outlined text-[14px]" aria-hidden>
+          {INTERVIEW_RESULT[c.interview_outcome.result].icon}
+        </span>
+        {INTERVIEW_RESULT[c.interview_outcome.result].label}
+      </span>
+    ) : undefined,
+  }),
+  offer: (c) => (c.board_stage === "offer" ? { at: c.stage_moved_at } : {}),
+  hired: (c) => ({ at: c.hired_at }),
+  declined: () => ({}),
+};
+
+export default function CandidateTimeline({
+  candidate: c,
+  candidateId,
+  jobId,
+  onChanged,
+  onHire,
+}: {
+  candidate: CandidateDetail;
+  candidateId: string;
+  jobId: string;
+  onChanged: () => void;
+  onHire: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<{
+    next: BoardStage;
+    title: string;
+    body: string;
+  } | null>(null);
+
+  const stage = c.board_stage;
+  const locked = stage === "hired";
+  const declined = stage === "declined";
+  const rows = buildRows(c);
+  // แถวที่ยังไม่เกิดแต่มีเรื่องหลังจากนั้นเกิดไปแล้ว = ถูกข้าม ไม่ใช่ "ยังไม่ถึง"
+  const lastDone = rows.map((r) => r.done).lastIndexOf(true);
+
+  async function commit(next: BoardStage) {
+    setBusy(true);
+    setError(null);
+    try {
+      await setStage(candidateId, next);
+      setPending(null);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "ย้ายขั้นไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function request(next: BoardStage) {
+    if (locked || busy || next === stage) return;
+    // "รับเข้าแล้ว" = สร้างระเบียนพนักงาน ต้องกรอกข้อมูลการจ้าง ไม่ใช่แค่ย้ายขั้น
+    if (next === "hired") return onHire();
+    const warn = stageMoveWarning(stage ?? "invited", next, c.interview_outcome != null);
+    if (warn) setPending({ next, ...warn });
+    else commit(next);
+  }
 
   return (
-    <section className="glass-card rounded-2xl p-md">
-      <h3 className="text-headline-md text-on-surface flex items-center gap-xs mb-xs">
-        <span className="material-symbols-outlined text-primary">timeline</span>
-        ไทม์ไลน์
-      </h3>
-      <p className="text-label-sm text-on-surface-variant mb-sm">
-        เรียงตามเวลา — แสดงเฉพาะสิ่งที่เกิดขึ้นแล้ว
-      </p>
+    <section className="glass-card rounded-2xl p-md" aria-labelledby="timeline-h">
+      <div className="flex items-start justify-between gap-sm flex-wrap mb-sm">
+        <div>
+          <h3
+            id="timeline-h"
+            className="text-headline-md text-on-surface flex items-center gap-xs"
+          >
+            <span className="material-symbols-outlined text-primary">timeline</span>
+            เส้นทางของผู้สมัคร
+          </h3>
+          <p className="text-label-sm text-on-surface-variant">
+            {stage
+              ? locked
+                ? "รับเข้าเป็นพนักงานแล้ว — แก้ไขได้ที่ระเบียนพนักงาน"
+                : "กดขั้นด้านล่างเพื่อย้ายเมื่อมีความคืบหน้า"
+              : "ยังไม่อยู่บนกระดานติดตาม — แสดงเฉพาะสิ่งที่เกิดขึ้นแล้ว"}
+          </p>
+        </div>
+        {stage && (
+          <Link
+            href={`/jobs/${jobId}/board`}
+            className="text-label-md text-primary hover:underline inline-flex items-center gap-0.5"
+          >
+            ดูบนกระดาน
+            <span className="material-symbols-outlined text-[16px]">chevron_right</span>
+          </Link>
+        )}
+      </div>
 
-      {events.length === 0 ? (
-        <p className="text-label-md text-outline">ยังไม่มีเหตุการณ์ให้แสดง</p>
-      ) : (
-        <ol className="space-y-sm">
-          {events.map((e, i) => (
-            <li key={`${e.label}-${e.at.getTime()}`} className="flex gap-sm">
-              {/* เส้นกับจุด: เส้นต่อจากจุดลงไปหาอันถัดไป จุดสุดท้ายไม่มีเส้น */}
-              <div className="flex flex-col items-center flex-none">
+      {declined && (
+        <p className="text-label-md text-on-surface-variant flex items-center gap-xs mb-sm">
+          <span className="material-symbols-outlined text-[18px] text-outline">block</span>
+          อยู่ที่ “ไม่ไปต่อ” — กดขั้นใดขั้นหนึ่งเพื่อดึงกลับเข้ากระบวนการ
+        </p>
+      )}
+
+      {/* ซ้ายไปขวา และ **ขึ้นบรรทัดใหม่เองเมื่อจอแคบ** (flex-wrap) ไม่ใช่เลื่อนแนวนอน —
+          ข้อความกำกับเป็นภาษาไทยยาว ๆ 9 ขั้น บนมือถือจะกลายเป็นแถวละ 2 ขั้น ยังอ่านไล่
+          ซ้ายไปขวาได้ตามเดิม ส่วนแถบเลื่อนแนวนอนซ่อนขั้นท้าย ๆ ไว้จนไม่มีใครเห็น */}
+      <ol className="flex flex-wrap items-start gap-y-sm">
+        {rows.map((r, i) => {
+          const isCurrent = r.stage != null && r.stage === stage;
+          const clickable = r.stage != null && !locked && !isCurrent && !busy;
+          const when = r.at
+            ? fmt(r.at, Boolean(r.dateOnly))
+            : r.done
+              ? "ไม่ได้ระบุเวลา"
+              : i < lastDone
+                ? "ไม่มีข้อมูล"
+                : "ยังไม่ถึงขั้นนี้";
+          return (
+            <li key={r.key} className="flex items-start">
+              <div
+                className={`w-[124px] flex flex-col items-center text-center gap-0.5 ${
+                  r.done ? "" : "opacity-60"
+                }`}
+              >
                 <span
-                  className={`material-symbols-outlined text-[18px] w-8 h-8 rounded-full flex items-center justify-center ${
-                    e.upcoming
-                      ? "bg-glass/60 border border-outline/40 text-on-surface-variant"
-                      : "bg-primary/10 text-primary"
+                  aria-hidden
+                  className={`w-9 h-9 rounded-full flex items-center justify-center ${
+                    isCurrent
+                      ? "bg-primary/15 text-primary ring-2 ring-primary"
+                      : r.done
+                        ? "bg-primary/10 text-primary"
+                        : "bg-glass/60 border border-outline/40 text-on-surface-variant"
                   }`}
                 >
-                  {e.icon}
+                  <span className="material-symbols-outlined text-[18px]">{r.icon}</span>
                 </span>
-                {i < events.length - 1 && (
-                  <span className="flex-1 w-px my-0.5 bg-outline/30" aria-hidden />
-                )}
-              </div>
-              <div className={`flex-1 min-w-0 pb-xs ${e.upcoming ? "opacity-70" : ""}`}>
-                <p className="text-label-md font-semibold text-on-surface">{e.label}</p>
-                <p className="text-label-sm text-on-surface-variant">
-                  {fmt(e.at, Boolean(e.dateOnly))}
-                </p>
-                {e.detail && (
-                  <p className="text-label-sm text-on-surface-variant break-words">
-                    {e.detail}
+
+                {r.stage ? (
+                  <button
+                    type="button"
+                    onClick={() => request(r.stage as BoardStage)}
+                    disabled={!clickable}
+                    aria-current={isCurrent ? "step" : undefined}
+                    title={clickable ? "กดเพื่อย้ายมาขั้นนี้" : undefined}
+                    className={`text-label-md font-semibold leading-tight disabled:cursor-default ${
+                      isCurrent ? "text-primary" : "text-on-surface"
+                    } ${clickable ? "hover:text-primary hover:underline" : ""}`}
+                  >
+                    {r.label}
+                  </button>
+                ) : (
+                  <p className="text-label-md font-semibold text-on-surface leading-tight">
+                    {r.label}
                   </p>
                 )}
+
+                {isCurrent && (
+                  <span className="text-label-sm font-semibold px-2 py-0.5 rounded-full bg-primary/15 text-primary">
+                    ตอนนี้อยู่ขั้นนี้
+                  </span>
+                )}
+                <p className="text-label-sm text-on-surface-variant leading-tight">{when}</p>
+                {r.detail && (
+                  <div className="text-label-sm text-on-surface-variant break-words">
+                    {r.detail}
+                  </div>
+                )}
               </div>
+
+              {/* ลูกศรคั่น — อยู่ระดับเดียวกับวงกลม (วงกลมสูง 36px จึงเยื้องลงครึ่งหนึ่ง) */}
+              {i < rows.length - 1 && (
+                <span
+                  aria-hidden
+                  className={`material-symbols-outlined text-[18px] mt-[9px] ${
+                    i < lastDone ? "text-primary/50" : "text-outline"
+                  }`}
+                >
+                  chevron_right
+                </span>
+              )}
             </li>
-          ))}
-        </ol>
+          );
+        })}
+      </ol>
+
+      {stage && !locked && !declined && (
+        <button
+          onClick={() => request("declined")}
+          disabled={busy}
+          className="text-label-sm text-on-surface-variant hover:text-error inline-flex items-center gap-1"
+        >
+          <span className="material-symbols-outlined text-[16px]">block</span>
+          ย้ายไป “ไม่ไปต่อ” (ผู้สมัครถอนตัว หรือยุติการติดต่อ)
+        </button>
+      )}
+
+      {error && !pending && (
+        <p className="text-error text-label-md mt-xs" role="alert">
+          {error}
+        </p>
+      )}
+
+      {pending && (
+        <ConfirmDialog
+          title={pending.title}
+          body={<p>{pending.body}</p>}
+          confirmLabel={`ย้ายไป “${STAGE_LABEL[pending.next]}”`}
+          busy={busy}
+          error={error}
+          onConfirm={() => commit(pending.next)}
+          onClose={() => {
+            setPending(null);
+            setError(null);
+          }}
+        />
       )}
     </section>
   );

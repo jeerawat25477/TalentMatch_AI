@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
-import AiInsight from "@/components/ai-insight";
 import Breadcrumb from "@/components/breadcrumb";
 import CandidateTimeline from "@/components/candidate-timeline";
 import EmailTemplatePicker from "@/components/email-template-picker";
@@ -15,9 +14,7 @@ import InterviewOutcomeDialog from "@/components/interview-outcome-dialog";
 import RadarChart from "@/components/radar-chart";
 import ScoreBreakdown from "@/components/score-breakdown";
 import SkillGap from "@/components/skill-gap";
-import StageStepper from "@/components/stage-stepper";
 import StatusBadge from "@/components/status-badge";
-import { skillLabel } from "@/lib/skill-group";
 import {
   fetcher,
   resumeCandidate,
@@ -287,6 +284,23 @@ export default function CandidateDeepDive() {
                   <span className="material-symbols-outlined">query_stats</span>
                   Gap Analysis
                 </h3>
+                {c.gap_analysis && (
+                  <p className="text-label-md text-on-surface-variant mb-xs">
+                    ตรงตามทักษะที่ต้องมี{" "}
+                    <b className="text-on-surface">
+                      {c.gap_analysis.matched_required.length}/
+                      {c.gap_analysis.matched_required.length +
+                        c.gap_analysis.missing_required.length}
+                    </b>{" "}
+                    ข้อ และทักษะที่อยากได้{" "}
+                    <b className="text-on-surface">
+                      {c.gap_analysis.matched_preferred.length}/
+                      {c.gap_analysis.matched_preferred.length +
+                        c.gap_analysis.missing_preferred.length}
+                    </b>{" "}
+                    ข้อ
+                  </p>
+                )}
                 <RadarChart gap={c.gap_analysis} />
               </div>
               {/* คู่กับเรดาร์: เรดาร์บอกว่าทักษะไหนตรง แท่งนี้บอกว่าแปลงเป็นคะแนนยังไง
@@ -300,8 +314,15 @@ export default function CandidateDeepDive() {
         </div>
       </div>
 
-      {/* ไทม์ไลน์ — อ่านอย่างเดียว ประกอบจากเวลาที่มีอยู่แล้วใน CandidateDetail */}
-      <CandidateTimeline candidate={c} />
+      {/* เส้นทางของผู้สมัคร — ประวัติ + ขั้นที่ยังไม่ถึง + ปุ่มย้ายขั้น รวมอยู่ในบล็อกเดียว
+          (เดิมแยกเป็นไทม์ไลน์กับแถบ "ความคืบหน้าหลังผ่านคัดกรอง" ซึ่งซ้ำกันสามขั้น) */}
+      <CandidateTimeline
+        candidate={c}
+        candidateId={candidate_id}
+        jobId={id}
+        onChanged={() => mutate()}
+        onHire={() => setShowHire(true)}
+      />
 
       {/* คำถามสัมภาษณ์ + ร่างอีเมล */}
       <div className="grid gap-md lg:grid-cols-2">
@@ -567,6 +588,21 @@ export default function CandidateDeepDive() {
             <span className="material-symbols-outlined text-[18px]">search</span>
             {searching ? "กำลังค้นหา…" : "ค้นหา"}
           </button>
+          {/* ล้างผลค้นหา — รายการยาวทำให้ต้องเลื่อนผ่านทุกครั้งที่กลับมาหน้านี้
+              ล้างแค่ผล ไม่ล้างคำค้น จะได้กดค้นซ้ำได้ทันที (ผลไม่เคยถูกบันทึกอยู่แล้ว) */}
+          {(hits !== null || searchError) && (
+            <button
+              onClick={() => {
+                setHits(null);
+                setSearchError(null);
+              }}
+              disabled={searching}
+              className="btn-secondary-glass md:w-auto justify-center"
+            >
+              <span className="material-symbols-outlined text-[18px]">close</span>
+              ล้างผล
+            </button>
+          )}
         </div>
 
         {searchError && (
@@ -582,7 +618,11 @@ export default function CandidateDeepDive() {
               ไม่พบผู้สมัครที่ใกล้เคียง — ลองแก้คำค้นให้กว้างขึ้น
             </p>
           ) : (
-            <ul className="space-y-xs mt-sm">
+            <>
+            <p className="text-label-sm text-on-surface-variant mt-sm">
+              ผลค้นหา {hits.length} คน
+            </p>
+            <ul className="space-y-xs mt-xs">
               {hits.map((h) => {
                 const row = (
                   <>
@@ -615,6 +655,7 @@ export default function CandidateDeepDive() {
                 );
               })}
             </ul>
+            </>
           ))}
         </div>
       </section>
@@ -859,20 +900,12 @@ export default function CandidateDeepDive() {
         })()}
       </div>
 
-      {/* ขั้นบนกระดานติดตาม — โผล่เฉพาะคนที่อยู่บนกระดาน (อ่านจาก board_stage ตัวเดียวกับกระดาน) */}
-      {c.board_stage && (
-        <StageStepper
-          candidateId={candidate_id}
-          jobId={id}
-          stage={c.board_stage}
-          movedAt={c.stage_moved_at}
-          hasInterviewResult={c.interview_outcome != null}
-          onChanged={() => mutate()}
-          onHire={() => setShowHire(true)}
-        />
-      )}
-
-      {/* รับเข้าเป็นพนักงาน — โผล่เมื่อไม่ใช่สายปฏิเสธ · ถ้าจ้างแล้วสลับเป็นลิงก์ไปทะเบียน */}
+      {/* รับเข้าเป็นพนักงาน — โผล่ตั้งแต่ขั้น "สัมภาษณ์แล้ว" เป็นต้นไปเท่านั้น
+          การจ้างสร้างระเบียนถาวร (1 คนได้ครั้งเดียว) ปุ่มแบบนี้ไม่ควรตั้งขวางหน้าคนที่ยังไม่มี
+          ใครตัดสินด้วยซ้ำ — เดิมโผล่กับทุกคนที่ร่างอีเมลไม่ใช่แบบปฏิเสธ ซึ่งรวมคนที่เพิ่ง
+          อัปโหลดเมื่อครู่และยังวิเคราะห์ไม่เสร็จ · เคสรีบยังกดได้ที่ขั้น "รับเข้าแล้ว" บนไทม์ไลน์
+          ซึ่งเปิดหน้าต่างเดียวกัน จึงไม่ได้ปิดทาง แค่ไม่เอามาตั้งขวาง
+          ถ้าจ้างแล้วสลับเป็นลิงก์ไปทะเบียนพนักงาน */}
       {c.employee_id ? (
         <div className="glass-card rounded-2xl p-md flex items-center justify-between gap-sm flex-wrap">
           <div className="flex items-center gap-xs">
@@ -894,7 +927,7 @@ export default function CandidateDeepDive() {
           </Link>
         </div>
       ) : (
-        c.email_draft?.kind !== "rejection" && (
+        (c.board_stage === "interviewed" || c.board_stage === "offer") && (
           <div className="glass-card rounded-2xl p-md flex items-center justify-between gap-sm flex-wrap">
             <div>
               <h3 className="text-headline-md text-on-surface flex items-center gap-xs">
@@ -945,22 +978,6 @@ export default function CandidateDeepDive() {
         />
       )}
 
-      {/* สรุปจากข้อมูลจริง */}
-      {c.gap_analysis && (
-        <AiInsight title="สรุปผลการประเมิน">
-          ตรงตามทักษะที่ต้องมี{" "}
-          {c.gap_analysis.matched_required.length}/
-          {c.gap_analysis.matched_required.length +
-            c.gap_analysis.missing_required.length}{" "}
-          ข้อ และทักษะที่อยากได้ {c.gap_analysis.matched_preferred.length}/
-          {c.gap_analysis.matched_preferred.length +
-            c.gap_analysis.missing_preferred.length}{" "}
-          ข้อ
-          {c.gap_analysis.missing_required.length > 0 && (
-            <> · ยังขาด: {c.gap_analysis.missing_required.map(skillLabel).join(", ")}</>
-          )}
-        </AiInsight>
-      )}
     </div>
   );
 }
