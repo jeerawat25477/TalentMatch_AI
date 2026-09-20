@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import AiInsight from "@/components/ai-insight";
 import Breadcrumb from "@/components/breadcrumb";
+import CandidateTimeline from "@/components/candidate-timeline";
 import EmailTemplatePicker from "@/components/email-template-picker";
 import HireEmployeeDialog from "@/components/hire-employee-dialog";
 import InterviewGuide from "@/components/interview-guide";
@@ -298,6 +299,9 @@ export default function CandidateDeepDive() {
           </div>
         </div>
       </div>
+
+      {/* ไทม์ไลน์ — อ่านอย่างเดียว ประกอบจากเวลาที่มีอยู่แล้วใน CandidateDetail */}
+      <CandidateTimeline candidate={c} />
 
       {/* คำถามสัมภาษณ์ + ร่างอีเมล */}
       <div className="grid gap-md lg:grid-cols-2">

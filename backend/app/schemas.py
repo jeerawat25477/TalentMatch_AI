@@ -244,6 +244,11 @@ class CandidateDetail(CandidateSummary):
     # นัดสัมภาษณ์จาก hiring_stage — None = ยังไม่ได้ตั้ง (หน้า deep dive ซ่อนบล็อกนัด)
     scheduled_at: Optional[datetime] = None
     location: Optional[str] = None
+    # สองเวลานี้มีไว้ให้ไทม์ไลน์รายคนเรียงเหตุการณ์ได้ครบ — ค่าที่เก็บอยู่แล้วในตารางอื่น
+    # ไม่ใช่ข้อมูลใหม่ · None = เหตุการณ์นั้นยังไม่เกิด (แถวเก่าที่ถูกปฏิเสธไปแล้วจะ
+    # ไม่มีทั้งคู่) ฝั่งหน้าเว็บกรองจุดที่เป็น null ทิ้ง ไม่ใช่โชว์จุดว่าง
+    evaluated_at: Optional[datetime] = None   # evaluations.created_at (AI ให้คะแนนเสร็จ)
+    hired_at: Optional[datetime] = None       # employees.hired_at (employee_id มีอยู่แล้ว)
     # องค์ประกอบคะแนนทีละฝั่ง คำนวณตอนอ่านจาก gap_analysis (ไม่ได้เก็บลง DB)
     # None = ยังไม่มีผลวิเคราะห์ (gap_analysis เป็น null)
     score_breakdown: Optional[ScoreBreakdown] = None

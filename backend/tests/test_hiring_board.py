@@ -456,3 +456,32 @@ class TestGetFunnel:
         with get_conn() as conn:
             after = conn.execute(sql, (job_every_stage,)).fetchone()["n"]
         assert before == after == 3
+
+
+class TestTimelineFields:
+    """เวลาที่หน้ารายละเอียดใช้วาดไทม์ไลน์ — ต้องมาครบและต้องเป็น null ได้โดยไม่พัง."""
+
+    def test_ผู้สมัครที่ยังไม่มีอะไรเลยได้_null_ไม่ใช่_500(self, client, job_and_candidate):
+        """คนที่ถูกปฏิเสธไปแล้วไม่มีทั้งขั้นบนกระดาน ผลสัมภาษณ์ และวันรับเข้า
+        ซึ่งเป็นคนส่วนใหญ่ในระบบ — จุดที่ไม่มีข้อมูลต้องหายไปจากไทม์ไลน์ ไม่ใช่ error."""
+        _, cid = job_and_candidate
+        r = client.get(f"/api/v1/candidates/{cid}")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["evaluated_at"] is not None      # มีผลวิเคราะห์แล้ว (fixture ใส่ให้)
+        assert body["hired_at"] is None
+        assert body["stage_moved_at"] is None
+        assert body["interview_outcome"] is None
+
+    def test_รับเข้าแล้วได้เวลารับเข้ามาด้วย(self, client, job_and_candidate):
+        job_id, cid = job_and_candidate
+        with get_conn() as conn:
+            conn.execute(
+                """INSERT INTO employees (candidate_id, job_id, full_name, position)
+                   VALUES (%s, %s, %s, %s)""",
+                (cid, job_id, "ผู้สมัครกระดาน", "Backend Developer"),
+            )
+            conn.commit()
+        body = client.get(f"/api/v1/candidates/{cid}").json()
+        assert body["employee_id"] is not None
+        assert body["hired_at"] is not None

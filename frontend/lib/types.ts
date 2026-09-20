@@ -406,6 +406,10 @@ export interface CandidateDetail extends CandidateSummary {
   /** วันเวลานัดสัมภาษณ์จาก hiring_stage — null = ยังไม่ได้ตั้ง */
   scheduled_at: string | null;
   location: string | null;
+  /** เวลาที่ AI ให้คะแนนเสร็จ (evaluations.created_at) — null = ยังไม่มีผลวิเคราะห์ */
+  evaluated_at: string | null;
+  /** เวลาที่รับเข้าเป็นพนักงาน — null = ยังไม่ได้รับเข้า (คู่กับ employee_id) */
+  hired_at: string | null;
   /** องค์ประกอบคะแนนทีละฝั่ง — null = ยังไม่มีผลวิเคราะห์ */
   score_breakdown: ScoreBreakdown | null;
 }
