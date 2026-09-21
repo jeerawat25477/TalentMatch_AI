@@ -164,3 +164,30 @@ class TestSurvivesGraphRerun:
         detail = client.get(f"/api/v1/candidates/{evaluated}").json()
         assert detail["email_draft"] is None
         assert detail["email_draft_edited"] == DRAFT
+
+
+class TestDraftKind:
+    """ชนิดของร่าง — ให้หน้าเว็บเตือนได้เมื่อโหมดการ์ดเปลี่ยนแต่ร่างที่บันทึกไว้เป็นอีกแบบ."""
+
+    def test_บันทึกชนิดแล้วอ่านกลับได้(self, client, evaluated):
+        r = client.put(
+            f"/api/v1/candidates/{evaluated}/email/draft",
+            json={**DRAFT, "kind": "rejection"},
+        )
+        assert r.status_code == 200 and r.json()["kind"] == "rejection"
+        detail = client.get(f"/api/v1/candidates/{evaluated}").json()
+        assert detail["email_draft_edited"] == {**DRAFT, "kind": "rejection"}
+
+    def test_ชนิดนอกรายการต้อง_422(self, client, evaluated):
+        r = client.put(
+            f"/api/v1/candidates/{evaluated}/email/draft",
+            json={**DRAFT, "kind": "promotion"},
+        )
+        assert r.status_code == 422
+
+    def test_ไม่ส่งชนิดก็บันทึกได้และไม่เก็บคีย์ว่างไว้(self, client, evaluated):
+        """ร่างที่บันทึกก่อนมีฟิลด์นี้ไม่มีคีย์ kind — รูปข้อมูลต้องเป็นแบบเดียวกัน."""
+        r = client.put(f"/api/v1/candidates/{evaluated}/email/draft", json=DRAFT)
+        assert r.status_code == 200 and r.json()["kind"] is None
+        detail = client.get(f"/api/v1/candidates/{evaluated}").json()
+        assert "kind" not in detail["email_draft_edited"]

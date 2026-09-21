@@ -60,3 +60,55 @@ export function appendScheduleLine(body: string, line: string): string {
   const base = body.replace(/\s+$/, "");
   return base ? `${base}\n\n${line}\n` : `${line}\n`;
 }
+
+// ---------- โหมดของการ์ดอีเมล: เชิญ / ปฏิเสธ ----------
+
+export type EmailKind = "invitation" | "rejection";
+
+/**
+ * การ์ดอีเมลควรอยู่โหมดไหน
+ *
+ * ร่างของ AI ถูกสร้างครั้งเดียวตอนกราฟรัน คนที่ผ่านคัดกรองได้ร่างเชิญแล้วจบแค่นั้น
+ * พอสัมภาษณ์ไม่ผ่าน การ์ดยังเป็นโหมดเชิญ ตัวเลือกเทมเพลต (ซึ่งกรองตามโหมด) จึงไม่แสดง
+ * เทมเพลตปฏิเสธเลย · กติกา:
+ * - ผลสัมภาษณ์ "ไม่ผ่าน" หรือขั้น "ไม่ไปต่อ" → ปฏิเสธ
+ * - "สำรอง" ยังไม่สลับ — ยังไม่มีใครตัดสินว่าไม่รับ
+ * - นอกนั้นตามชนิดร่างของ AI · ไม่มีร่างของ AI ก็อนุมานจากคำตัดสินของ HR
+ */
+export function emailMode(args: {
+  interviewResult: "pass" | "fail" | "standby" | null | undefined;
+  boardStage: string | null | undefined;
+  aiDraftKind: EmailKind | null | undefined;
+  hrDecision: string | null | undefined;
+}): EmailKind {
+  if (args.interviewResult === "fail" || args.boardStage === "declined") {
+    return "rejection";
+  }
+  if (args.aiDraftKind) return args.aiDraftKind;
+  return args.hrDecision === "rejected" ? "rejection" : "invitation";
+}
+
+/**
+ * ร่างปฏิเสธตั้งต้นในตัว — ใช้ได้แม้ HR ยังไม่เคยบันทึกเทมเพลตปฏิเสธ
+ *
+ * - ไม่ระบุเหตุผล ตามธรรมเนียม HR (เหตุผลเฉพาะในอีเมลปฏิเสธเป็นช่องให้โต้แย้ง)
+ * - **ไม่มีประโยค "เราจะเก็บข้อมูลของท่านไว้"** ที่อีเมลปฏิเสธชอบใส่ เพราะเท่ากับสัญญาว่า
+ *   จะเก็บข้อมูลส่วนบุคคลไว้ ซึ่งเกี่ยวกับ PDPA ถ้าบริษัทมีนโยบายนี้ HR ใส่เองในเทมเพลตได้
+ * - ใช้เฉพาะ {candidate_name} / {job_title} ซึ่งมีค่าเสมอ — ไม่มีตัวแปรวันนัดให้ค้าง
+ */
+export const DEFAULT_REJECTION = {
+  subject: "ผลการพิจารณาใบสมัครตำแหน่ง {job_title}",
+  body: [
+    "เรียน คุณ{candidate_name}",
+    "",
+    "ขอขอบคุณที่สละเวลามาร่วมสัมภาษณ์ในตำแหน่ง {job_title} กับเรา",
+    "",
+    "หลังจากพิจารณาอย่างรอบคอบแล้ว เราเสียใจที่ต้องแจ้งว่าในครั้งนี้เรายังไม่สามารถ" +
+      "ดำเนินการต่อกับใบสมัครของท่านได้",
+    "",
+    "ขอขอบคุณที่ให้ความสนใจร่วมงานกับเรา และขอให้ท่านประสบความสำเร็จในเส้นทางการทำงาน",
+    "",
+    "ขอแสดงความนับถือ",
+    "ฝ่ายทรัพยากรบุคคล",
+  ].join("\n"),
+} as const;

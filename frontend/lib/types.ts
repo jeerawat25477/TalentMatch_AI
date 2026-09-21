@@ -321,6 +321,8 @@ export {
   fillTemplate,
   scheduleLine,
   appendScheduleLine,
+  emailMode,
+  DEFAULT_REJECTION,
 } from "./email-draft";
 export type { TemplateVars } from "./email-draft";
 
@@ -408,7 +410,12 @@ export interface CandidateDetail extends CandidateSummary {
    * คนละคอลัมน์กับ email_draft ของ AI: กราฟเดินรอบใหม่เขียนทับ/ล้าง email_draft ได้
    * แต่ฉบับนี้ไม่ถูกแตะ · หน้าเว็บใช้ฉบับนี้ก่อนถ้ามี
    */
-  email_draft_edited: { subject: string; body: string } | null;
+  /** kind = ชนิดตอนที่บันทึก (ร่างที่บันทึกก่อนมีฟิลด์นี้ไม่มีค่า) */
+  email_draft_edited: {
+    subject: string;
+    body: string;
+    kind?: "invitation" | "rejection";
+  } | null;
   email_draft_edited_at: string | null;
   /** เวลาที่ AI ให้คะแนนเสร็จ (evaluations.created_at) — null = ยังไม่มีผลวิเคราะห์ */
   evaluated_at: string | null;

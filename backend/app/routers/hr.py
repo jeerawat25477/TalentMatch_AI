@@ -174,6 +174,18 @@ def _require_evaluation(conn, candidate_id: str) -> None:
         )
 
 
+def _draft_json(payload: EmailDraftIn) -> dict:
+    """รูปที่เก็บลง email_draft_edited — ใส่ kind เฉพาะเมื่อส่งมา.
+
+    ร่างที่บันทึกก่อนมีฟิลด์นี้ไม่มีคีย์ kind เลย ถ้าคราวนี้เก็บ "kind": null ไว้ด้วย
+    ข้อมูลในคอลัมน์เดียวกันจะมีสองรูปที่หมายถึงสิ่งเดียวกัน (ไม่รู้ชนิด)
+    """
+    draft = {"subject": payload.subject, "body": payload.body}
+    if payload.kind is not None:
+        draft["kind"] = payload.kind
+    return draft
+
+
 @router.put("/{candidate_id}/email/draft", response_model=EmailDraftOut)
 def save_email_draft(candidate_id: str, payload: EmailDraftIn) -> EmailDraftOut:
     """บันทึกร่างอีเมลที่ HR แก้เอง — ไม่ส่งอะไรทั้งสิ้น.
@@ -191,7 +203,7 @@ def save_email_draft(candidate_id: str, payload: EmailDraftIn) -> EmailDraftOut:
                       email_draft_edited_at = timezone('utc'::text, now())
                 WHERE candidate_id = %s
             RETURNING candidate_id, email_draft_edited_at""",
-            (Json({"subject": payload.subject, "body": payload.body}), candidate_id),
+            (Json(_draft_json(payload)), candidate_id),
         ).fetchone()
         conn.commit()
     log.info("บันทึกร่างอีเมลที่ HR แก้ของผู้สมัคร %s", candidate_id)
@@ -199,6 +211,7 @@ def save_email_draft(candidate_id: str, payload: EmailDraftIn) -> EmailDraftOut:
         candidate_id=row["candidate_id"],
         subject=payload.subject,
         body=payload.body,
+        kind=payload.kind,
         edited_at=row["email_draft_edited_at"],
     )
 

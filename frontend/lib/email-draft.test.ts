@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appendScheduleLine, fillTemplate, scheduleLine } from "./email-draft";
+import {
+  appendScheduleLine,
+  DEFAULT_REJECTION,
+  emailMode,
+  fillTemplate,
+  scheduleLine,
+} from "./email-draft";
 
 const VARS = { candidate_name: "สมชาย ใจดี", job_title: "Backend Developer" };
 
@@ -55,4 +61,51 @@ test("กดแทรกวันนัดซ้ำไม่ได้บรร�
 
 test("เนื้อความว่างก็แทรกได้ ไม่มีบรรทัดเปล่านำหน้า", () => {
   assert.equal(appendScheduleLine("", "วันเวลาสัมภาษณ์: x"), "วันเวลาสัมภาษณ์: x\n");
+});
+
+// ---------- โหมดเชิญ/ปฏิเสธ + ร่างปฏิเสธตั้งต้น ----------
+
+const BASE = {
+  interviewResult: null,
+  boardStage: "interviewed",
+  aiDraftKind: "invitation" as const,
+  hrDecision: "approved",
+};
+
+test("สัมภาษณ์ไม่ผ่าน → โหมดปฏิเสธ แม้ร่างของ AI เป็นแบบเชิญ", () => {
+  assert.equal(emailMode({ ...BASE, interviewResult: "fail" }), "rejection");
+});
+
+test("ย้ายไป ไม่ไปต่อ → โหมดปฏิเสธ แม้ยังไม่ได้บันทึกผลสัมภาษณ์", () => {
+  assert.equal(emailMode({ ...BASE, boardStage: "declined" }), "rejection");
+});
+
+test("สำรอง ยังไม่สลับ — ยังไม่มีใครตัดสินว่าไม่รับ", () => {
+  assert.equal(emailMode({ ...BASE, interviewResult: "standby" }), "invitation");
+});
+
+test("ผ่าน / ยังไม่บันทึกผล → ตามชนิดร่างของ AI", () => {
+  assert.equal(emailMode({ ...BASE, interviewResult: "pass" }), "invitation");
+  assert.equal(emailMode(BASE), "invitation");
+  assert.equal(
+    emailMode({ ...BASE, boardStage: null, aiDraftKind: "rejection", hrDecision: null }),
+    "rejection",
+  );
+});
+
+test("ไม่มีร่างของ AI → อนุมานจากคำตัดสินของ HR", () => {
+  assert.equal(emailMode({ ...BASE, aiDraftKind: null, hrDecision: "rejected" }), "rejection");
+  assert.equal(emailMode({ ...BASE, aiDraftKind: null, hrDecision: "approved" }), "invitation");
+});
+
+test("ร่างปฏิเสธตั้งต้นแทนชื่อกับตำแหน่งได้ และไม่มีตัวแปรค้าง", () => {
+  const subject = fillTemplate(DEFAULT_REJECTION.subject, VARS);
+  const body = fillTemplate(DEFAULT_REJECTION.body, VARS);
+  assert.equal(subject, "ผลการพิจารณาใบสมัครตำแหน่ง Backend Developer");
+  assert.ok(body.startsWith("เรียน คุณสมชาย ใจดี"));
+  assert.ok(!/\{[a-z_]+\}/.test(subject + body), "ต้องไม่มี {ตัวแปร} ค้างในร่าง");
+});
+
+test("ร่างปฏิเสธตั้งต้นไม่สัญญาว่าจะเก็บข้อมูลผู้สมัคร (PDPA)", () => {
+  assert.ok(!DEFAULT_REJECTION.body.includes("เก็บข้อมูล"));
 });

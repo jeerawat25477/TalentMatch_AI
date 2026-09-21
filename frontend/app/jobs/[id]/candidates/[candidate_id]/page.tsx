@@ -35,6 +35,9 @@ import {
   appendScheduleLine,
   BANDS,
   CONFIDENCE,
+  DEFAULT_REJECTION,
+  emailMode,
+  fillTemplate,
   initials,
   INTERVIEW_RESULT,
   normalizeQuestions,
@@ -73,6 +76,9 @@ export default function CandidateDeepDive() {
   const [showHire, setShowHire] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
+  // ชนิดของข้อความที่อยู่ในช่องตอนนี้ ถ้า HR เปลี่ยนเนื้อหาเป็นอีกแบบ (เลือกเทมเพลต /
+  // ใช้ร่างปฏิเสธ) แต่ยังไม่บันทึก · null = ตรงกับร่างที่บันทึกไว้
+  const [textKind, setTextKind] = useState<"invitation" | "rejection" | null>(null);
   const [draftError, setDraftError] = useState<string | null>(null);
   const [showOutcome, setShowOutcome] = useState(false);
   const [resuming, setResuming] = useState(false);
@@ -150,8 +156,9 @@ export default function CandidateDeepDive() {
     setSavingDraft(true);
     setDraftError(null);
     try {
-      await saveEmailDraft(candidate_id, emailSubject, emailBody);
+      await saveEmailDraft(candidate_id, emailSubject, emailBody, mode);
       await mutate();
+      setTextKind(null);
     } catch (e) {
       setDraftError(e instanceof Error ? e.message : "บันทึกร่างไม่สำเร็จ");
     } finally {
@@ -170,12 +177,23 @@ export default function CandidateDeepDive() {
         setEmailSubject(c.email_draft.subject);
         setEmailBody(c.email_draft.body);
       }
+      setTextKind(null);
       await mutate();
     } catch (e) {
       setDraftError(e instanceof Error ? e.message : "ยกเลิกร่างไม่สำเร็จ");
     } finally {
       setSavingDraft(false);
     }
+  }
+
+  /** เติมร่างปฏิเสธตั้งต้นลงช่อง — ถามก่อนถ้ามีข้อความที่ยังไม่บันทึก จะได้ไม่ทับงานที่พิมพ์ไว้ */
+  function handleUseRejection() {
+    if (unsavedRef.current && !confirm("ข้อความที่แก้ไว้ยังไม่ได้บันทึก จะแทนที่ด้วยร่างปฏิเสธไหม?"))
+      return;
+    const vars = { candidate_name: c?.full_name ?? "", job_title: job?.title ?? "" };
+    setEmailSubject(fillTemplate(DEFAULT_REJECTION.subject, vars));
+    setEmailBody(fillTemplate(DEFAULT_REJECTION.body, vars));
+    setTextKind("rejection");
   }
 
   async function handleSend() {
@@ -233,9 +251,20 @@ export default function CandidateDeepDive() {
   // มีร่างให้แก้ถ้ามีฝั่งใดฝั่งหนึ่ง — runner ตั้ง email_draft เป็น NULL ได้เมื่อ drafter ล้ม
   // ถ้าผูกฟอร์มไว้กับร่างของ AI อย่างเดียว ร่างที่ HR บันทึกไว้จะเข้าไม่ถึงทั้งที่ยังอยู่ใน DB
   const hasDraft = Boolean(c.email_draft || c.email_draft_edited);
-  // ชนิดอีเมลมาจากร่างของ AI · ไม่มีก็อนุมานจากคำตัดสิน (ใช้แค่กรองเทมเพลตกับป้ายหัวการ์ด)
-  const draftKind =
-    c.email_draft?.kind ?? (c.hr_decision === "rejected" ? "rejection" : "invitation");
+  // โหมดของการ์ด (เชิญ/ปฏิเสธ) — สัมภาษณ์ไม่ผ่านหรือไม่ไปต่อแล้วต้องเป็นปฏิเสธ ไม่งั้น
+  // ตัวเลือกเทมเพลตซ่อนเทมเพลตปฏิเสธไว้ (กติกาทั้งหมดอยู่ใน lib/email-draft.ts::emailMode)
+  const mode = emailMode({
+    interviewResult: c.interview_outcome?.result,
+    boardStage: c.board_stage,
+    aiDraftKind: c.email_draft?.kind,
+    hrDecision: c.hr_decision,
+  });
+  // ชนิดของร่างที่บันทึกไว้ — ร่างของ HR ที่บันทึกก่อนมีฟิลด์ kind ถือว่าเป็นชนิดเดียวกับร่างของ AI
+  const savedKind =
+    (c.email_draft_edited ? c.email_draft_edited.kind : undefined) ??
+    c.email_draft?.kind ??
+    mode;
+  const fieldsKind = textKind ?? savedKind;
   const draftDirty =
     hasDraft && (emailSubject !== savedSubject || emailBody !== savedBody);
   unsavedRef.current = draftDirty;
@@ -510,12 +539,12 @@ export default function CandidateDeepDive() {
             {hasDraft && (
               <span
                 className={`text-label-sm px-2.5 py-1 rounded-full ${
-                  draftKind === "invitation"
+                  mode === "invitation"
                     ? "bg-secondary-container/40 text-on-secondary-container"
                     : "bg-error-container/60 text-on-error-container"
                 }`}
               >
-                {draftKind === "invitation" ? "เชิญสัมภาษณ์" : "ปฏิเสธ"}
+                {mode === "invitation" ? "เชิญสัมภาษณ์" : "ปฏิเสธ"}
               </span>
             )}
           </h3>
@@ -529,10 +558,14 @@ export default function CandidateDeepDive() {
                   >
                     mark_email_read
                   </span>
+                  {/* ระบบรู้แค่ว่าส่งไปกี่ครั้ง ไม่รู้ว่าฉบับไหน — โหมดปฏิเสธจึงต้องบอกว่า
+                      "รวมทุกฉบับ" ไม่งั้นอ่านเหมือนอีเมลปฏิเสธถูกส่งไปแล้ว */}
                   <span>
                     {c.email_send_count > 0 && (
                       <span className="font-semibold">
-                        ส่งแล้ว {c.email_send_count} ครั้ง ·{" "}
+                        {mode === "rejection"
+                          ? `เคยส่งอีเมลถึงผู้สมัครรายนี้แล้ว ${c.email_send_count} ครั้ง (รวมทุกฉบับ) · `
+                          : `ส่งแล้ว ${c.email_send_count} ครั้ง · `}
                       </span>
                     )}
                     ล่าสุดถึง {c.email_sent_to} เมื่อ{" "}
@@ -541,9 +574,57 @@ export default function CandidateDeepDive() {
                 </div>
               )}
 
+              {/* โหมดปฏิเสธแต่ข้อความในช่องยังเป็นร่างเชิญ — ร่างของ AI ถูกสร้างครั้งเดียว
+                  ตอนผ่านคัดกรอง ระบบไม่ร่างใหม่หลังสัมภาษณ์ จึงให้เริ่มจากร่างตั้งต้นได้ในคลิกเดียว */}
+              {mode === "rejection" && fieldsKind === "invitation" && (
+                <div
+                  role="note"
+                  className="flex items-start gap-xs p-sm rounded-lg border border-tertiary/40 bg-tertiary-container/10"
+                >
+                  <span className="material-symbols-outlined text-tertiary text-[18px] flex-none">
+                    swap_horiz
+                  </span>
+                  <p className="text-label-md text-on-surface flex-1 min-w-0">
+                    ร่างที่มีอยู่เป็นแบบเชิญสัมภาษณ์ — ใช้ร่างปฏิเสธตั้งต้น หรือเลือกเทมเพลตปฏิเสธด้านล่าง
+                  </p>
+                  <button
+                    type="button"
+                    className="btn-tonal text-label-sm py-1 flex-none"
+                    onClick={handleUseRejection}
+                  >
+                    ใช้ร่างปฏิเสธ
+                  </button>
+                </div>
+              )}
+
+              {/* กลับกัน: บันทึกร่างปฏิเสธไว้ แล้ว HR ดึงผู้สมัครกลับเข้ากระบวนการ — กันส่งพลาด */}
+              {mode === "invitation" && fieldsKind === "rejection" && (
+                <div
+                  role="note"
+                  className="flex items-start gap-xs p-sm rounded-lg border border-error/40 bg-error-container/10"
+                >
+                  <span className="material-symbols-outlined text-error text-[18px] flex-none">
+                    warning
+                  </span>
+                  <p className="text-label-md text-on-surface flex-1 min-w-0">
+                    ร่างที่บันทึกไว้เป็นแบบปฏิเสธ แต่ผู้สมัครกลับเข้ากระบวนการแล้ว — ตรวจก่อนส่ง
+                  </p>
+                  {c.email_draft_edited && c.email_draft && (
+                    <button
+                      type="button"
+                      className="btn-tonal text-label-sm py-1 flex-none"
+                      onClick={handleRevertDraft}
+                      disabled={savingDraft}
+                    >
+                      กลับไปใช้ร่างของ AI
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* เทมเพลตที่บันทึกไว้ — เติมช่องให้เฉย ๆ HR ยังต้องตรวจและกดส่งเอง */}
               <EmailTemplatePicker
-                kind={draftKind}
+                kind={mode}
                 subject={emailSubject}
                 body={emailBody}
                 vars={{
@@ -557,6 +638,8 @@ export default function CandidateDeepDive() {
                   interview_location: c.location,
                 }}
                 onApply={(s, b) => {
+                  // ตัวเลือกกรองตามโหมดอยู่แล้ว เทมเพลตที่เลือกจึงเป็นชนิดเดียวกับโหมด
+                  setTextKind(mode);
                   setEmailSubject(s);
                   setEmailBody(b);
                 }}
@@ -593,8 +676,8 @@ export default function CandidateDeepDive() {
               </label>
 
               {/* แทรกวันนัดลงเนื้อความ — ระบบรู้วันนัดอยู่แล้ว ไม่ควรให้ HR พิมพ์เอง
-                  กดซ้ำไม่ได้บรรทัดซ้ำ (appendScheduleLine เช็คให้) */}
-              {c.scheduled_at && (
+                  กดซ้ำไม่ได้บรรทัดซ้ำ (appendScheduleLine เช็คให้) · เฉพาะโหมดเชิญ */}
+              {mode === "invitation" && c.scheduled_at && (
                 <button
                   type="button"
                   className="btn-secondary-glass text-label-sm py-1"
@@ -614,7 +697,7 @@ export default function CandidateDeepDive() {
 
               {/* เชิญสัมภาษณ์แต่ยังไม่มีวันนัดในระบบ — ส่งไปแล้วตารางสัมภาษณ์จะว่างเปล่า
                   และผู้สมัครก็ไม่รู้ว่าต้องมาวันไหน */}
-              {draftKind === "invitation" && !c.scheduled_at && (
+              {mode === "invitation" && !c.scheduled_at && (
                 <div
                   role="note"
                   className="flex items-start gap-xs p-sm rounded-lg border border-tertiary/40 bg-tertiary-container/10"
@@ -688,7 +771,15 @@ export default function CandidateDeepDive() {
 
               <button
                 onClick={() => {
-                  if (c.email_sent_at && !confirm("อีเมลนี้เคยส่งไปแล้ว ยืนยันส่งซ้ำ?")) return;
+                  if (
+                    c.email_sent_at &&
+                    !confirm(
+                      mode === "rejection"
+                        ? `เคยส่งอีเมลถึงผู้สมัครรายนี้แล้ว ${c.email_send_count} ครั้ง (เช่นอีเมลเชิญ) ยืนยันส่งอีเมลปฏิเสธ?`
+                        : "อีเมลนี้เคยส่งไปแล้ว ยืนยันส่งซ้ำ?",
+                    )
+                  )
+                    return;
                   handleSend();
                 }}
                 disabled={sending || !emailTo || !emailSubject || !emailBody}
@@ -697,9 +788,11 @@ export default function CandidateDeepDive() {
                 <span className="material-symbols-outlined text-[18px]">send</span>
                 {sending
                   ? "กำลังส่ง…"
-                  : c.email_send_count > 0
-                    ? `ส่งซ้ำ (ส่งแล้ว ${c.email_send_count} ครั้ง)`
-                    : "ส่งอีเมล"}
+                  : mode === "rejection"
+                    ? "ส่งอีเมลปฏิเสธ"
+                    : c.email_send_count > 0
+                      ? `ส่งซ้ำ (ส่งแล้ว ${c.email_send_count} ครั้ง)`
+                      : "ส่งอีเมล"}
               </button>
             </div>
           ) : (
@@ -966,18 +1059,29 @@ export default function CandidateDeepDive() {
           // ตัดสินแล้ว และไม่ได้อยู่ในโหมดแก้ไข → โชว์สรุป + ปุ่มแก้ไข
           if (decision && !editing) {
             const approved = decision === "approved";
+            // ผ่านคัดกรองแล้ว แต่ต่อมาปิดกระบวนการ ("ไม่ไปต่อ" บนกระดาน) — คำตัดสินคัดกรอง
+            // ยังเป็นความจริงอยู่ จึงไม่เปลี่ยนเป็น "ไม่ผ่าน" (และไม่แตะ hr_decision เด็ดขาด:
+            // การเปลี่ยนคำตัดสินจะเข้าคิวให้กราฟตัดสินใหม่และเผาโควตา AI) · แต่กล่องสีเขียว
+            // เฉย ๆ อ่านเหมือนผู้สมัครยังไปต่ออยู่ จึงลดเป็นสีกลางแล้วบอกสถานะตอนนี้ต่อท้าย
+            const closedLater = approved && c.board_stage === "declined";
             return (
               <div
                 className={`rounded-xl px-md py-sm border-2 ${
-                  approved
-                    ? "bg-secondary-container/20 border-secondary/40"
-                    : "bg-error-container/20 border-error/40"
+                  closedLater
+                    ? "bg-glass/40 border-outline/40"
+                    : approved
+                      ? "bg-secondary-container/20 border-secondary/40"
+                      : "bg-error-container/20 border-error/40"
                 }`}
               >
                 <div className="flex items-center justify-between gap-sm flex-wrap">
                   <div
                     className={`flex items-center gap-xs text-body-lg font-semibold ${
-                      approved ? "text-secondary" : "text-error"
+                      closedLater
+                        ? "text-on-surface-variant"
+                        : approved
+                          ? "text-secondary"
+                          : "text-error"
                     }`}
                   >
                     <span
@@ -987,7 +1091,7 @@ export default function CandidateDeepDive() {
                       {approved ? "check_circle" : "cancel"}
                     </span>
                     {/* เดิม "อนุมัติให้สัมภาษณ์แล้ว" — อ่านเหมือนนัดไปแล้ว ทั้งที่แค่ผ่านคัดกรอง
-                        ความคืบหน้าจริงอยู่ในการ์ด "ความคืบหน้าหลังผ่านคัดกรอง" ด้านล่าง */}
+                        ความคืบหน้าจริงอยู่ในการ์ด "เส้นทางของผู้สมัคร" */}
                     {approved ? "ผ่านคัดกรองแล้ว" : "ไม่ผ่านคัดกรอง"}
                   </div>
                   <button
@@ -1005,6 +1109,28 @@ export default function CandidateDeepDive() {
                     แก้ไข
                   </button>
                 </div>
+
+                {/* สัมภาษณ์ไม่ผ่านเป็นสีแดงเฉพาะบรรทัดนี้ ไม่ใช่ทั้งกล่อง — กล่องแดงคู่กับหัวข้อ
+                    "ผ่านคัดกรองแล้ว" จะอ่านเหมือนคำตัดสินคัดกรองผิด */}
+                {closedLater &&
+                  (c.interview_outcome?.result === "fail" ? (
+                    <p className="mt-xs text-label-md font-semibold text-error flex items-center gap-xs">
+                      <span
+                        className="material-symbols-outlined text-[18px]"
+                        style={{ fontVariationSettings: "'FILL' 1" }}
+                      >
+                        cancel
+                      </span>
+                      ตอนนี้: สัมภาษณ์ไม่ผ่าน และปิดกระบวนการแล้ว (ไม่ไปต่อ)
+                    </p>
+                  ) : (
+                    <p className="mt-xs text-label-md text-on-surface flex items-center gap-xs">
+                      <span className="material-symbols-outlined text-[18px] text-outline">
+                        block
+                      </span>
+                      ตอนนี้: ปิดกระบวนการแล้ว (ไม่ไปต่อ)
+                    </p>
+                  ))}
 
                 {/* บันทึก/เวลาที่ HR ตัดสิน — DB เก็บแถวเดียวต่อผู้สมัคร (upsert)
                     จึงเป็นคำตัดสินล่าสุด ไม่ใช่ประวัติย้อนหลัง */}

@@ -306,12 +306,17 @@ class EmailDraftIn(BaseModel):
     """
     subject: str = Field(..., min_length=1, max_length=500)
     body: str = Field(..., min_length=1)
+    # ร่างนี้เป็นอีเมลแบบไหนตอนที่ HR บันทึก — ไม่บังคับ (ร่างที่บันทึกก่อนมีฟิลด์นี้ไม่มีค่า)
+    # มีไว้ให้หน้าเว็บเตือนได้ เมื่อโหมดของการ์ดเปลี่ยนไปแล้วแต่ร่างที่บันทึกไว้ยังเป็นอีกแบบ
+    # เช่นบันทึกร่างปฏิเสธไว้ แล้ว HR ดึงผู้สมัครกลับเข้ากระบวนการ
+    kind: Optional[EmailKind] = None
 
 
 class EmailDraftOut(BaseModel):
     candidate_id: UUID
     subject: str
     body: str
+    kind: Optional[EmailKind] = None
     edited_at: datetime
 
 

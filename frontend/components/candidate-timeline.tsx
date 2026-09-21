@@ -40,6 +40,10 @@ type Row = {
   detail?: React.ReactNode;
   /** ขั้นบนกระดานที่กดย้ายไปได้ — ไม่มี = แถวประวัติอ่านอย่างเดียว */
   stage?: BoardStage;
+  /** ปิดกระบวนการไปก่อนถึงขั้นนี้ — "ไม่ได้ไปถึง" ไม่ใช่ "ยังไม่ถึง" (ยังกดดึงกลับมาได้) */
+  unreached?: boolean;
+  /** ผลบวก/ลบของเหตุการณ์ (คำตัดสินของ HR) — ให้สีบอกผลได้ในแวบเดียว ไม่ต้องอ่านคำ */
+  tone?: "positive" | "negative";
 };
 
 function fmt(iso: string, dateOnly: boolean): string {
@@ -84,6 +88,12 @@ function buildRows(c: CandidateDetail): Row[] {
             : "HR ตัดสิน",
       at: c.hr_decided_at,
       done: decided,
+      tone:
+        c.hr_decision === "approved"
+          ? "positive"
+          : c.hr_decision === "rejected"
+            ? "negative"
+            : undefined,
       detail: c.hr_notes ?? undefined,
     },
     {
@@ -102,13 +112,16 @@ function buildRows(c: CandidateDetail): Row[] {
 
   const current = c.board_stage as BoardStage;
   const currentIdx = LADDER.indexOf(current); // -1 เมื่อ declined
+  const declined = current === "declined";
   const ladder: Row[] = LADDER.map((s, i) => ({
     key: s,
     stage: s,
     icon: LADDER_ICON[s],
     label: STAGE_LABEL[s],
-    // ผ่านมาแล้วหรือกำลังอยู่ที่ขั้นนี้ = เกิดแล้ว · declined (currentIdx -1) = ยังไม่ผ่านขั้นไหนเลย
-    done: currentIdx >= 0 && i <= currentIdx,
+    // ผ่านมาแล้วหรือกำลังอยู่ที่ขั้นนี้ = เกิดแล้ว · declined ไม่มีตำแหน่งบนบันได จึงดูจาก
+    // หลักฐานที่เหลืออยู่แทน (เดิมใช้ index อย่างเดียว คนที่สัมภาษณ์ไม่ผ่านแล้วปิดกระบวนการ
+    // เลยขึ้นว่า "ยังไม่ถึง" ทั้งขั้นนัดและขั้นสัมภาษณ์ ทั้งที่มีวันนัดกับผลสัมภาษณ์อยู่จริง)
+    done: declined ? DECLINED_EVIDENCE[s](c) : currentIdx >= 0 && i <= currentIdx,
     ...LADDER_TIME[s](c),
   }));
 
@@ -116,7 +129,24 @@ function buildRows(c: CandidateDetail): Row[] {
   const hiredRow = ladder[LADDER.indexOf("hired")];
   hiredRow.done = hiredRow.done || c.employee_id != null;
 
-  return [...history, ...ladder];
+  if (!declined) return [...history, ...ladder];
+
+  // ปิดกระบวนการ: แทรกจุด "ไม่ไปต่อ" ต่อจากขั้นสุดท้ายที่มีหลักฐาน ให้เห็นว่าเส้นทางหยุดตรงไหน
+  // ขั้นที่อยู่หลังจากนั้นไม่มีวันถึงแล้ว (เว้นแต่ HR ดึงกลับ) จึงบอกว่า "ไม่ได้ไปถึง"
+  const lastReached = ladder.map((r) => r.done).lastIndexOf(true);
+  const stop: Row = {
+    key: "declined",
+    stage: "declined",
+    icon: LADDER_ICON.declined,
+    label: STAGE_LABEL.declined,
+    at: c.stage_moved_at,
+    done: true,
+  };
+  const before = ladder.slice(0, lastReached + 1);
+  const after = ladder
+    .slice(lastReached + 1)
+    .map((r) => ({ ...r, unreached: true }));
+  return [...history, ...before, stop, ...after];
 }
 
 const LADDER_ICON: Record<BoardStage, string> = {
@@ -154,6 +184,20 @@ const LADDER_TIME: Record<
   offer: (c) => (c.board_stage === "offer" ? { at: c.stage_moved_at } : {}),
   hired: (c) => ({ at: c.hired_at }),
   declined: () => ({}),
+};
+
+/**
+ * คนที่อยู่ "ไม่ไปต่อ" เคยผ่านขั้นไหนมาแล้วบ้าง — hiring_stage เก็บแถวเดียว (ขั้นล่าสุด)
+ * พอย้ายไป declined ขั้นเดิมก็หายไป จึงอนุมานจากร่องรอยที่ยังอยู่ในตารางอื่นแทน
+ * ไม่มีร่องรอยของ "ยื่นข้อเสนอ" ในระบบ ขั้นนั้นจึงนับว่าไม่ได้ไปถึงเสมอ
+ */
+const DECLINED_EVIDENCE: Record<BoardStage, (c: CandidateDetail) => boolean> = {
+  invited: () => true, // มีแถวบนกระดานแล้วแปลว่าผ่านคัดกรองขึ้นกระดานมา
+  scheduled: (c) => c.scheduled_at != null || c.interview_outcome != null,
+  interviewed: (c) => c.interview_outcome != null,
+  offer: () => false,
+  hired: (c) => c.employee_id != null,
+  declined: () => true,
 };
 
 export default function CandidateTimeline({
@@ -255,9 +299,11 @@ export default function CandidateTimeline({
             ? fmt(r.at, Boolean(r.dateOnly))
             : r.done
               ? "ไม่ได้ระบุเวลา"
-              : i < lastDone
-                ? "ไม่มีข้อมูล"
-                : "ยังไม่ถึงขั้นนี้";
+              : r.unreached
+                ? "ไม่ได้ไปถึง"
+                : i < lastDone
+                  ? "ไม่มีข้อมูล"
+                  : "ยังไม่ถึงขั้นนี้";
           return (
             <li key={r.key} className="flex items-start">
               <div
@@ -270,9 +316,14 @@ export default function CandidateTimeline({
                   className={`w-9 h-9 rounded-full flex items-center justify-center ${
                     isCurrent
                       ? "bg-primary/15 text-primary ring-2 ring-primary"
-                      : r.done
-                        ? "bg-primary/10 text-primary"
-                        : "bg-glass/60 border border-outline/40 text-on-surface-variant"
+                      : r.done && r.tone === "positive"
+                        ? // โทนเดียวกับกล่อง "ผ่านคัดกรองแล้ว" ในการ์ดผลคัดกรอง — ไม่ยืมสีแบนด์คะแนน
+                          "bg-secondary-container/40 text-secondary"
+                        : r.done && r.tone === "negative"
+                          ? "bg-error-container/40 text-error"
+                          : r.done
+                            ? "bg-primary/10 text-primary"
+                            : "bg-glass/60 border border-outline/40 text-on-surface-variant"
                   }`}
                 >
                   <span className="material-symbols-outlined text-[18px]">{r.icon}</span>
@@ -292,7 +343,15 @@ export default function CandidateTimeline({
                     {r.label}
                   </button>
                 ) : (
-                  <p className="text-label-md font-semibold text-on-surface leading-tight">
+                  <p
+                    className={`text-label-md font-semibold leading-tight ${
+                      r.tone === "positive"
+                        ? "text-secondary"
+                        : r.tone === "negative"
+                          ? "text-error"
+                          : "text-on-surface"
+                    }`}
+                  >
                     {r.label}
                   </p>
                 )}

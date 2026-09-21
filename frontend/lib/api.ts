@@ -317,13 +317,18 @@ export const getBoard = (jobId: string) =>
   request<BoardItem[]>(`/api/v1/jobs/${jobId}/board`);
 
 /** บันทึกร่างอีเมลที่ HR แก้เอง — เก็บอย่างเดียว ไม่ส่ง (การส่งยังต้องกดปุ่มส่งแยก) */
-export const saveEmailDraft = (candidateId: string, subject: string, body: string) =>
+export const saveEmailDraft = (
+  candidateId: string,
+  subject: string,
+  body: string,
+  kind?: "invitation" | "rejection",
+) =>
   request<{ candidate_id: string; subject: string; body: string; edited_at: string }>(
     `/api/v1/candidates/${candidateId}/email/draft`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ subject, body }),
+      body: JSON.stringify({ subject, body, kind }),
     },
   );
 
