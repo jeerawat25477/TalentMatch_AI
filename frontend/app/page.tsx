@@ -32,6 +32,8 @@ export default function HomePage() {
     closed: jobs?.filter((j) => j.status === "closed").length ?? 0,
   };
   const visible = jobs?.filter((j) => tab === "all" || j.status === tab);
+  const openJobs = jobs?.filter((j) => j.status === "open") ?? [];
+  const closedJobs = jobs?.filter((j) => j.status === "closed") ?? [];
 
   return (
     <div className="space-y-md">
@@ -109,8 +111,28 @@ export default function HomePage() {
         </div>
       )}
 
-      <div className="grid gap-md sm:grid-cols-2 lg:grid-cols-3">
-        {visible?.map((job) => {
+      {/* แท็บ "ทั้งหมด": เปิดรับอยู่ก่อน แล้วค่อยกลุ่มที่ปิดแล้วใต้หัวข้อของมันเอง — เดิมปนกันในตาราง
+          เดียวโดยต่างกันแค่ความจางกับป้ายเล็ก ๆ ในธีมมืดแทบแยกไม่ออก */}
+      {tab === "all" ? (
+        <>
+          <JobGrid jobs={openJobs} renderCard={renderCard} />
+          {closedJobs.length > 0 && (
+            <>
+              <h2 className="flex items-center gap-xs text-label-md font-semibold text-on-surface-variant pt-xs">
+                <span className="material-symbols-outlined text-[18px]">lock</span>
+                ปิดรับแล้ว · {closedJobs.length} ตำแหน่ง
+              </h2>
+              <JobGrid jobs={closedJobs} renderCard={renderCard} />
+            </>
+          )}
+        </>
+      ) : (
+        <JobGrid jobs={visible ?? []} renderCard={renderCard} />
+      )}
+    </div>
+  );
+
+  function renderCard(job: JobListItem) {
           const req = job.parsed_criteria?.required_skills ?? [];
           const closed = job.status === "closed";
           return (
@@ -119,20 +141,24 @@ export default function HomePage() {
               <Link
                 href={`/jobs/${job.id}`}
                 className={`glass-card rounded-2xl p-md hover:shadow-lg hover:-translate-y-0.5 transition-all block ${
-                  closed ? "opacity-70" : ""
+                  // ปิดแล้ว: ขาวดำ + จาง ชิปทักษะสีฟ้ากลายเป็นเทา ตาแยกได้ทันทีโดยไม่ต้องอ่านป้าย
+                  // (เดิมจางอย่างเดียว ซึ่งในธีมมืดแทบไม่ต่าง) · ชี้แล้วกลับเป็นสีเดิมให้อ่านง่าย
+                  closed ? "opacity-60 saturate-0 hover:opacity-100 hover:saturate-100" : ""
                 }`}
               >
                 <div className="flex items-start gap-xs mb-0.5 pr-8">
                   <h2 className="text-body-lg font-semibold text-on-surface line-clamp-1">
                     {job.title}
                   </h2>
-                  {closed && (
-                    <span
-                      className={`shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full ${JOB_STATUS.closed.chip}`}
-                    >
-                      {JOB_STATUS.closed.label}
+                  {/* ป้ายทั้งสองสถานะ — ป้ายเฉพาะตอนปิดทำให้ "ไม่มีป้าย" ต้องแปลเอาเองว่าเปิดอยู่ */}
+                  <span
+                    className={`shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${JOB_STATUS[job.status].chip}`}
+                  >
+                    <span className="material-symbols-outlined text-[13px]" aria-hidden>
+                      {closed ? "lock" : "radio_button_checked"}
                     </span>
-                  )}
+                    {JOB_STATUS[job.status].label}
+                  </span>
                 </div>
                 <p className="text-label-sm text-outline mb-sm">
                   {new Date(job.created_at).toLocaleDateString("th-TH")}
@@ -172,8 +198,18 @@ export default function HomePage() {
               </div>
             </div>
           );
-        })}
-      </div>
-    </div>
+  }
+}
+
+function JobGrid({
+  jobs,
+  renderCard,
+}: {
+  jobs: JobListItem[];
+  renderCard: (job: JobListItem) => React.ReactNode;
+}) {
+  if (jobs.length === 0) return null;
+  return (
+    <div className="grid gap-md sm:grid-cols-2 lg:grid-cols-3">{jobs.map(renderCard)}</div>
   );
 }
