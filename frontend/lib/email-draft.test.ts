@@ -109,3 +109,16 @@ test("ร่างปฏิเสธตั้งต้นแทนชื่อ�
 test("ร่างปฏิเสธตั้งต้นไม่สัญญาว่าจะเก็บข้อมูลผู้สมัคร (PDPA)", () => {
   assert.ok(!DEFAULT_REJECTION.body.includes("เก็บข้อมูล"));
 });
+
+test("ผู้สมัครปฏิเสธข้อเสนอเอง → ไม่สลับเป็นโหมดปฏิเสธ", () => {
+  // อีเมล "เรายังไม่สามารถดำเนินการต่อกับใบสมัครของท่านได้" ผิดทั้งฉบับสำหรับคนที่ปฏิเสธเรา
+  assert.equal(
+    emailMode({ ...BASE, boardStage: "declined", offerResponse: "declined" }),
+    "invitation",
+  );
+  // แต่ถ้าเราเป็นฝ่ายปิดกระบวนการ (ข้อเสนอยังรอคำตอบ หรือไม่มีข้อเสนอ) ยังเป็นโหมดปฏิเสธ
+  assert.equal(
+    emailMode({ ...BASE, boardStage: "declined", offerResponse: "pending" }),
+    "rejection",
+  );
+});

@@ -398,6 +398,11 @@ export interface CandidateDetail extends CandidateSummary {
   hr_decided_at: string | null;
   /** ผลสัมภาษณ์จริงที่ HR กรอกเอง — null = ยังไม่เคยบันทึก */
   interview_outcome: InterviewOutcome | null;
+  /**
+   * ข้อเสนอจ้างงาน — null = ยังไม่เคยยื่น (หรือลากการ์ดไปขั้นยื่นข้อเสนอโดยไม่บันทึกรายละเอียด)
+   * อยู่ต่อแม้ขั้นเปลี่ยนไปแล้ว ไทม์ไลน์จึงรู้ว่าเคยยื่นข้อเสนอแม้ผู้สมัครปฏิเสธไป
+   */
+  offer: JobOffer | null;
   /** ขั้นบนกระดานติดตาม (คำนวณตัวเดียวกับหน้ากระดาน) — null = ไม่อยู่บนกระดาน */
   board_stage: BoardStage | null;
   /** null = ยังไม่เคยย้ายขั้นจริง (อยู่ "รอติดต่อ" แบบค่าเริ่มต้น) */
@@ -746,4 +751,33 @@ export interface InterviewSlot {
   interview_result: InterviewResult | null;
   /** เลยเวลานัดแล้วแต่ยังไม่บันทึกผล */
   overdue: boolean;
+}
+
+/**
+ * มิเรอร์ JobOffer ใน backend/app/schemas.py
+ * ⚠️ salary เป็นข้อมูลอ่อนไหว — ห้ามใส่ใน URL หรือ console.log
+ * ⚠️ response="accepted" **ไม่ใช่การจ้าง** — การจ้างคือระเบียนพนักงานจากหน้าต่างรับเข้า
+ */
+export interface JobOffer {
+  position: string;
+  /** NUMERIC มาเป็น string ผ่าน JSON */
+  salary: string | null;
+  start_date: string | null;
+  /** วันที่ผู้สมัครต้องตอบ — "เลยกำหนด" คำนวณฝั่งหน้าเว็บ (lib/offer.ts::isOfferOverdue) */
+  respond_by: string | null;
+  note: string | null;
+  response: "pending" | "accepted" | "declined";
+  decline_reason: string | null;
+  offered_at: string | null;
+  responded_at: string | null;
+  updated_at: string | null;
+}
+
+/** มิเรอร์ JobOfferUpsert — HR กรอกเอง */
+export interface JobOfferUpsert {
+  position: string;
+  salary?: number | null;
+  start_date?: string | null;
+  respond_by?: string | null;
+  note?: string | null;
 }

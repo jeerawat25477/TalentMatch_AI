@@ -202,6 +202,44 @@ class InterviewOutcome(BaseModel):
     updated_at: Optional[datetime] = None
 
 
+# ---------- ข้อเสนอจ้างงาน (ขั้น "ยื่นข้อเสนอ") ----------
+OfferResponse = Literal["pending", "accepted", "declined"]
+
+
+class JobOfferUpsert(BaseModel):
+    """บันทึกหรือแก้ข้อเสนอ — HR กรอกเอง ไม่มี LLM เกี่ยว.
+
+    ไม่ validate ว่า respond_by ต้องไม่อยู่ในอดีต: "วันนี้" ขึ้นกับโซนเวลาของผู้ใช้ซึ่ง backend
+    ไม่รู้ และการบันทึกข้อเสนอย้อนหลังก็เป็นเรื่องปกติ
+    """
+    position: str = Field(..., min_length=1, max_length=255)
+    # ข้อมูลอ่อนไหว — ห้ามเขียนลง log
+    salary: Optional[Decimal] = Field(None, ge=0)
+    start_date: Optional[date] = None
+    respond_by: Optional[date] = None
+    note: Optional[str] = Field(None, max_length=2000)
+
+
+class JobOfferResponseIn(BaseModel):
+    """คำตอบของผู้สมัครที่ HR บันทึก — ตอบรับ **ไม่ใช่การจ้าง** (การจ้างผ่านหน้าต่างรับเข้าเท่านั้น)."""
+    response: Literal["accepted", "declined"]
+    decline_reason: Optional[str] = Field(None, max_length=1000)
+
+
+class JobOffer(BaseModel):
+    """รูปที่คืนกลับ — ใช้ทั้งใน response ของ PUT/POST และฝังใน CandidateDetail."""
+    position: str
+    salary: Optional[Decimal] = None
+    start_date: Optional[date] = None
+    respond_by: Optional[date] = None
+    note: Optional[str] = None
+    response: OfferResponse = "pending"
+    decline_reason: Optional[str] = None
+    offered_at: Optional[datetime] = None
+    responded_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
 class CandidateDetail(CandidateSummary):
     raw_resume_text: Optional[str] = None
     parsed_resume: Optional[dict[str, Any]] = None
@@ -236,6 +274,9 @@ class CandidateDetail(CandidateSummary):
     # ผลสัมภาษณ์จริงที่ HR กรอกเอง — None = ยังไม่เคยบันทึก (แถวเก่าทั้งหมดเป็นแบบนี้)
     # มาพร้อม CandidateDetail เลยเพื่อไม่ให้หน้า deep dive ต้องยิงอีกรอบ
     interview_outcome: Optional[InterviewOutcome] = None
+    # ข้อเสนอจ้างงาน — None = ยังไม่เคยยื่น (หรือลากการ์ดไปขั้นยื่นข้อเสนอโดยไม่บันทึกรายละเอียด)
+    # อยู่ต่อแม้ขั้นเปลี่ยนไปแล้ว ไทม์ไลน์จึงรู้ว่าเคยยื่นข้อเสนอ แม้ผู้สมัครปฏิเสธไปแล้ว
+    offer: Optional[JobOffer] = None
     # ขั้นบนกระดานติดตาม คำนวณด้วย hiring_board.board_stage ตัวเดียวกับหน้ากระดาน
     # None = ไม่อยู่บนกระดาน (ยังไม่ผ่านคัดกรอง / ไม่ผ่าน / รอ HR)
     # forward ref: BoardStage ประกาศไว้ด้านล่าง — มี model_rebuild() ต่อท้ายไฟล์

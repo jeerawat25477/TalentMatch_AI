@@ -258,6 +258,7 @@ export default function CandidateDeepDive() {
     boardStage: c.board_stage,
     aiDraftKind: c.email_draft?.kind,
     hrDecision: c.hr_decision,
+    offerResponse: c.offer?.response,
   });
   // ชนิดของร่างที่บันทึกไว้ — ร่างของ HR ที่บันทึกก่อนมีฟิลด์ kind ถือว่าเป็นชนิดเดียวกับร่างของ AI
   const savedKind =
@@ -1113,7 +1114,16 @@ export default function CandidateDeepDive() {
                 {/* สัมภาษณ์ไม่ผ่านเป็นสีแดงเฉพาะบรรทัดนี้ ไม่ใช่ทั้งกล่อง — กล่องแดงคู่กับหัวข้อ
                     "ผ่านคัดกรองแล้ว" จะอ่านเหมือนคำตัดสินคัดกรองผิด */}
                 {closedLater &&
-                  (c.interview_outcome?.result === "fail" ? (
+                  (c.offer?.response === "declined" ? (
+                    // ผู้สมัครเป็นฝ่ายปฏิเสธ ไม่ใช่เราไม่รับ — สีกลาง ไม่ใช่สีแดง
+                    <p className="mt-xs text-label-md text-on-surface flex items-center gap-xs">
+                      <span className="material-symbols-outlined text-[18px] text-outline">
+                        block
+                      </span>
+                      ตอนนี้: ผู้สมัครปฏิเสธข้อเสนอ และปิดกระบวนการแล้ว (ไม่ไปต่อ)
+                      {c.offer.decline_reason && ` — ${c.offer.decline_reason}`}
+                    </p>
+                  ) : c.interview_outcome?.result === "fail" ? (
                     <p className="mt-xs text-label-md font-semibold text-error flex items-center gap-xs">
                       <span
                         className="material-symbols-outlined text-[18px]"
@@ -1251,7 +1261,11 @@ export default function CandidateDeepDive() {
         (c.board_stage === "interviewed" || c.board_stage === "offer") && (
           <HireOrCloseCard
             candidateId={candidate_id}
+            candidateName={c.full_name}
+            jobTitle={job?.title ?? ""}
+            boardStage={c.board_stage}
             result={c.interview_outcome?.result ?? null}
+            offer={c.offer}
             onHire={() => setShowHire(true)}
             onChanged={() => mutate()}
           />
@@ -1282,6 +1296,8 @@ export default function CandidateDeepDive() {
         <HireEmployeeDialog
           candidateId={candidate_id}
           defaultPosition={job?.title ?? ""}
+          // มีข้อเสนอ → เติมตำแหน่ง เงินเดือน วันเริ่มงานจากข้อเสนอ HR ไม่ต้องพิมพ์ซ้ำ
+          offer={c.offer}
           onHired={(employeeId) => router.push(`/employees/${employeeId}`)}
           onClose={() => setShowHire(false)}
         />

@@ -23,6 +23,8 @@ import type {
   InterviewOutcome,
   InterviewOutcomeUpsert,
   InterviewSlot,
+  JobOffer,
+  JobOfferUpsert,
   Job,
   JDReview,
   JobDeleteResult,
@@ -315,6 +317,29 @@ export const setEmailIntake = (enabled: boolean) =>
 // ---------- กระดานติดตามผู้สมัคร ----------
 export const getBoard = (jobId: string) =>
   request<BoardItem[]>(`/api/v1/jobs/${jobId}/board`);
+
+/** บันทึกหรือแก้ข้อเสนอ — backend ย้ายขั้นเป็น "ยื่นข้อเสนอ" ให้เอง · แก้แล้วคำตอบเดิมถูกล้าง */
+export const saveOffer = (candidateId: string, payload: JobOfferUpsert) =>
+  request<JobOffer>(`/api/v1/candidates/${candidateId}/offer`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+/**
+ * บันทึกคำตอบของผู้สมัคร — ปฏิเสธแล้ว backend ย้ายไป "ไม่ไปต่อ" ให้
+ * ⚠️ ตอบรับ **ไม่จ้างให้เอง** ต้องเปิดหน้าต่างรับเข้าเป็นพนักงานต่อ
+ */
+export const respondOffer = (
+  candidateId: string,
+  response: "accepted" | "declined",
+  declineReason?: string,
+) =>
+  request<JobOffer>(`/api/v1/candidates/${candidateId}/offer/response`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ response, decline_reason: declineReason }),
+  });
 
 /** บันทึกร่างอีเมลที่ HR แก้เอง — เก็บอย่างเดียว ไม่ส่ง (การส่งยังต้องกดปุ่มส่งแยก) */
 export const saveEmailDraft = (

@@ -181,21 +181,53 @@ const LADDER_TIME: Record<
       </span>
     ) : undefined,
   }),
-  offer: (c) => (c.board_stage === "offer" ? { at: c.stage_moved_at } : {}),
+  // วันที่ยื่นมาจากตาราง job_offers ซึ่งอยู่ต่อแม้ขั้นเปลี่ยน · ไม่มีข้อเสนอที่บันทึกไว้
+  // (ลากการ์ดมาบนกระดาน) ใช้เวลาย้ายขั้นแทนเฉพาะตอนที่ยังอยู่ขั้นนี้
+  offer: (c) => ({
+    at: c.offer?.offered_at ?? (c.board_stage === "offer" ? c.stage_moved_at : undefined),
+    detail: c.offer ? (
+      <span
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-label-sm font-semibold ${
+          OFFER_RESPONSE[c.offer.response].chip
+        }`}
+      >
+        {OFFER_RESPONSE[c.offer.response].label}
+      </span>
+    ) : undefined,
+  }),
   hired: (c) => ({ at: c.hired_at }),
   declined: () => ({}),
+};
+
+/** ป้ายคำตอบข้อเสนอบนไทม์ไลน์ — โทนเดียวกับป้ายผลสัมภาษณ์ */
+const OFFER_RESPONSE: Record<
+  NonNullable<CandidateDetail["offer"]>["response"],
+  { label: string; chip: string }
+> = {
+  pending: {
+    label: "รอคำตอบ",
+    chip: "bg-primary-container/40 text-on-primary-container",
+  },
+  accepted: {
+    label: "ตอบรับ",
+    chip: "bg-secondary-container/40 text-on-secondary-container",
+  },
+  declined: {
+    label: "ปฏิเสธ",
+    chip: "bg-error-container/50 text-on-error-container",
+  },
 };
 
 /**
  * คนที่อยู่ "ไม่ไปต่อ" เคยผ่านขั้นไหนมาแล้วบ้าง — hiring_stage เก็บแถวเดียว (ขั้นล่าสุด)
  * พอย้ายไป declined ขั้นเดิมก็หายไป จึงอนุมานจากร่องรอยที่ยังอยู่ในตารางอื่นแทน
- * ไม่มีร่องรอยของ "ยื่นข้อเสนอ" ในระบบ ขั้นนั้นจึงนับว่าไม่ได้ไปถึงเสมอ
+ * "ยื่นข้อเสนอ" ดูจาก job_offers — ข้อเสนอที่ลากการ์ดมาโดยไม่บันทึกรายละเอียดจึงไม่นับ
  */
 const DECLINED_EVIDENCE: Record<BoardStage, (c: CandidateDetail) => boolean> = {
   invited: () => true, // มีแถวบนกระดานแล้วแปลว่าผ่านคัดกรองขึ้นกระดานมา
   scheduled: (c) => c.scheduled_at != null || c.interview_outcome != null,
   interviewed: (c) => c.interview_outcome != null,
-  offer: () => false,
+  offer: (c) => c.offer != null,
   hired: (c) => c.employee_id != null,
   declined: () => true,
 };
@@ -385,7 +417,9 @@ export default function CandidateTimeline({
         })}
       </ol>
 
-      {stage && !locked && !declined && (
+      {/* ขั้นสัมภาษณ์แล้ว/ยื่นข้อเสนอ การ์ดท้ายหน้ามีปุ่มปิดกระบวนการของมันเองอยู่แล้ว —
+          ไม่ซ้ำปุ่มเดียวกันสองที่ */}
+      {stage && !locked && !declined && stage !== "interviewed" && stage !== "offer" && (
         <button
           onClick={() => request("declined")}
           disabled={busy}

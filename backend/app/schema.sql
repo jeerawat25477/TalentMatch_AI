@@ -331,3 +331,34 @@ CREATE TABLE IF NOT EXISTS interview_outcome (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- ============================================================
+-- ข้อเสนอจ้างงาน (ขั้น "ยื่นข้อเสนอ" บนกระดาน) — หนึ่งแถวต่อผู้สมัคร
+-- ============================================================
+-- **แยกจาก hiring_stage โดยตั้งใจ**: hiring_stage เก็บแค่ขั้นล่าสุด พอย้ายไปขั้นอื่น (เช่นผู้สมัคร
+-- ปฏิเสธข้อเสนอแล้วไป "ไม่ไปต่อ") ร่องรอยว่าเคยยื่นข้อเสนอก็หายไป ตารางนี้อยู่ต่อไม่ว่าขั้นจะ
+-- เปลี่ยนเป็นอะไร ไทม์ไลน์จึงบอกได้ว่าเส้นทางหยุดหลังยื่นข้อเสนอ
+--
+-- ⚠️ **ไม่มีวันถูกกราฟหรือ LLM อ่านหรือเขียน** เหมือน interview_outcome — ทางเข้าคือ HR กรอกเอง
+-- ⚠️ response='accepted' **ไม่ใช่การจ้าง** การจ้างคือแถวใน employees ซึ่งเกิดจากหน้าต่างรับเข้า
+--    ที่ HR กดยืนยันเท่านั้น (ต้องกรอกข้อมูลจ้างและเป็นระเบียนถาวร)
+-- ⚠️ salary เป็นข้อมูลอ่อนไหว — ห้ามใส่ใน URL หรือเขียนลง log
+--
+-- แก้ข้อเสนอ = เขียนทับแถวเดิม (เหมือน interview_outcome) ไม่ใช่ประวัติการต่อรองหลายรอบ
+-- ON DELETE CASCADE เหมือน hiring_stage / interview_outcome (ข้อมูลระหว่างกระบวนการ)
+CREATE TABLE IF NOT EXISTS job_offers (
+    candidate_id UUID PRIMARY KEY REFERENCES candidates(id) ON DELETE CASCADE,
+    position VARCHAR(255) NOT NULL,
+    salary NUMERIC(12, 2) CHECK (salary IS NULL OR salary >= 0),
+    start_date DATE,
+    -- วันที่ผู้สมัครต้องตอบ — "เลยกำหนด" คำนวณฝั่งหน้าเว็บตามวันที่บนเครื่อง HR
+    -- (backend ไม่รู้ว่าผู้ใช้อยู่โซนเวลาไหน)
+    respond_by DATE,
+    note TEXT,
+    response VARCHAR(10) NOT NULL DEFAULT 'pending'
+        CHECK (response IN ('pending', 'accepted', 'declined')),
+    decline_reason TEXT,
+    offered_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    responded_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);

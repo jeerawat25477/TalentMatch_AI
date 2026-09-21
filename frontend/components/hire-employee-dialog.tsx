@@ -2,40 +2,36 @@
 
 import { useEffect, useState } from "react";
 import { hireCandidate } from "@/lib/api";
-import type { EmployeeCreate } from "@/lib/types";
-
-// วันที่วันนี้ (YYYY-MM-DD) สำหรับ <input type="date">
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-// +N วันจากวันเริ่มงาน — default วันครบทดลอง 90 วัน
-function addDays(iso: string, days: number): string {
-  const d = new Date(iso);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
+import { hireDefaults, localToday } from "@/lib/offer";
+import type { EmployeeCreate, JobOffer } from "@/lib/types";
 
 /**
  * โมดัลกรอกข้อมูลตอนรับผู้สมัครเข้าเป็นพนักงาน.
- * position prefill จากชื่อตำแหน่งงาน; วันเริ่มงาน default วันนี้, วันครบทดลอง +90 วัน.
+ * ถ้ามีข้อเสนอที่บันทึกไว้ เติมตำแหน่ง เงินเดือน วันเริ่มงานจากข้อเสนอ (HR ไม่ต้องพิมพ์ซ้ำ)
+ * ไม่มีก็ใช้ชื่อตำแหน่งงาน + เริ่มงานวันนี้ · วันครบทดลองงานนับจากวันเริ่มงาน (lib/offer.ts)
  * สำเร็จแล้วส่งต่อ employeeId ให้หน้าแม่ (พาไปหน้าพนักงาน).
  */
 export default function HireEmployeeDialog({
   candidateId,
   defaultPosition,
+  offer = null,
   onHired,
   onClose,
 }: {
   candidateId: string;
   defaultPosition: string;
+  /** ข้อเสนอที่บันทึกไว้ (ถ้ามี) — ใช้เป็นค่าเริ่มต้นของช่องกรอก */
+  offer?: JobOffer | null;
   onHired: (employeeId: string) => void;
   onClose: () => void;
 }) {
-  const [position, setPosition] = useState(defaultPosition);
+  // คำนวณครั้งเดียวตอนเปิด — HR แก้ช่องไหนก็ไม่ถูกเขียนทับ
+  const [initial] = useState(() => hireDefaults(offer, defaultPosition, localToday()));
+  const [position, setPosition] = useState(initial.position);
   const [department, setDepartment] = useState("");
-  const [startDate, setStartDate] = useState(today());
-  const [probationEnd, setProbationEnd] = useState(addDays(today(), 90));
-  const [salary, setSalary] = useState("");
+  const [startDate, setStartDate] = useState(initial.startDate);
+  const [probationEnd, setProbationEnd] = useState(initial.probationEnd);
+  const [salary, setSalary] = useState(initial.salary);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

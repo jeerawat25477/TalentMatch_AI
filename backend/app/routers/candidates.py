@@ -426,6 +426,10 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
                    -- บันทึกผล — คือผู้สมัครเกือบทุกคนในระบบ
                    CASE WHEN io.candidate_id IS NOT NULL THEN to_jsonb(io) END
                        AS interview_outcome,
+                   -- CASE เหตุผลเดียวกับ interview_outcome ด้านบน: ไม่มีข้อเสนอ = NULL ไม่ใช่
+                   -- {"position": null, ...} ที่ Pydantic จะปฏิเสธเพราะ position บังคับ
+                   CASE WHEN jo.candidate_id IS NOT NULL THEN to_jsonb(jo) END
+                       AS offer,
                    hs.stage AS stage_row, hs.moved_at AS stage_moved_at,
                    hs.scheduled_at, hs.location
             FROM candidates c
@@ -433,6 +437,7 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
             LEFT JOIN employees emp ON emp.candidate_id = c.id
             LEFT JOIN hr_decisions hd ON hd.candidate_id = c.id
             LEFT JOIN interview_outcome io ON io.candidate_id = c.id
+            LEFT JOIN job_offers jo ON jo.candidate_id = c.id
             LEFT JOIN hiring_stage hs ON hs.candidate_id = c.id
             LEFT JOIN LATERAL (
                 SELECT status FROM processing_queue pq

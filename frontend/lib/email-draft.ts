@@ -72,6 +72,8 @@ export type EmailKind = "invitation" | "rejection";
  * พอสัมภาษณ์ไม่ผ่าน การ์ดยังเป็นโหมดเชิญ ตัวเลือกเทมเพลต (ซึ่งกรองตามโหมด) จึงไม่แสดง
  * เทมเพลตปฏิเสธเลย · กติกา:
  * - ผลสัมภาษณ์ "ไม่ผ่าน" หรือขั้น "ไม่ไปต่อ" → ปฏิเสธ
+ * - **ยกเว้นผู้สมัครเป็นฝ่ายปฏิเสธข้อเสนอเอง** — ส่งอีเมล "เรายังไม่สามารถดำเนินการต่อกับ
+ *   ใบสมัครของท่านได้" ให้คนที่เพิ่งปฏิเสธเราไปคือข้อความที่ผิดทั้งฉบับ
  * - "สำรอง" ยังไม่สลับ — ยังไม่มีใครตัดสินว่าไม่รับ
  * - นอกนั้นตามชนิดร่างของ AI · ไม่มีร่างของ AI ก็อนุมานจากคำตัดสินของ HR
  */
@@ -80,8 +82,13 @@ export function emailMode(args: {
   boardStage: string | null | undefined;
   aiDraftKind: EmailKind | null | undefined;
   hrDecision: string | null | undefined;
+  offerResponse?: "pending" | "accepted" | "declined" | null;
 }): EmailKind {
-  if (args.interviewResult === "fail" || args.boardStage === "declined") {
+  const candidateDeclinedOffer = args.offerResponse === "declined";
+  if (
+    !candidateDeclinedOffer &&
+    (args.interviewResult === "fail" || args.boardStage === "declined")
+  ) {
     return "rejection";
   }
   if (args.aiDraftKind) return args.aiDraftKind;
