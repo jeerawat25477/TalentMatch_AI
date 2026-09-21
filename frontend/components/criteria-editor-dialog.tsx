@@ -9,8 +9,6 @@ import type { CriteriaPreview, CriteriaSaveResult, Job } from "@/lib/types";
 
 type Side = "required" | "preferred";
 
-// จำว่า HR เปิดหรือปิดการอัปเดตผลกระทบอัตโนมัติไว้ — เป็นความสะดวกต่อเครื่อง ไม่ใช่ข้อมูลสำคัญ
-const AUTO_PREVIEW_KEY = "tm-criteria-auto-preview";
 // รอให้หยุดกดสักครู่ก่อนยิง ลบ/ย้ายชิปติดกันหลายตัวจะได้เรียก backend ครั้งเดียว
 const AUTO_PREVIEW_DELAY_MS = 400;
 
@@ -26,8 +24,9 @@ const SIDE_LABEL: Record<Side, string> = {
  * ที่มา: AI ดึง "A, B, or C" เป็นข้อบังคับทุกตัว และเอาหน้าที่งานมาเป็นทักษะ คะแนนของทุกคน
  * จึงต่ำเกินจริง (memory-bank/06_scoring_criteria.md)
  *
- * ต้องมีผลกระทบของรายการปัจจุบันก่อนถึงบันทึกได้ (โหมดอัตโนมัติคำนวณให้ทุกครั้งที่แก้
- * โหมดปิดต้องกด "ดูผลกระทบ" เอง) พรีวิวไม่เรียก AI จึงยิงบ่อยได้โดยไม่เสียโควตา — บันทึกแล้วคะแนนของผู้สมัครเดิม
+ * ต้องมีผลกระทบของรายการปัจจุบันก่อนถึงบันทึกได้ — คำนวณให้เองทุกครั้งที่แก้ (เดิมมีช่องติ๊กปิดได้
+ * แต่ไม่มีเหตุให้ใครปิด เอาออกให้เหลือตัวเลือกน้อยลง) พรีวิวไม่เรียก AI จึงยิงบ่อยได้โดยไม่เสียโควตา
+ * — บันทึกแล้วคะแนนของผู้สมัครเดิม
  * ถูกคำนวณใหม่ทันที HR จึงควรเห็นก่อนว่าใครจะเปลี่ยนไปอย่างไร · คะแนนทุกตัวในตารางมาจาก
  * backend (สูตรเดียวกับกราฟ) ที่นี่ไม่คำนวณเอง
  */
@@ -51,34 +50,16 @@ export default function CriteriaEditorDialog({
   const [preview, setPreview] = useState<CriteriaPreview | null>(null);
   // รายการที่พรีวิวไว้ล่าสุด — แก้รายการหลังพรีวิวแล้วต้องพรีวิวใหม่ก่อนบันทึก
   const [previewedFor, setPreviewedFor] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"preview" | "save" | "reanalyze" | null>(null);
+  const [busy, setBusy] = useState<"save" | "reanalyze" | null>(null);
   // รายการในหน้าต่างมาจากการให้ AI อ่านใหม่ และยังไม่ได้บันทึก — ให้ HR รู้ว่ายังต้องกดบันทึก
   const [reanalyzed, setReanalyzed] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [auto, setAuto] = useState(true);
 
   const current = JSON.stringify(lists);
   const previewFresh = preview !== null && previewedFor === current;
   // รายการล่าสุดที่ผู้ใช้เห็น ใช้ทิ้งผลพรีวิวที่กลับมาช้ากว่าการแก้ครั้งถัดไป
   const currentRef = useRef(current);
   currentRef.current = current;
-
-  useEffect(() => {
-    try {
-      if (localStorage.getItem(AUTO_PREVIEW_KEY) === "0") setAuto(false);
-    } catch {
-      /* เปิดไว้เป็นค่าเริ่มต้น */
-    }
-  }, []);
-
-  function toggleAuto(on: boolean) {
-    setAuto(on);
-    try {
-      localStorage.setItem(AUTO_PREVIEW_KEY, on ? "1" : "0");
-    } catch {
-      /* จำไม่ได้ก็ไม่เป็นไร */
-    }
-  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -109,7 +90,7 @@ export default function CriteriaEditorDialog({
   }
 
   async function run<T>(
-    kind: "preview" | "save" | "reanalyze",
+    kind: "save" | "reanalyze",
     fn: () => Promise<T>,
   ): Promise<T | null> {
     setBusy(kind);
@@ -134,19 +115,8 @@ export default function CriteriaEditorDialog({
     setPreviewedFor(JSON.stringify(cleaned));
   }
 
-  async function doPreview() {
-    const sentFor = current;
-    const r = await run("preview", () =>
-      previewCriteria(job.id, {
-        required_skills: lists.required,
-        preferred_skills: lists.preferred,
-      }),
-    );
-    if (r) applyPreview(sentFor, r);
-  }
-
   useEffect(() => {
-    if (!auto || busy || previewedFor === current) return;
+    if (busy || previewedFor === current) return;
     const sentFor = current;
     // ไม่ผ่าน run()/busy: ระหว่างรอไม่ควรล็อกชิป ไม่งั้นลบหรือย้ายต่อเนื่องไม่ได้
     const timer = setTimeout(async () => {
@@ -165,7 +135,7 @@ export default function CriteriaEditorDialog({
     }, AUTO_PREVIEW_DELAY_MS);
     return () => clearTimeout(timer);
     // current (สตริงของ lists) บอกการเปลี่ยนของ lists อยู่แล้ว จึงไม่ต้องใส่ lists ใน deps
-  }, [auto, busy, current, previewedFor, job.id]);
+  }, [busy, current, previewedFor, job.id]);
 
   async function doSave() {
     const r = await run("save", () =>
@@ -308,7 +278,7 @@ export default function CriteriaEditorDialog({
           >
             {!previewFresh && (
               <p className="text-label-sm font-semibold text-on-surface">
-                {auto ? "กำลังอัปเดตผลกระทบ…" : "รายการเปลี่ยนแล้ว — กด “ดูผลกระทบ” อีกครั้งก่อนบันทึก"}
+                กำลังอัปเดตผลกระทบ…
               </p>
             )}
             {preview.warnings.map((w) => (
@@ -423,32 +393,12 @@ export default function CriteriaEditorDialog({
           <button type="button" className="btn-secondary-glass" onClick={onClose} disabled={!!busy}>
             ปิด
           </button>
-          <label className="inline-flex items-center gap-base text-label-md text-on-surface cursor-pointer select-none">
-            <input
-              type="checkbox"
-              className="w-4 h-4 accent-primary cursor-pointer"
-              checked={auto}
-              onChange={(e) => toggleAuto(e.target.checked)}
-            />
-            แสดงผลกระทบทันทีเมื่อแก้
-          </label>
-          {!auto && (
-            <button type="button" className="btn-tonal" onClick={doPreview} disabled={!!busy}>
-              {busy === "preview" ? "กำลังคำนวณ…" : "ดูผลกระทบ"}
-            </button>
-          )}
           <button
             type="button"
             className="btn-primary"
             onClick={doSave}
             disabled={!!busy || !previewFresh}
-            title={
-              previewFresh
-                ? undefined
-                : auto
-                  ? "รอผลกระทบของรายการปัจจุบันสักครู่"
-                  : "กดดูผลกระทบของรายการปัจจุบันก่อน"
-            }
+            title={previewFresh ? undefined : "รอผลกระทบของรายการปัจจุบันสักครู่"}
           >
             {busy === "save" ? "กำลังบันทึก…" : "บันทึกและคำนวณใหม่"}
           </button>
