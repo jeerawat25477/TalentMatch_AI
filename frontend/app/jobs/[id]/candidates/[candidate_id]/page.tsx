@@ -8,6 +8,7 @@ import Breadcrumb from "@/components/breadcrumb";
 import CandidateTimeline from "@/components/candidate-timeline";
 import EmailTemplatePicker from "@/components/email-template-picker";
 import HireEmployeeDialog from "@/components/hire-employee-dialog";
+import HireOrCloseCard from "@/components/hire-or-close-card";
 import InterviewGuide from "@/components/interview-guide";
 import {
   formatSchedule,
@@ -1120,30 +1121,14 @@ export default function CandidateDeepDive() {
           </Link>
         </div>
       ) : (
+        // การ์ดเปลี่ยนตามผลสัมภาษณ์ — ไม่ผ่านแล้วต้องไม่ถาม "สัมภาษณ์ผ่านแล้ว?" (ดูคอมโพเนนต์)
         (c.board_stage === "interviewed" || c.board_stage === "offer") && (
-          <div className="glass-card rounded-2xl p-md flex items-center justify-between gap-sm flex-wrap">
-            <div>
-              <h3 className="text-headline-md text-on-surface flex items-center gap-xs">
-                <span className="material-symbols-outlined text-primary">badge</span>
-                รับเข้าเป็นพนักงาน
-              </h3>
-              <p className="text-label-md text-on-surface-variant mt-0.5">
-                สัมภาษณ์ผ่านแล้ว? บันทึกเข้าทะเบียนพนักงานเพื่อติดตามสถานะย้อนหลังได้
-              </p>
-            </div>
-            <button
-              onClick={() => setShowHire(true)}
-              className="btn-primary text-body-md px-md py-sm rounded-xl shadow-lg shadow-primary/30 hover:-translate-y-0.5 transition-all"
-            >
-              <span
-                className="material-symbols-outlined text-[22px]"
-                style={{ fontVariationSettings: "'FILL' 1" }}
-              >
-                person_add
-              </span>
-              รับเข้าเป็นพนักงาน
-            </button>
-          </div>
+          <HireOrCloseCard
+            candidateId={candidate_id}
+            result={c.interview_outcome?.result ?? null}
+            onHire={() => setShowHire(true)}
+            onChanged={() => mutate()}
+          />
         )
       )}
 
