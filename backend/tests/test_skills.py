@@ -191,3 +191,46 @@ class TestAnyOfGroups:
     def test_split_matched_คงการสะกดของกลุ่มตาม_JD(self):
         hit, miss = split_matched(["Python", "PyTorch | TensorFlow", "Go | Rust"], {"Python", "PyTorch"})
         assert hit == ["Python", "PyTorch | TensorFlow"] and miss == ["Go | Rust"]
+
+
+class TestVersionAndQualifierSpelling:
+    """เรซูเม่เขียน "HTML" แต่เกณฑ์เขียน "HTML5" (Junior Web Developer 2026-09-22) — เดิมไม่ตรงกัน
+    เพราะ html5 กับ html เป็นคนละ token · แก้ด้วยคู่ที่ระบุตรง ๆ ใน ALIASES ไม่ใช่ตัดเลขทิ้งทุกชื่อ."""
+
+    @pytest.mark.parametrize(
+        "required,owned",
+        [
+            ("HTML5", "HTML"), ("HTML", "HTML5"),
+            ("CSS3", "CSS"), ("CSS", "CSS3"),
+            ("ES6+", "JavaScript"), ("ES6", "JavaScript"), ("ECMAScript", "JavaScript"),
+            ("JavaScript (ES6+)", "JavaScript"),
+            ("VS Code", "Visual Studio Code"), ("VSCode", "Visual Studio Code"),
+            ("Visual Studio Code", "VS Code"),
+            ("Node.js (Express)", "Node.js"),
+            ("Artificial Intelligence", "Artificial Intelligence (AI)"),
+            ("Arduino IDE", "Arduino IDE (IoT)"),
+        ],
+    )
+    def test_same_skill_different_spelling(self, required, owned):
+        assert matches(required, {owned})
+
+    def test_group_with_versioned_names(self):
+        assert matches("HTML5 | CSS3", {"CSS"})
+
+    @pytest.mark.parametrize(
+        "required,owned",
+        [
+            ("S3", "S"), ("EC2", "EC"), ("Web3", "Web"),  # เลขเป็นส่วนของชื่อจริง ห้ามตัด
+            ("Raspberry Pi 3", "Raspberry Pi 4"),
+            ("JavaScript", "Java"), ("Java", "JavaScript"),
+            ("Visual Studio Code", "Visual Studio"),
+        ],
+    )
+    def test_version_numbers_are_not_stripped_generally(self, required, owned):
+        assert not matches(required, {owned})
+
+    def test_parenthesis_is_ignored_only_for_comparison(self):
+        """ชื่อที่แสดงยังเป็นต้นฉบับ — gap_analysis คงการสะกดตาม JD."""
+        hit, miss = split_matched(["JavaScript (ES6+)", "HTML5"], {"JavaScript", "HTML"})
+        assert hit == ["JavaScript (ES6+)", "HTML5"] and miss == []
+        assert matching_owned("HTML5", {"HTML"}) == "HTML"

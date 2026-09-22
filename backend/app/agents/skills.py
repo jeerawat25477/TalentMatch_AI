@@ -58,6 +58,20 @@ ALIASES: dict[str, str] = {
     "genai": "generative ai",
     "gen ai": "generative ai",
     "nlp": "natural language processing",
+    # เลขเวอร์ชันที่ประกาศชอบเขียนแต่เรซูเม่ไม่เขียน — ระบุเป็นคู่ ๆ ไม่ตัดเลขทิ้งทุกชื่อ
+    # เพราะเลขเป็นส่วนของชื่อจริงได้ (S3, EC2, Web3, Raspberry Pi 3)
+    "html5": "html",
+    "css3": "css",
+    "es6": "javascript",
+    "es6+": "javascript",
+    "es2015": "javascript",
+    "es2015+": "javascript",
+    "ecmascript": "javascript",
+    "ecmascript 6": "javascript",
+    "ecmascript6": "javascript",
+    # เครื่องมือ
+    "vs code": "visual studio code",
+    "vscode": "visual studio code",
     "rest": "rest api",
     "restful api": "rest api",
     "restful apis": "rest api",
@@ -136,12 +150,18 @@ def display_skill(skill: str) -> str:
     return " หรือ ".join(alternatives(skill)) or skill
 
 
+# วงเล็บในชื่อทักษะเป็นคำขยาย ไม่ใช่ทักษะแยก: "JavaScript (ES6+)", "Node.js (Express)",
+# "Artificial Intelligence (AI)" — ไม่ตัดทิ้งก่อนเทียบ ผู้สมัครที่เขียนแค่ "JavaScript" จะไม่ผ่าน
+_PAREN = re.compile(r"\([^)]*\)")
+
+
 def canonical(skill: str) -> str:
-    """ชื่อมาตรฐานของทักษะ — normalize แล้วแมปผ่าน ALIASES.
+    """ชื่อมาตรฐานของทักษะ — ตัดวงเล็บ, normalize แล้วแมปผ่าน ALIASES.
 
     ต้องทำก่อน tokenize เสมอ ไม่งั้น "NodeJs" (1 token) จะไม่มีวันตรงกับ "Node.js" (2 token)
+    ตัดวงเล็บแค่ตอนเทียบ ชื่อที่เก็บและแสดงยังเป็นต้นฉบับ · ถ้าตัดแล้วว่าง ("(AI)") ใช้ชื่อเดิม
     """
-    n = _normalize(skill)
+    n = _normalize(_PAREN.sub(" ", skill)) or _normalize(skill)
     return ALIASES.get(n, n)
 
 

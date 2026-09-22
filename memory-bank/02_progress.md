@@ -783,6 +783,22 @@ stream คืนก้อน planner ก่อน drafter ล้ม · `update_s
 สถานะ `completed` · `hr_decisions` และ `evaluations.created_at` เหมือนเดิมทุกค่า · คิว `done`
 attempts 0 · แถว `a8ce77b3` ไม่ถูกแตะ ขึ้น `interrupted`
 
+### เทียบทักษะ: เลขเวอร์ชันและวงเล็บ (2026-09-22)
+
+เรซูเม่เขียน "HTML", "CSS", "Visual Studio Code" แต่เกณฑ์ (Junior Web Developer) เขียน "HTML5",
+"CSS3", "VS Code", "JavaScript (ES6+)" — `html5` กับ `html` เป็นคนละ token จึงไม่ตรงกัน
+แก้ใน [skills.py](../backend/app/agents/skills.py) สองจุด:
+- `canonical()` ตัดวงเล็บก่อนเทียบ ("JavaScript (ES6+)" → javascript, "Node.js (Express)" → node js)
+  ชื่อที่เก็บ/แสดงยังเป็นต้นฉบับ · ถ้าตัดแล้วว่างใช้ชื่อเดิม
+- ALIASES เพิ่มคู่ที่ระบุตรง ๆ: html5→html, css3→css, es6/es6+/es2015/ecmascript→javascript,
+  vs code/vscode→visual studio code · **ไม่ตัดเลขทิ้งทุกชื่อ** เพราะเลขเป็นส่วนของชื่อจริงได้
+  (S3, EC2, Web3, Raspberry Pi 3 — มีเทสกันไว้)
+
+ผลกับข้อมูลจริง (บันทึกด้วย `criteria_edit.rescore_job` ต่อตำแหน่ง ไม่ใช่ `recompute_scores --apply`
+เพราะสคริปต์นั้นอัปเดตแค่ fit_score/gap_analysis ไม่อัปเดตคำอธิบาย/หลักฐาน/ความมั่นใจ และไม่สน
+เกณฑ์ที่ถูกตัดเพราะอคติ): เปลี่ยน 4 จาก 30 คน ทั้งหมดใน Junior Web Developer · JEERAWAT SAKWONG
+40 → 60 ข้ามแบนด์ ไม่ผ่าน → รอ HR (ขึ้นป้าย "เกณฑ์เปลี่ยน ตรวจอีกครั้ง") · ปรียานท์ 19-20 → 38-40
+
 ## 🔜 ค้างอยู่ / ขั้นต่อไป (เรียงลำดับแนะนำ)
 
 1. Hardening ที่เหลือก่อน deploy (ดู checklist ใน [04_security.md](04_security.md)): TLS/reverse proxy · non-root container · ย้าย rate-limit ไป Redis · secrets manager
