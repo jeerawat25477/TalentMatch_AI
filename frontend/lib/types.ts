@@ -803,3 +803,16 @@ export interface ScoreDistribution {
   auto_advance_above: number;
   review_from: number;
 }
+
+/** ทักษะที่ผู้สมัครในตำแหน่งหนึ่งขาดบ่อย — นับภายในตำแหน่งเดียว แยกต้องมี/อยากได้ */
+export interface SkillGapCount {
+  skill: string;
+  missing_count: number;
+}
+
+export interface SkillGapStats {
+  /** เรียงมากไปน้อย สูงสุด 10 อันดับ */
+  required: SkillGapCount[];
+  preferred: SkillGapCount[];
+  total_candidates: number;
+}

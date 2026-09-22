@@ -12,6 +12,7 @@ import CriteriaEditorDialog from "@/components/criteria-editor-dialog";
 import FileUpload from "@/components/file-upload";
 import PipelineFunnel from "@/components/pipeline-funnel";
 import ScoreHistogram from "@/components/score-histogram";
+import { SkillGapDisclosure } from "@/components/skill-gap-chart";
 import { bulkDecision, fetcher } from "@/lib/api";
 import { JOB_STATUS, scoreBand } from "@/lib/types";
 import { skillLabel } from "@/lib/skill-group";
@@ -23,6 +24,7 @@ import type {
   Job,
   ScoreBand,
   ScoreDistribution,
+  SkillGapStats,
 } from "@/lib/types";
 
 /** เลือกตัดสินหมู่ได้เฉพาะคนที่กราฟหยุดรอ HR อยู่จริง — คนอื่น backend ข้ามอยู่ดี */
@@ -59,6 +61,11 @@ export default function JobDashboard() {
   // คะแนนทยอยขึ้นระหว่างวิเคราะห์ จึง poll จังหวะเดียวกับกรวย
   const { data: distribution } = useSWR<ScoreDistribution>(
     `/api/v1/jobs/${id}/score-distribution`,
+    fetcher,
+    { refreshInterval: 4000 },
+  );
+  const { data: skillGaps } = useSWR<SkillGapStats>(
+    `/api/v1/jobs/${id}/skill-gaps`,
     fetcher,
     { refreshInterval: 4000 },
   );
@@ -260,7 +267,12 @@ export default function JobDashboard() {
         />
       )}
 
-      {distribution && <ScoreHistogram data={distribution} />}
+      {/* การ์ดเดียว: ฮิสโตแกรมบอกว่าคะแนนเป็นยังไง ทักษะที่ขาดบ่อย (พับไว้) บอกว่าทำไม */}
+      {distribution && (
+        <ScoreHistogram data={distribution}>
+          {skillGaps && <SkillGapDisclosure data={skillGaps} />}
+        </ScoreHistogram>
+      )}
 
       {/* Upload — ปิดรับสมัครแล้วอัปโหลดไม่ได้ (backend ตอบ 409 ด้วย) */}
       {job?.status === "closed" ? (

@@ -1,5 +1,6 @@
 """เราเตอร์ตำแหน่งงาน (Job Description)."""
 import logging
+from collections import Counter
 import os
 import time
 
@@ -30,6 +31,8 @@ from app.schemas import (
     JobStatusUpdate,
     ScoreBucket,
     ScoreDistribution,
+    SkillGapCount,
+    SkillGapStats,
 )
 
 # คอลัมน์ที่ทุก endpoint คืนเป็น JobOut — รวมไว้ที่เดียวกันเผื่อเพิ่มฟิลด์ทีหลัง
@@ -205,6 +208,52 @@ def get_score_distribution(job_id: str) -> ScoreDistribution:
         total=len(scores),
         auto_advance_above=AUTO_ADVANCE_ABOVE,
         review_from=REVIEW_FROM,
+    )
+
+
+# ---------- ทักษะที่ขาดบ่อย ----------
+SKILL_GAP_TOP = 10
+
+
+def _top_missing(gaps: list[dict], key: str, top: int = SKILL_GAP_TOP) -> list[SkillGapCount]:
+    """นับว่าทักษะแต่ละชื่อขาดในกี่คน (จาก gap_analysis[key]) คืน top อันดับแรก มากไปน้อย.
+
+    นับชื่อตรงตัวตามที่ matcher บันทึกไว้แล้ว ไม่เทียบทักษะใหม่ (ไม่เรียก skills.py)
+    ชื่อซ้ำในรายการของคนเดียวนับครั้งเดียว — ตัวเลขจึงแปลว่า "จำนวนคน" จริง
+    เท่ากันเรียงตามชื่อ ให้ลำดับคงที่ทุกครั้งที่โหลด
+    """
+    counter: Counter[str] = Counter()
+    for gap in gaps:
+        counter.update({s for s in (gap.get(key) or []) if isinstance(s, str) and s.strip()})
+    ranked = sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))
+    return [SkillGapCount(skill=s, missing_count=n) for s, n in ranked[:top]]
+
+
+@router.get("/{job_id}/skill-gaps", response_model=SkillGapStats)
+def get_skill_gaps(job_id: str) -> SkillGapStats:
+    """ทักษะที่ผู้สมัครของตำแหน่งนี้ขาดบ่อยที่สุด — อ่านอย่างเดียว ไม่เรียก LLM.
+
+    **นับภายในตำแหน่งเดียวเท่านั้น** ห้ามรวมข้ามตำแหน่ง: ชื่อทักษะจากคนละ JD ไม่ได้ผ่าน
+    ALIASES/IMPLIES ร่วมกัน ชื่อที่ดูเหมือนกันจึงอาจไม่ใช่สิ่งเดียวกัน (และกลับกัน)
+    ยังไม่มีใครมีผล → list ว่าง total_candidates=0
+    """
+    with get_conn() as conn:
+        if conn.execute("SELECT 1 FROM jobs WHERE id = %s", (job_id,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail="ไม่พบตำแหน่งงานนี้")
+        # DISTINCT ON ด้วยเหตุผลเดียวกับ score-distribution: นับคนละครั้งเสมอ
+        rows = conn.execute(
+            """SELECT DISTINCT ON (e.candidate_id) e.gap_analysis
+                 FROM evaluations e
+                 JOIN candidates c ON c.id = e.candidate_id
+                WHERE c.job_id = %s AND e.gap_analysis IS NOT NULL
+                ORDER BY e.candidate_id, e.created_at DESC""",
+            (job_id,),
+        ).fetchall()
+    gaps = [r["gap_analysis"] for r in rows if isinstance(r["gap_analysis"], dict)]
+    return SkillGapStats(
+        required=_top_missing(gaps, "missing_required"),
+        preferred=_top_missing(gaps, "missing_preferred"),
+        total_candidates=len(gaps),
     )
 
 

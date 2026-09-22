@@ -13,14 +13,19 @@ import type { ScoreDistribution } from "@/lib/types";
  * ตัวเลขจำนวนคนอยู่บนหัวแท่งเสมอ จึงไม่ต้องเดาจากความสูง
  *
  * div ล้วน ไม่มี chart library เหมือน pipeline-funnel
+ *
+ * `children` วางต่อท้ายในการ์ดเดียวกัน — หน้าภาพรวมตำแหน่งใช้ใส่ "ดูทักษะที่ขาดบ่อย" แบบพับได้
  */
 export default function ScoreHistogram({
   data,
   highlightScore,
+  children,
 }: {
   data: ScoreDistribution;
   /** คะแนนของผู้สมัครคนที่กำลังดู — ไม่ส่ง = ไม่ปักหมุด */
   highlightScore?: number | null;
+  /** ส่วนเสริมท้ายการ์ด (เช่นทักษะที่ขาดบ่อยแบบพับได้) */
+  children?: React.ReactNode;
 }) {
   const { buckets, total } = data;
   const step = buckets.length > 1 ? buckets[1].range_start - buckets[0].range_start : 10;
@@ -195,6 +200,7 @@ export default function ScoreHistogram({
           </div>
         </>
       )}
+      {children}
     </div>
   );
 }

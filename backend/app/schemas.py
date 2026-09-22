@@ -523,6 +523,22 @@ class ScoreDistribution(BaseModel):
     review_from: int
 
 
+class SkillGapCount(BaseModel):
+    skill: str
+    missing_count: int
+
+
+class SkillGapStats(BaseModel):
+    """ทักษะที่ผู้สมัครในตำแหน่งหนึ่งขาดบ่อยที่สุด — แยกฝั่งต้องมี/อยากได้ ไม่ปนกัน.
+
+    นับเฉพาะภายในตำแหน่งเดียว: ชื่อทักษะเทียบกันได้ตรงตัวเพราะมาจาก JD เดียวกัน
+    (ข้ามตำแหน่ง ชื่อเดียวกันอาจสะกด/จัดกลุ่มคนละแบบ)
+    """
+    required: list[SkillGapCount]
+    preferred: list[SkillGapCount]
+    total_candidates: int
+
+
 class ScreeningPhotosSetting(BaseModel):
     """สวิตช์แสดงรูปผู้สมัครบนหน้าคัดกรอง (ใช้ทั้งขาเข้าและขาออก).
 
