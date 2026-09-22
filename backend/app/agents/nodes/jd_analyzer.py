@@ -103,6 +103,32 @@ def _is_label(line: str, name: str) -> bool:
     return re.search(re.escape(n) + r"\s*(\([^)]*\))?\s*:", line.casefold()) is not None
 
 
+def _heading_items(kept) -> set[int]:
+    """index ของ item ที่เป็นหัวข้อย่อยนำหน้ารายการทักษะ — "Version Control: Git, GitHub / GitLab".
+
+    ต้องตามด้วย ":" **และ** หลัง ":" ในบรรทัดเดียวกันมีทักษะอื่นที่เก็บไว้ต่อท้าย
+    เงื่อนไขหลังกัน "Python: 3+ years" / "SQL: ระดับดี" — ชื่อที่ตามด้วย ":" แต่ไม่มีทักษะอื่นตามมา
+    คือทักษะจริงที่บอกระดับ ถ้าตัดทิ้งทักษะจะหายจากเกณฑ์แบบเงียบ ๆ
+    หัวข้อที่อยู่บรรทัดเดี่ยว ("Version Control:" แล้วรายการอยู่บรรทัดถัดไป) ไม่ตัด — เลือกฝั่งปลอดภัย
+    ผู้เรียกตัดเฉพาะหัวข้อที่ไม่ได้อยู่ในกลุ่มตัวเลือก ("Responsive Design: Bootstrap หรือ Tailwind"
+    ยังเป็นตัวเลือกร่วมกับกลุ่ม — ผู้สมัครที่เขียนแค่ Responsive Design ก็ผ่านข้อนั้น)
+    """
+    out: set[int] = set()
+    for i, (item, name) in enumerate(kept):
+        line = item.source_line.casefold()
+        m = re.search(re.escape(name.strip().casefold()) + r"\s*(\([^)]*\))?\s*:", line)
+        if not m:
+            continue
+        tail = line[m.end():]
+        if any(
+            j != i and other.source_line == item.source_line and other_name != name
+            and _mentions(tail, other_name)
+            for j, (other, other_name) in enumerate(kept)
+        ):
+            out.add(i)
+    return out
+
+
 def _or_clauses(items: list[tuple[str, str]]) -> list[list[int]]:
     """กลุ่ม index ของ item ที่อยู่ในท่อนประโยคเดียวกับ or/หรือ ร่วมกับทักษะอื่นจาก **บรรทัดเดียวกัน**.
 
@@ -323,6 +349,7 @@ def to_requirement(ex: JDExtraction, raw_jd: str | None = None) -> JobRequiremen
 
     # รวมตัวเลือกเป็นกลุ่ม "A | B | C" = 1 ข้อ มีตัวใดตัวหนึ่งก็ผ่าน (ทางแก้ข้อ 3)
     ids = _group_ids(kept)
+    headings = _heading_items(kept)
     members: dict[int, list[int]] = {}
     for i, g in enumerate(ids):
         members.setdefault(g, []).append(i)
@@ -337,6 +364,8 @@ def to_requirement(ex: JDExtraction, raw_jd: str | None = None) -> JobRequiremen
         idxs = members[g]
         items = [kept[j][0] for j in idxs]
         names = list(dict.fromkeys(kept[j][1] for j in idxs))
+        if len(names) == 1 and idxs[0] in headings:
+            continue  # หัวข้อย่อยที่มีทักษะต่อท้าย ไม่ใช่ทักษะ ("Version Control: Git, GitHub")
         if len(names) == 1:
             # ตัวเดียว: must นอกส่วนหน้าที่ → ต้องมี · one_of/example/plus ลอย ๆ → อยากได้
             # (ตัวที่ตาข่าย or ดึงมาจะไม่เหลือตัวเดียว เพราะท่อนต้องมี ≥ 2 ทักษะ)

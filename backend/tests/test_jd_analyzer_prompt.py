@@ -372,8 +372,9 @@ def test_lists_pasted_on_one_line_split_at_labels():
     names = ["HTML5", "CSS3", "Responsive Design", "Bootstrap", "Tailwind CSS", "Version Control", "Git", "GitHub"]
     r = to_requirement(ex(*(item(n, kind="method" if " " in n and n != "Tailwind CSS" else "technology", line=line)
                             for n in names)), line)
+    # Version Control เป็นหัวข้อของ "Git, GitHub" จึงถูกตัด (ดู test_heading_* ด้านล่าง)
     assert r.required_skills == [
-        "HTML5", "CSS3", "Responsive Design | Bootstrap | Tailwind CSS", "Version Control", "Git", "GitHub",
+        "HTML5", "CSS3", "Responsive Design | Bootstrap | Tailwind CSS", "Git", "GitHub",
     ]
 
 
@@ -386,6 +387,54 @@ def test_label_on_its_own_line_still_groups_with_its_options():
           for n in ("Bootstrap", "Tailwind CSS", "CSS Flexbox/Grid")),
     ), line)
     assert r.required_skills == ["Responsive Design | Bootstrap | Tailwind CSS | CSS Flexbox/Grid"]
+
+
+# ---------- ชื่อหัวข้อย่อยที่นำหน้ารายการทักษะ ไม่ใช่ทักษะ ----------
+
+
+def test_heading_before_a_skill_list_is_dropped():
+    vcs = "Version Control: Git, GitHub / GitLab"
+    api = "API Handling: RESTful API, JSON"
+    r = to_requirement(ex(
+        item("Version Control", kind="method", line=vcs), item("Git", line=vcs),
+        *(item(n, necessity="one_of", group="host", line=vcs) for n in ("GitHub", "GitLab")),
+        item("API Handling", kind="method", line=api), item("RESTful API", line=api), item("JSON", line=api),
+    ), f"{vcs}\n{api}")
+    assert r.required_skills == ["Git", "GitHub | GitLab", "RESTful API", "JSON"]
+
+
+def test_skill_followed_by_a_level_is_kept():
+    """"Python: 3+ years" — Python คือทักษะจริง ไม่มีทักษะอื่นต่อท้าย ต้องไม่ถูกตัด."""
+    r = to_requirement(ex(
+        item("Python", line="Python: 3+ years"), item("SQL", line="SQL: ระดับดี"),
+    ), "Python: 3+ years\nSQL: ระดับดี")
+    assert r.required_skills == ["Python", "SQL"]
+
+
+def test_heading_inside_an_or_group_stays_as_an_option():
+    line = "Responsive Design: Bootstrap, Tailwind CSS, หรือ CSS Flexbox/Grid"
+    r = to_requirement(ex(
+        item("Responsive Design", kind="method", line=line),
+        *(item(n, necessity="one_of", group="css", line=line)
+          for n in ("Bootstrap", "Tailwind CSS", "CSS Flexbox/Grid")),
+    ), line)
+    assert r.required_skills == ["Responsive Design | Bootstrap | Tailwind CSS | CSS Flexbox/Grid"]
+
+
+def test_heading_on_its_own_line_is_kept():
+    """หัวข้อบรรทัดเดี่ยว รายการอยู่บรรทัดถัดไป — ยังไม่ตัด (ฝั่งปลอดภัย, ข้อจำกัดที่รู้อยู่)."""
+    r = to_requirement(ex(
+        item("Version Control", kind="method", line="Version Control:"), item("Git", line="- Git"),
+    ), "Version Control:\n- Git")
+    assert r.required_skills == ["Version Control", "Git"]
+
+
+def test_heading_of_other_line_does_not_count():
+    """ต้องมีทักษะอื่นจากบรรทัดเดียวกันต่อท้าย — ชื่อที่ตรงกันจากบรรทัดอื่นไม่นับ."""
+    r = to_requirement(ex(
+        item("Docker", line="Docker: containerization"), item("Kubernetes", line="Kubernetes"),
+    ), "Docker: containerization\nKubernetes")
+    assert r.required_skills == ["Docker", "Kubernetes"]
 
 
 def test_blank_and_role_names_are_filtered():
