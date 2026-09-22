@@ -234,3 +234,47 @@ class TestVersionAndQualifierSpelling:
         hit, miss = split_matched(["JavaScript (ES6+)", "HTML5"], {"JavaScript", "HTML"})
         assert hit == ["JavaScript (ES6+)", "HTML5"] and miss == []
         assert matching_owned("HTML5", {"HTML"}) == "HTML"
+
+
+class TestJsFrameworkSpelling:
+    """"React" / "React.js" / "ReactJS" คือทักษะเดียวกัน — เดิม "ReactJS" เป็น token เดียว และ
+    เกณฑ์ "React.js" (2 token) ไม่ผ่านด้วยเรซูเม่ "React" · ระบุเป็นรายชื่อ ไม่ตัด "js" ทุกชื่อ
+    เพราะ Chart.js → "chart" จะไปตรงกับ "Org Chart"."""
+
+    SAME = [
+        ("React", "React.js", "ReactJS"),
+        ("Vue", "Vue.js", "VueJS"),
+        ("Next", "Next.js", "NextJS"),
+        ("Node", "Node.js", "NodeJS"),
+        ("Express", "Express.js", "ExpressJS"),
+        ("Nuxt", "Nuxt.js", "NuxtJS"),
+        ("NestJS", "Nest.js"),
+        ("AngularJS", "Angular.js"),
+    ]
+
+    @pytest.mark.parametrize(
+        "required,owned",
+        [(a, b) for group in SAME for a in group for b in group if a != b],
+    )
+    def test_spellings_match_both_ways(self, required, owned):
+        assert matches(required, {owned})
+
+    def test_junior_web_group_matches_plain_names(self):
+        assert matches("React.js | Vue.js | Next.js", {"Vue"})
+        assert matches("Node.js (Express) | PHP | Python", {"NodeJS"})
+
+    @pytest.mark.parametrize(
+        "required,owned",
+        [
+            ("Angular", "AngularJS"), ("AngularJS", "Angular"),
+            ("Angular", "Angular.js"), ("Angular.js", "Angular"),
+            ("React Native", "React"), ("React Native", "ReactJS"),
+            ("Chart.js", "Org Chart"), ("Three.js", "Three"),
+        ],
+    )
+    def test_different_frameworks_do_not_match(self, required, owned):
+        assert not matches(required, {owned})
+
+    def test_implied_skills_still_work(self):
+        assert matches("React", {"NextJS"})       # Next.js ⇒ React
+        assert matches("ReactJS", {"React Native"})  # React Native ⇒ React

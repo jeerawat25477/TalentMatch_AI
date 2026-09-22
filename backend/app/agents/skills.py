@@ -29,6 +29,20 @@ ALIASES: dict[str, str] = {
     "net": "dotnet",  # ".NET" normalize แล้วเหลือ "net"
     "asp net": "dotnet",
     "nextjs": "next js",
+    "next": "next js",
+    # เฟรมเวิร์ก JavaScript ที่เขียนได้ทั้ง "React" / "React.js" / "ReactJS" — ระบุเป็นรายชื่อ
+    # ไม่ตัด "js" ท้ายทุกชื่อ เพราะ "Chart.js" → "chart" จะไปตรงกับ "Org Chart" (มีเทสกันไว้)
+    "react js": "react",
+    "reactjs": "react",
+    "vue js": "vue",
+    "vuejs": "vue",
+    "express js": "express",
+    "expressjs": "express",
+    "nuxt js": "nuxt",
+    "nuxtjs": "nuxt",
+    "nest js": "nestjs",
+    # AngularJS (1.x) กับ Angular (2+) เป็นคนละเฟรมเวิร์ก — "Angular.js" ต้องไม่ตรงกับ "Angular"
+    "angular js": "angularjs",
     # ฐานข้อมูล
     "postgres": "postgresql",
     "psql": "postgresql",

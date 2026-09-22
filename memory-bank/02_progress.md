@@ -799,6 +799,12 @@ attempts 0 · แถว `a8ce77b3` ไม่ถูกแตะ ขึ้น `int
 เกณฑ์ที่ถูกตัดเพราะอคติ): เปลี่ยน 4 จาก 30 คน ทั้งหมดใน Junior Web Developer · JEERAWAT SAKWONG
 40 → 60 ข้ามแบนด์ ไม่ผ่าน → รอ HR (ขึ้นป้าย "เกณฑ์เปลี่ยน ตรวจอีกครั้ง") · ปรียานท์ 19-20 → 38-40
 
+ต่อด้วยเฟรมเวิร์ก JS ที่เขียนได้หลายแบบ: React/React.js/ReactJS, Vue, Next, Express, Nuxt, NestJS
+ตรงกันทุกทิศ (ALIASES ระบุรายชื่อ ไม่ตัด "js" ทุกชื่อ — Chart.js → "chart" จะไปตรง "Org Chart")
+· AngularJS = Angular.js แต่ ≠ Angular (เดิม "Angular.js" ตรงกับ "Angular" ผิด) · ไม่มีคะแนนใครเปลี่ยน
+· ผลข้างเคียงของ alias es6+→javascript: ตัดฝั่งเกณฑ์ที่ dedupe ด้วย canonical ทำให้ "ES6+" ซ้ำกับ
+"JavaScript" — จัดฝั่งใหม่ตำแหน่ง 3243593d ด้วย resort_jd_criteria.py (ปรียานท์ 38 → 40)
+
 ## 🔜 ค้างอยู่ / ขั้นต่อไป (เรียงลำดับแนะนำ)
 
 1. Hardening ที่เหลือก่อน deploy (ดู checklist ใน [04_security.md](04_security.md)): TLS/reverse proxy · non-root container · ย้าย rate-limit ไป Redis · secrets manager
