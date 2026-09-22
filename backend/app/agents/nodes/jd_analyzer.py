@@ -77,7 +77,10 @@ _OR = re.compile(r"\bor\b|หรือ|อย่างใดอย่างห�
 # แบ่งบรรทัดเป็นท่อน ๆ ให้ "or" มีผลแค่ในท่อนของมัน — จุดต้องตามด้วยช่องว่าง ไม่งั้น "Next.js" ถูกหั่น
 # แบ่งที่ "and"/"และ" ด้วย: "Python and PyTorch, TensorFlow, or Hugging Face" → Python ต้องยังเป็น
 # ข้อบังคับ (ไม่แบ่งที่ "and/or" ซึ่งแปลว่าเป็นตัวเลือก)
-_CLAUSE = re.compile(r"\.\s|;|\n|\band\b(?!/)|และ", re.IGNORECASE)
+# แบ่งที่ ":" ด้วย: ประกาศที่รายการทักษะถูกวางต่อกันในบรรทัดเดียว ("Core Web: HTML5, CSS3
+# Responsive Design: Bootstrap หรือ Tailwind Version Control: Git") เดิมกลายเป็นท่อนเดียว
+# แล้ว "หรือ" ตัวเดียวดูดทักษะทั้งบรรทัดเป็นกลุ่มเดียว 16 ตัว (Junior Web Developer 2026-09-22)
+_CLAUSE = re.compile(r"\.\s|;|:|\n|\band\b(?!/)|และ", re.IGNORECASE)
 
 
 def _mentions(clause: str, name: str) -> bool:
@@ -90,6 +93,14 @@ def _mentions(clause: str, name: str) -> bool:
     if name[-1:].isascii() and name[-1:].isalnum():
         pattern += r"(?![a-z0-9])"
     return re.search(pattern, clause.casefold()) is not None
+
+
+def _is_label(line: str, name: str) -> bool:
+    """ชื่อนี้ถูกใช้เป็นหัวข้อย่อยในบรรทัด ("Version Control: ...", "Back-end Basics (พื้นฐาน):")."""
+    n = name.strip().casefold()
+    if not n:
+        return False
+    return re.search(re.escape(n) + r"\s*(\([^)]*\))?\s*:", line.casefold()) is not None
 
 
 def _or_clauses(items: list[tuple[str, str]]) -> list[list[int]]:
@@ -108,11 +119,22 @@ def _or_clauses(items: list[tuple[str, str]]) -> list[list[int]]:
         by_line.setdefault(line, []).append(i)
     groups: list[list[int]] = []
     for line, idxs in by_line.items():
-        for clause in _CLAUSE.split(line):
-            if not _OR.search(clause):
+        clauses = _CLAUSE.split(line)
+        members: list[list[int]] = [[] for _ in clauses]
+        for i in idxs:
+            name = items[i][0]
+            hits = [k for k, c in enumerate(clauses) if _mentions(c, name)]
+            if not hits:
                 continue
-            inside = [i for i in idxs if _mentions(clause, items[i][0])]
-            if len(inside) >= 2:
+            # ชื่อที่ตามด้วย ":" คือหัวข้อย่อยของท่อน "ถัดไป" ("Responsive Design: Bootstrap หรือ
+            # Tailwind" → หัวข้อเป็นตัวเลือกร่วมกับ Bootstrap/Tailwind) · ถ้าทักษะถูกวางต่อกัน
+            # ในบรรทัดเดียว หัวข้อจะติดท้ายท่อนก่อนหน้า — นับไว้ท่อนนั้นจะถูกดูดเข้ากลุ่มผิดกลุ่ม
+            if _is_label(line, name):
+                hits = [k + 1 for k in hits if k + 1 < len(clauses)]
+            for k in hits:
+                members[k].append(i)
+        for clause, inside in zip(clauses, members):
+            if _OR.search(clause) and len(inside) >= 2:
                 groups.append(inside)
     return groups
 
@@ -215,6 +237,63 @@ def _effective_sections(items, keys: list[str]) -> list[str]:
     ]
 
 
+# หัวข้อย่อยที่บอกว่าทักษะข้างใต้เป็น "ข้อได้เปรียบ" — ใช้คู่กับ _preferred_lines
+_PREFERRED_HEADING = (
+    "nice to have", "nice-to-have", "good to have", "good-to-have", "preferred", "bonus",
+    "advantage", "desirable", "optional", "a plus",
+    "แต้มต่อ", "ข้อได้เปรียบ", "พิจารณาเป็นพิเศษ", "ทักษะเสริม", "ไม่บังคับ",
+)
+# หัวข้อที่ปิดช่วง "ข้อได้เปรียบ" — ข้อบังคับ หรือหมวดอื่นของประกาศ
+_OTHER_HEADING = (
+    "must-have", "must have", "required", "requirement", "qualification", "responsibilit",
+    "soft skill", "benefit", "how to apply",
+    "จำเป็น", "ต้องมี", "คุณสมบัติ", "หน้าที่", "ความรับผิดชอบ", "สวัสดิการ", "วิธีสมัคร",
+)
+# บรรทัดสั้นแค่ไหนถึงนับเป็นหัวข้อได้ แม้ไม่ลงท้ายด้วย ":" ("🤝 Soft Skills", "3. สวัสดิการ")
+_HEADING_MAX_CHARS = 50
+# อีโมจิ เลขข้อ จุด ต้นบรรทัด ("🛠 ", "2. ") — ตัดก่อนดูว่าหัวข้อขึ้นต้นด้วยคำอะไร
+_LEADING_NON_WORD = re.compile(r"^[\W\d_]+")
+
+
+def _preferred_lines(raw_jd: str | None) -> set[str]:
+    """บรรทัด (normalize แล้ว) ที่อยู่ใต้หัวข้อ "ข้อได้เปรียบ" ในประกาศ — ทักษะในบรรทัดเหล่านี้ไปฝั่งอยากได้.
+
+    ทำไมต้องมี: LLM ติดป้ายทีละคำจากบรรทัดของคำนั้น แต่ประกาศที่แบ่งเป็นหัวข้อ
+    ("Nice-to-Have:" แล้วตามด้วย "Front-end Framework: React.js, Vue.js, หรือ Next.js")
+    ไม่มีคำว่า nice to have อยู่ในบรรทัดทักษะเลย · และป้าย necessity มีช่องเดียว ตัวเลือกแบบ
+    "หรือ" ใต้หัวข้อนี้จึงถูกติด one_of แล้วนับเป็นข้อบังคับ (วัดจริง: Junior Web Developer
+    2026-09-22 สองรอบ ฝั่งอยากได้ได้ 3 กับ 0 ตัว จากที่ควรเป็น 7 กลุ่ม)
+
+    กติกา: บรรทัดที่ "ดูเป็นหัวข้อ" (ลงท้ายด้วย ":" หรือสั้นและไม่มีจุลภาค) ที่มีคำบอกข้อได้เปรียบ
+    เปิดช่วง · หัวข้อข้อบังคับ/หมวดอื่นปิดช่วง · หัวข้ออื่นที่ไม่มีคำบอกอะไร (เช่น "Tools:")
+    ไม่เปลี่ยนช่วง · บรรทัดที่ขึ้นต้นด้วยคำบอกข้อได้เปรียบตามด้วย ":" แล้วมีทักษะต่อท้าย
+    ("Nice to have: Docker, K8s") นับเฉพาะบรรทัดนั้น
+    ประโยคในบรรทัดเดียวอย่าง "Docker is a plus" ไม่เปิดช่วง (ไม่ดูเป็นหัวข้อ) — LLM ติด plus ให้ได้อยู่แล้ว
+    """
+    out: set[str] = set()
+    in_preferred = False
+    for raw in (raw_jd or "").splitlines():
+        line = _norm_line(raw)
+        if not line:
+            continue
+        head, colon, tail = line.partition(":")
+        is_pref = any(m in head for m in _PREFERRED_HEADING)
+        is_other = any(m in head for m in _OTHER_HEADING)
+        short = not colon and len(line) <= _HEADING_MAX_CHARS and "," not in line
+        if short and is_pref:
+            # ไม่มี ":" ต้องขึ้นต้นด้วยคำบอกข้อได้เปรียบ ("Nice to have", "🌟 Bonus skills")
+            # ไม่งั้นประโยคสั้นอย่าง "Docker is a plus" จะกลายเป็นหัวข้อแล้วลากบรรทัดถัดไปทั้งหมด
+            lead = _LEADING_NON_WORD.sub("", line)
+            is_pref = any(lead.startswith(m) for m in _PREFERRED_HEADING)
+        headingish = (colon and not tail.strip()) or short
+        if headingish and (is_pref or is_other):
+            in_preferred = is_pref  # หัวข้อที่มีทั้งสองคำ ("Preferred Qualifications") = ข้อได้เปรียบ
+            continue
+        if in_preferred or (colon and tail.strip() and is_pref):
+            out.add(line)
+    return out
+
+
 def to_requirement(ex: JDExtraction, raw_jd: str | None = None) -> JobRequirement:
     """จัดฝั่ง required/preferred จากป้าย — ฟังก์ชันบริสุทธิ์ กติกาทั้งหมดของการจัดฝั่งอยู่ที่นี่.
 
@@ -226,10 +305,13 @@ def to_requirement(ex: JDExtraction, raw_jd: str | None = None) -> JobRequiremen
     - must และไม่ได้มาจากส่วนหน้าที่งาน และไม่อยู่ในท่อน "or/หรือ" → required
     - one_of / example / plus / ส่วนหน้าที่งาน / ท่อน "or/หรือ" → preferred
       (ประกาศสั้นที่ไม่แบ่งหัวข้อเป็น unsectioned จึงยังได้ required ตามปกติ)
+    - อยู่ใต้หัวข้อ "Nice-to-Have / แต้มต่อ / ข้อได้เปรียบ" ในประกาศ → preferred เสมอ ไม่ว่าป้ายจะเป็นอะไร
+      (โค้ดอ่านหัวข้อจาก raw_jd เอง ดู _preferred_lines)
     - ตัดซ้ำด้วย skills.canonical ข้ามสองฝั่ง ฝั่ง required ชนะ · กรองด้วย is_skill เป็นตาข่ายชั้นสอง
     ไม่แยกสตริงเองเลย "CI/CD" จึงไม่มีทางถูกแยก
     """
     keys = _line_keys(ex.items, raw_jd)
+    preferred_lines = _preferred_lines(raw_jd)
     kept = []
     for item, key, section in zip(ex.items, keys, _effective_sections(ex.items, keys)):
         name = _clean_name(item.name, item.kind)
@@ -263,6 +345,9 @@ def to_requirement(ex: JDExtraction, raw_jd: str | None = None) -> JobRequiremen
             # กลุ่มเป็นข้อบังคับเมื่อทุกตัวเป็น must/one_of และไม่อยู่ในส่วนหน้าที่งาน
             # "such as" (example) / "is a plus" / ส่วนหน้าที่งาน → กลุ่มฝั่งอยากได้
             is_req = all(it.necessity in ("must", "one_of") and it.section != "duties" for it in items)
+        # ใต้หัวข้อข้อได้เปรียบ → อยากได้เสมอ (source_line ของ kept คือบรรทัดจริงจาก _line_keys แล้ว)
+        if any(it.source_line in preferred_lines for it in items):
+            is_req = False
         (required if is_req else preferred).append(f" {GROUP_SEP} ".join(names))
 
     seen: set[str] = set()

@@ -295,6 +295,99 @@ def test_line_keys_fall_back_to_quote_without_raw_jd():
     assert r.required_skills == ["React | Vue"] and r.preferred_skills == []
 
 
+# ---------- หัวข้อย่อย "Nice-to-Have / แต้มต่อ" ในประกาศ (โค้ดอ่านเอง ไม่พึ่งป้าย) ----------
+# เคสจริง Junior Web Developer 2026-09-22: หัวข้ออยู่คนละบรรทัดกับทักษะ LLM จึงติด one_of/must
+# ให้ทักษะใต้ Nice-to-Have แล้วมันหลุดไปฝั่งต้องมีทั้งหมด
+
+_WEB_JD = """หน้าที่ความรับผิดชอบ (Responsibilities)
+เชื่อมต่อ API (RESTful API) ระหว่าง Front-end และ Back-end
+Must-Have (ทักษะจำเป็น):
+Core Web: HTML5, CSS3
+Version Control: Git, GitHub / GitLab
+Nice-to-Have (ทักษะสอดคล้อง/แต้มต่อ):
+Front-end Framework: React.js, Vue.js, หรือ Next.js
+Tooling & Build: npm / yarn, VS Code, Postman
+🤝 Soft Skills
+Communication: Git workflow"""
+
+
+def test_skills_under_nice_to_have_heading_go_to_preferred_whatever_the_label():
+    core, vcs = "Core Web: HTML5, CSS3", "Version Control: Git, GitHub / GitLab"
+    fe, tools = "Front-end Framework: React.js, Vue.js, หรือ Next.js", "Tooling & Build: npm / yarn, VS Code, Postman"
+    r = to_requirement(ex(
+        item("HTML5", line=core), item("CSS3", line=core),
+        item("Git", line=vcs),
+        *(item(n, necessity="one_of", group="fe", line=fe) for n in ("React.js", "Vue.js", "Next.js")),
+        *(item(n, necessity="one_of", group="pm", line=tools) for n in ("npm", "yarn")),
+        item("VS Code", line=tools), item("Postman", line=tools),  # LLM ติด must ทั้งที่อยู่ใต้ Nice-to-Have
+    ), _WEB_JD)
+    assert r.required_skills == ["HTML5", "CSS3", "Git"]
+    assert r.preferred_skills == ["React.js | Vue.js | Next.js", "npm | yarn", "VS Code", "Postman"]
+
+
+def test_next_heading_closes_the_preferred_range():
+    """"🤝 Soft Skills" ปิดช่วง — ทักษะหลังจากนั้นไม่ถูกลากเป็นอยากได้."""
+    r = to_requirement(ex(item("Git", line="Communication: Git workflow")), _WEB_JD)
+    assert r.required_skills == ["Git"]
+
+
+def test_one_line_is_a_plus_does_not_open_a_range():
+    jd = "Qualifications:\nDocker is a plus\nPython, SQL"
+    r = to_requirement(ex(
+        item("Docker", necessity="plus", line="Docker is a plus"),
+        item("Python", line="Python, SQL"), item("SQL", line="Python, SQL"),
+    ), jd)
+    assert r.required_skills == ["Python", "SQL"]
+    assert r.preferred_skills == ["Docker"]
+
+
+def test_inline_nice_to_have_label_only_affects_its_own_line():
+    jd = "Requirements:\nNice to have: Docker, Kubernetes\nPython"
+    line = "Nice to have: Docker, Kubernetes"
+    r = to_requirement(ex(item("Docker", line=line), item("Kubernetes", line=line), item("Python")), jd)
+    assert r.required_skills == ["Python"]
+    assert r.preferred_skills == ["Docker", "Kubernetes"]
+
+
+def test_preferred_qualifications_heading_counts_as_preferred():
+    jd = "Required Qualifications:\n- Python\nPreferred Qualifications:\n- Docker"
+    r = to_requirement(ex(item("Python", line="- Python"), item("Docker", line="- Docker")), jd)
+    assert r.required_skills == ["Python"]
+    assert r.preferred_skills == ["Docker"]
+
+
+def test_thai_heading_markers():
+    jd = "คุณสมบัติ\nPython\nจะพิจารณาเป็นพิเศษ:\nDocker"
+    r = to_requirement(ex(item("Python"), item("Docker")), jd)
+    assert r.required_skills == ["Python"] and r.preferred_skills == ["Docker"]
+
+
+def test_lists_pasted_on_one_line_split_at_labels():
+    """รายการทักษะถูกวางต่อกันบรรทัดเดียว — "หรือ" ตัวเดียวเคยดูดทั้งบรรทัดเป็นกลุ่มเดียว 16 ตัว.
+
+    หัวข้อย่อย ("Responsive Design:") เป็นตัวเลือกร่วมกับท่อน "ถัดไป" ไม่ใช่ท่อนก่อนหน้า
+    """
+    line = ("Must-Have (ทักษะจำเป็น): Core Web: HTML5, CSS3 Responsive Design: Bootstrap, "
+            "หรือ Tailwind CSS Version Control: Git, GitHub")
+    names = ["HTML5", "CSS3", "Responsive Design", "Bootstrap", "Tailwind CSS", "Version Control", "Git", "GitHub"]
+    r = to_requirement(ex(*(item(n, kind="method" if " " in n and n != "Tailwind CSS" else "technology", line=line)
+                            for n in names)), line)
+    assert r.required_skills == [
+        "HTML5", "CSS3", "Responsive Design | Bootstrap | Tailwind CSS", "Version Control", "Git", "GitHub",
+    ]
+
+
+def test_label_on_its_own_line_still_groups_with_its_options():
+    """ประกาศปกติ (หนึ่งรายการต่อบรรทัด) — หัวข้อยังรวมกับตัวเลือกของมันเหมือนเดิม."""
+    line = "Responsive Design: Bootstrap, Tailwind CSS, หรือ CSS Flexbox/Grid"
+    r = to_requirement(ex(
+        item("Responsive Design", kind="method", line=line),
+        *(item(n, necessity="one_of", group="css", line=line)
+          for n in ("Bootstrap", "Tailwind CSS", "CSS Flexbox/Grid")),
+    ), line)
+    assert r.required_skills == ["Responsive Design | Bootstrap | Tailwind CSS | CSS Flexbox/Grid"]
+
+
 def test_blank_and_role_names_are_filtered():
     r = to_requirement(ex(item("  "), item("data scientists"), item(" Go ")))
     assert r.required_skills == ["Go"]
