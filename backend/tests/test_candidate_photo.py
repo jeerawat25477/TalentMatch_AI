@@ -17,7 +17,7 @@ from app.auth import get_current_user
 from app.database import SCHEMA_PATH, get_conn
 from app.main import app
 from app.resume_ingest import Verdict, admit_resume
-from app.resume_photo import extract_candidate_photo, is_photo_candidate
+from app.resume_photo import extract_candidate_photo, is_photo_candidate, visible_box
 from app.routers.settings import SCREENING_PHOTOS_DEFAULT, SCREENING_PHOTOS_KEY
 from app.settings import get_setting, invalidate, set_setting
 
@@ -95,6 +95,53 @@ class TestHeuristic:
         pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 200, 200), False)
         page.insert_image(pymupdf.Rect(40, 40, 140, 140), pixmap=pix)
         assert extract_candidate_photo(doc.tobytes()) is None
+
+
+def make_masked_pdf(canvas: tuple[int, int], visible: tuple[int, int, int, int]) -> bytes:
+    """รูปแบบที่ Canva ส่งออก: แผ่นใหญ่โปร่งใส มีส่วนมองเห็นแค่กรอบ visible (x0, y0, x1, y1)."""
+    doc = pymupdf.open(stream=make_pdf([]), filetype="pdf")
+    w, h = canvas
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, w, h), True)
+    pix.clear_with(0)  # พื้นดำ — ถ้าหยิบโดยไม่ใช้ mask จะเห็นสีดำตรงนี้
+    pix.set_rect(pymupdf.IRect(*visible), (70, 140, 220, 255))  # ส่วนรูปคน สีฟ้า
+    x0, y0, x1, y1 = visible
+    pix.set_alpha(bytes(  # clear_with ไม่แตะค่าความทึบ ต้องกำหนดชั้นโปร่งใสเอง
+        255 if x0 <= x < x1 and y0 <= y < y1 else 0 for y in range(h) for x in range(w)
+    ))
+    doc[0].insert_image(pymupdf.Rect(40, 120, 40 + w / 4, 120 + h / 4), pixmap=pix)
+    return doc.tobytes()
+
+
+class TestTransparentCanvas:
+    def test_กรอบส่วนที่มองเห็น(self):
+        # แผ่น 6x4 มองเห็นแค่ช่อง x=2..3 y=1..2
+        alpha = bytes([0] * 6 + [0, 0, 255, 200, 0, 0] * 2 + [0] * 6)
+        assert visible_box(alpha, 6, 4) == (2, 1, 4, 3)
+
+    def test_โปร่งใสทั้งแผ่นคืน_none(self):
+        assert visible_box(bytes(24), 6, 4) is None
+
+    def test_ขอบจางไม่นับว่ามองเห็น(self):
+        assert visible_box(bytes([0, 40, 255, 40]), 4, 1) == (2, 0, 3, 1)
+
+    def test_ตัดเหลือส่วนที่มองเห็น_ไม่มีพื้นดำ(self):
+        """เหตุการณ์จริง: แผ่น 1315x1452 มองเห็น 20% → เดิมได้รูปคนเล็ก ๆ บนพื้นดำ."""
+        pdf = make_masked_pdf((600, 640), (150, 100, 390, 400))
+        image, mime = extract_candidate_photo(pdf)
+        assert mime == "image/jpeg"
+        pix = pymupdf.Pixmap(image)
+        assert abs(pix.width / pix.height - 240 / 300) < 0.03  # สัดส่วนของส่วนที่มองเห็น
+        # มุมภาพต้องเป็นสีของรูป ไม่ใช่ดำจากส่วนโปร่งใส
+        for x, y in [(2, 2), (pix.width - 3, pix.height - 3)]:
+            r, g, b = pix.pixel(x, y)[:3]
+            assert b > 150 and (r, g, b) != (0, 0, 0)
+
+    def test_ไอคอนเล็กบนแผ่นโปร่งใสใหญ่ไม่นับเป็นรูป(self):
+        """วัดจากส่วนที่มองเห็น ไม่ใช่ขนาดแผ่น — ไอคอน 40px บนแผ่น 600px ต้องถูกตัดทิ้ง."""
+        assert extract_candidate_photo(make_masked_pdf((600, 600), (10, 10, 50, 50))) is None
+
+    def test_แถบยาวบนแผ่นสี่เหลี่ยมไม่นับเป็นรูป(self):
+        assert extract_candidate_photo(make_masked_pdf((600, 600), (0, 250, 600, 330))) is None
 
 
 @pytest.fixture
