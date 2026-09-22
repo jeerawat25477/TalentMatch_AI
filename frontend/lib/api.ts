@@ -26,6 +26,8 @@ import type {
   JobOffer,
   JobOfferUpsert,
   Job,
+  JobAnalyzeResult,
+  JobCriteriaConfirm,
   JDReview,
   JobDeleteResult,
   JobListItem,
@@ -112,11 +114,21 @@ export const saveCriteria = (jobId: string, data: CriteriaIn) =>
 export const reanalyzeCriteria = (jobId: string) =>
   request<CriteriaPreview>(`/api/v1/jobs/${jobId}/criteria/reanalyze`, { method: "POST" });
 
-export const createJob = (rawText: string) =>
-  request<Job>("/api/v1/jobs", {
+// ให้ AI ร่างเกณฑ์จากประกาศ — **ไม่บันทึกอะไร** HR ตรวจแล้วค่อยส่งเกณฑ์ที่ยืนยันไปที่ createJob
+// (429 ถ้ากดถี่เกินหรือโควตาหมด, 502 ถ้า AI ล่ม — หน้าเว็บให้กรอกเกณฑ์เองแทนได้)
+export const analyzeJD = (rawText: string) =>
+  request<JobAnalyzeResult>("/api/v1/jobs/analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ raw_text: rawText }),
+  });
+
+// criteria = เกณฑ์ที่ HR ยืนยันในขั้นตรวจ (ไม่ส่ง = ทางเดิม ให้ AI อ่านตอนสร้าง)
+export const createJob = (rawText: string, criteria?: JobCriteriaConfirm) =>
+  request<Job>("/api/v1/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ raw_text: rawText, ...(criteria ? { criteria } : {}) }),
   });
 
 // เปิด/ปิดรับสมัคร — ทางเลือกแทนการลบสำหรับงานที่รับพนักงานได้แล้ว

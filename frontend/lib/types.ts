@@ -818,3 +818,31 @@ export interface SkillGapStats {
   preferred: SkillGapCount[];
   total_candidates: number;
 }
+
+/** ร่างเกณฑ์จาก AI ในขั้นยืนยันก่อนสร้างตำแหน่ง — ยังไม่มีอะไรถูกบันทึก */
+export interface JobAnalyzeResult {
+  job_title: string;
+  min_experience_years: number;
+  education: string;
+  required_skills: string[];
+  preferred_skills: string[];
+  /** คำเตือนจากเกณฑ์ชุดนี้ (ต้องมีเยอะเกิน, ดูเป็นประโยค ฯลฯ) */
+  warnings: string[];
+  /** คำที่ถูกคัดออกเพราะไม่ใช่ทักษะ เช่นชื่อบทบาท */
+  dropped: string[];
+  /** ทักษะข้อนั้นมาจากบรรทัดไหนในประกาศ — ข้อที่หาไม่เจอไม่มีคีย์ */
+  sources: Record<string, string[]>;
+  /** ป้ายดิบที่ AI ติด — ส่งกลับไปตอนสร้างเพื่อเก็บไว้ ไม่ต้องอ่านค่าข้างใน */
+  extraction: unknown;
+}
+
+/** เกณฑ์ที่ HR ยืนยันแล้ว ส่งไปพร้อมการสร้างตำแหน่ง (backend ไม่เรียก AI ซ้ำ) */
+export interface JobCriteriaConfirm {
+  job_title: string;
+  min_experience_years: number;
+  education: string;
+  required_skills: string[];
+  preferred_skills: string[];
+  /** null = AI อ่านไม่สำเร็จ HR กรอกเกณฑ์เองทั้งหมด */
+  extraction: unknown | null;
+}

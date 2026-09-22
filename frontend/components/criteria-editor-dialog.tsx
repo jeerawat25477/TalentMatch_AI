@@ -3,20 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { previewCriteria, reanalyzeCriteria, saveCriteria } from "@/lib/api";
+import SkillListsEditor from "@/components/skill-lists-editor";
+import type { SkillLists } from "@/components/skill-lists-editor";
 import { BANDS } from "@/lib/types";
-import { skillLabel, splitSkillInput } from "@/lib/skill-group";
 import type { CriteriaPreview, CriteriaSaveResult, Job } from "@/lib/types";
-
-type Side = "required" | "preferred";
 
 // รอให้หยุดกดสักครู่ก่อนยิง ลบ/ย้ายชิปติดกันหลายตัวจะได้เรียก backend ครั้งเดียว
 const AUTO_PREVIEW_DELAY_MS = 400;
-
-const SIDE_LABEL: Record<Side, string> = {
-  required: "ทักษะที่ต้องมี",
-  preferred: "ทักษะที่อยากได้",
-};
-
 
 /**
  * โมดัลให้ HR ตรวจและแก้รายการทักษะที่ AI ดึงจาก JD
@@ -42,11 +35,10 @@ export default function CriteriaEditorDialog({
   /** AI อ่านประกาศใหม่แล้ว — backend บันทึก ai_criteria ใหม่ หน้าแม่ควรดึง job ใหม่ */
   onReanalyzed?: () => void;
 }) {
-  const [lists, setLists] = useState<Record<Side, string[]>>({
+  const [lists, setLists] = useState<SkillLists>({
     required: job.parsed_criteria?.required_skills ?? [],
     preferred: job.parsed_criteria?.preferred_skills ?? [],
   });
-  const [drafts, setDrafts] = useState<Record<Side, string>>({ required: "", preferred: "" });
   const [preview, setPreview] = useState<CriteriaPreview | null>(null);
   // รายการที่พรีวิวไว้ล่าสุด — แก้รายการหลังพรีวิวแล้วต้องพรีวิวใหม่ก่อนบันทึก
   const [previewedFor, setPreviewedFor] = useState<string | null>(null);
@@ -68,26 +60,6 @@ export default function CriteriaEditorDialog({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [busy, onClose]);
-
-  function add(side: Side) {
-    const items = splitSkillInput(drafts[side]);
-    if (!items.length) return;
-    setLists((l) => ({ ...l, [side]: [...l[side], ...items] }));
-    setDrafts((d) => ({ ...d, [side]: "" }));
-  }
-
-  function remove(side: Side, i: number) {
-    setLists((l) => ({ ...l, [side]: l[side].filter((_, j) => j !== i) }));
-  }
-
-  function move(from: Side, i: number) {
-    const to: Side = from === "required" ? "preferred" : "required";
-    setLists((l) => ({
-      ...l,
-      [from]: l[from].filter((_, j) => j !== i),
-      [to]: [...l[to], l[from][i]],
-    }));
-  }
 
   async function run<T>(
     kind: "save" | "reanalyze",
@@ -187,88 +159,7 @@ export default function CriteriaEditorDialog({
           คำนวณใหม่ทันที โดยไม่เรียก AI
         </p>
 
-        <div className="grid gap-sm md:grid-cols-2">
-          {(["required", "preferred"] as Side[]).map((side) => (
-            <section
-              key={side}
-              className="rounded-xl border border-outline-variant/40 p-sm space-y-xs"
-              aria-label={SIDE_LABEL[side]}
-            >
-              <h3 className="text-label-md font-semibold text-on-surface">
-                {SIDE_LABEL[side]}{" "}
-                <span className="text-on-surface font-normal tabular-nums">
-                  ({lists[side].length})
-                </span>
-              </h3>
-              <ul className="flex flex-wrap gap-base">
-                {lists[side].map((s, i) => (
-                  <li
-                    key={`${s}-${i}`}
-                    className={`inline-flex items-center gap-0.5 text-[12px] font-semibold ps-2.5 pe-1 py-0.5 rounded-full ${
-                      side === "required"
-                        ? "bg-primary-fixed text-on-primary-fixed-variant"
-                        : "bg-surface-container-high text-on-surface-variant"
-                    }`}
-                  >
-                    {skillLabel(s)}
-                    <button
-                      type="button"
-                      onClick={() => move(side, i)}
-                      disabled={!!busy}
-                      className="w-6 h-6 rounded-full inline-flex items-center justify-center hover:bg-on-surface/10"
-                      aria-label={`ย้าย ${skillLabel(s)} ไป${side === "required" ? SIDE_LABEL.preferred : SIDE_LABEL.required}`}
-                      title={`ย้ายไป${side === "required" ? SIDE_LABEL.preferred : SIDE_LABEL.required}`}
-                    >
-                      <span className="material-symbols-outlined text-[16px]">
-                        {side === "required" ? "arrow_forward" : "arrow_back"}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => remove(side, i)}
-                      disabled={!!busy}
-                      className="w-6 h-6 rounded-full inline-flex items-center justify-center hover:bg-on-surface/10"
-                      aria-label={`ลบ ${skillLabel(s)}`}
-                      title="ลบ"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">close</span>
-                    </button>
-                  </li>
-                ))}
-                {lists[side].length === 0 && (
-                  <li className="text-label-sm text-on-surface">ยังไม่มี</li>
-                )}
-              </ul>
-              <div className="flex gap-base">
-                <label className="flex-1 min-w-0">
-                  <span className="sr-only">เพิ่ม{SIDE_LABEL[side]}</span>
-                  <input
-                    className="input-glass w-full text-label-md"
-                    placeholder="พิมพ์แล้วกด Enter (คั่นหลายตัวด้วยจุลภาค)"
-                    value={drafts[side]}
-                    maxLength={500}
-                    onChange={(e) => setDrafts((d) => ({ ...d, [side]: e.target.value }))}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        add(side);
-                      }
-                    }}
-                    disabled={!!busy}
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="btn-secondary-glass"
-                  onClick={() => add(side)}
-                  disabled={!!busy || !drafts[side].trim()}
-                >
-                  เพิ่ม
-                </button>
-              </div>
-            </section>
-          ))}
-        </div>
+        <SkillListsEditor lists={lists} onChange={setLists} disabled={!!busy} />
 
         {preview && (
           <section

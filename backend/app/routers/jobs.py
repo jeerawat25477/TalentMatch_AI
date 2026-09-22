@@ -9,7 +9,8 @@ from psycopg.types.json import Json
 
 from app.agents.bands import AUTO_ADVANCE_ABOVE, REVIEW_FROM
 from app.agents.llm import DEFAULT_MODEL
-from app.agents.nodes.jd_analyzer import extract_jd
+from app.agents.models import JDExtraction
+from app.agents.nodes.jd_analyzer import criteria_sources, extract_jd, to_requirement
 from app.agents.nodes.jd_reviewer import review_jd
 from app.agents.runner import active_candidates
 from app.agents.models import JDReview
@@ -24,7 +25,9 @@ from app.schemas import (
     CriteriaPreviewOut,
     CriteriaSaveOut,
     JDReviewIn,
+    JobAnalyzeOut,
     JobCreate,
+    JobCriteriaConfirm,
     JobDeleteOut,
     JobListItem,
     JobOut,
@@ -67,15 +70,68 @@ def list_jobs() -> list[JobListItem]:
     return [JobListItem(**r) for r in rows]
 
 
+def _confirmed(raw_text: str, c: JobCriteriaConfirm, fallback_title: str) -> tuple[dict, dict | None, dict | None]:
+    """เกณฑ์ที่ HR ยืนยัน → (parsed_criteria, jd_extraction, ai_criteria) — ฟังก์ชันบริสุทธิ์ ไม่เรียก LLM.
+
+    ai_criteria มีค่าเฉพาะเมื่อ HR แก้ทักษะไปจากที่ AI ร่าง (ความหมายเดียวกับตอนแก้เกณฑ์ในหน้าตำแหน่ง:
+    เก็บของ AI ไว้ให้ "คืนค่าตามที่ AI ดึง" และเป็นข้อมูลว่า AI ดึงผิดบ่อยแค่ไหน) · ผลของ AI คำนวณ
+    ใหม่จากป้ายด้วย to_requirement ไม่เชื่อค่าที่หน้าเว็บส่งมา · เทียบหลังทำความสะอาดทั้งสองฝั่ง
+    ไม่งั้นการตัดซ้ำ/ช่องว่างจะถูกนับว่า "แก้"
+    แก้ชื่อตำแหน่ง/ปีประสบการณ์/การศึกษาไม่นับว่าแก้เกณฑ์ — ai_criteria เป็นเรื่องของรายการทักษะ
+    """
+    clean = normalize_criteria(c.required_skills, c.preferred_skills)
+    parsed = {
+        "job_title": c.job_title.strip() or fallback_title,
+        "min_experience_years": c.min_experience_years,
+        "education": c.education.strip(),
+        "required_skills": clean["required_skills"],
+        "preferred_skills": clean["preferred_skills"],
+    }
+    if c.extraction is None:
+        return parsed, None, None
+    ai = to_requirement(c.extraction, raw_text).model_dump()
+    ai_clean = normalize_criteria(ai["required_skills"], ai["preferred_skills"])
+    edited = (ai_clean["required_skills"], ai_clean["preferred_skills"]) != (
+        clean["required_skills"], clean["preferred_skills"]
+    )
+    return parsed, c.extraction.model_dump(), (ai if edited else None)
+
+
 @router.post("", response_model=JobOut, status_code=201)
 def create_job(payload: JobCreate) -> JobOut:
-    """รับ JD ดิบ บันทึกลงฐานข้อมูล และ (ต่อไป) ส่งให้ JD Analyzer สกัดเกณฑ์.
+    """สร้างตำแหน่งงาน — สองทาง.
 
-    ตอนนี้บันทึกแถวงานพร้อม title ชั่วคราว; parsed_criteria จะถูกเติมโดย
-    โหนด jd_analyzer ในเลเยอร์ agents/ เมื่อกราฟถูกสร้าง.
+    - มี `criteria` (ผ่านขั้นยืนยันเกณฑ์ในหน้าสร้างตำแหน่ง): ใช้เกณฑ์ที่ HR ยืนยัน **ไม่เรียก AI ซ้ำ**
+      (AI อ่านไปแล้วตอน POST /jobs/analyze) · HR แก้ทักษะ → บันทึก ai_criteria + criteria_edited_at
+      · AI อ่านไม่สำเร็จแล้ว HR กรอกเอง → criteria_edited_at อย่างเดียว (ไม่มีของ AI ให้คืนค่า)
+    - ไม่มี (ทางเดิม): ให้ jd_analyzer อ่านตอนสร้าง AI ล้มก็ยังบันทึกงานได้โดยยังไม่มีเกณฑ์
     """
-    # รัน JD Analyzer เติม parsed_criteria + title จริง (graceful ถ้า LLM ล้มเหลว/ไม่มีคีย์)
     fallback_title = payload.raw_text.strip().splitlines()[0][:255] or "Untitled Position"
+    if payload.criteria is not None:
+        analyzed, extraction, ai_criteria = _confirmed(
+            payload.raw_text, payload.criteria, fallback_title
+        )
+        with get_conn() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO jobs (title, raw_text, parsed_criteria, jd_extraction,
+                                  ai_criteria, criteria_edited_at)
+                VALUES (%s, %s, %s, %s, %s,
+                        CASE WHEN %s THEN timezone('utc'::text, now()) END)
+                RETURNING """
+                + _JOB_COLS,
+                (
+                    analyzed["job_title"],
+                    payload.raw_text,
+                    Json(analyzed),
+                    Json(extraction) if extraction else None,
+                    Json(ai_criteria) if ai_criteria else None,
+                    ai_criteria is not None or extraction is None,
+                ),
+            ).fetchone()
+            conn.commit()
+        return JobOut(**row)
+
     analyzed: dict | None = None
     extraction: dict | None = None
     try:
@@ -110,6 +166,55 @@ def create_job(payload: JobCreate) -> JobOut:
 JD_REVIEW_MAX_PER_MIN = int(os.getenv("JD_REVIEW_MAX_PER_MIN", "5"))
 _JD_REVIEW_WINDOW_SEC = 60.0
 _jd_review_hits: dict[str, list[float]] = {}
+
+
+@router.post("/analyze", response_model=JobAnalyzeOut)
+def analyze_job_description(
+    payload: JDReviewIn, user: str = Depends(get_current_user)
+) -> JobAnalyzeOut:
+    """ให้ AI ร่างเกณฑ์จากประกาศ สำหรับขั้นยืนยันก่อนสร้างตำแหน่ง — **ไม่บันทึกอะไรลงฐานข้อมูล**.
+
+    HR ตรวจ/แก้ร่างบนหน้าจอ แล้วส่งเกณฑ์ที่ยืนยันกลับมาที่ POST /jobs (ไม่เรียก AI ซ้ำ)
+    ใช้ 1 chat call · ไม่ retry เพราะ HR นั่งรอ · ใช้เพดานร่วมกับ "ให้ AI อ่านประกาศใหม่"
+    (เป็นงานเดียวกัน: AI อ่านประกาศ) · 429 เมื่อกดถี่หรือโควตาวันนี้เต็ม · 502 เมื่อ AI ล้ม —
+    หน้าเว็บเปิดให้ HR กรอกเกณฑ์เองแทนได้ในทั้งสองกรณี
+    """
+    now = time.time()
+    if not hit_and_check(_reanalyze_hits, user, now, REANALYZE_MAX_PER_MIN, _JD_REVIEW_WINDOW_SEC):
+        wait = retry_after_sec(_reanalyze_hits, user, now, _JD_REVIEW_WINDOW_SEC)
+        raise HTTPException(
+            status_code=429,
+            detail=f"ให้ AI อ่านประกาศได้ไม่เกิน {REANALYZE_MAX_PER_MIN} ครั้งต่อนาที — ลองใหม่ในอีก {wait} วินาที",
+        )
+    if not has_room(used_today(DEFAULT_MODEL), 1):
+        raise HTTPException(
+            status_code=429,
+            detail="โควตา AI ของวันนี้เต็มแล้ว — กรอกเกณฑ์เองแล้วสร้างตำแหน่งได้เลย",
+        )
+    try:
+        requirement, labels = extract_jd(payload.raw_text, once=True)
+    except Exception as exc:  # noqa: BLE001 — โควตา/เครือข่าย/คำตอบผิดรูป ไม่ควรเป็น 500 เปล่า ๆ
+        log.exception("AI ร่างเกณฑ์จากประกาศไม่สำเร็จ: %s", exc)
+        raise HTTPException(
+            status_code=502, detail="AI อ่านประกาศไม่สำเร็จ — ลองใหม่ หรือกรอกเกณฑ์เอง"
+        ) from exc
+
+    clean = normalize_criteria(
+        [s[:_MAX_SKILL_CHARS] for s in requirement.required_skills[:_MAX_SKILLS]],
+        [s[:_MAX_SKILL_CHARS] for s in requirement.preferred_skills[:_MAX_SKILLS]],
+    )
+    req, pref = clean["required_skills"], clean["preferred_skills"]
+    return JobAnalyzeOut(
+        job_title=(requirement.job_title or "").strip()[:255],
+        min_experience_years=max(0, min(requirement.min_experience_years, 60)),
+        education=(requirement.education or "")[:500],
+        required_skills=req,
+        preferred_skills=pref,
+        warnings=criteria_warnings(req, pref),
+        dropped=clean["dropped"],
+        sources=criteria_sources(req + pref, labels, payload.raw_text),
+        extraction=labels,
+    )
 
 
 @router.post("/review-jd", response_model=JDReview)

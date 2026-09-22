@@ -10,14 +10,12 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, EmailStr, Field, computed_field
 
+from app.agents.models import JDExtraction
+
 
 # ---------- Jobs ----------
 # 'closed' = ปิดรับสมัคร (เช่น รับพนักงานได้แล้ว) ข้อมูลยังอยู่ครบ ไม่ใช่การลบ
 JobStatus = Literal["open", "closed"]
-
-
-class JobCreate(BaseModel):
-    raw_text: str = Field(..., min_length=1, description="ข้อความ JD ดิบ")
 
 
 class JobStatusUpdate(BaseModel):
@@ -63,6 +61,42 @@ class CriteriaIn(BaseModel):
     """รายการทักษะที่ HR แก้แล้ว — ทำความสะอาดต่อที่ criteria_edit.normalize_criteria."""
     required_skills: list[SkillName] = Field(default_factory=list, max_length=50)
     preferred_skills: list[SkillName] = Field(default_factory=list, max_length=50)
+
+
+class JobCriteriaConfirm(BaseModel):
+    """เกณฑ์ที่ HR ตรวจและยืนยันในขั้น "ยืนยันเกณฑ์" ก่อนสร้างตำแหน่ง.
+
+    extraction = ป้ายดิบที่ POST /jobs/analyze ส่งมา — ส่งกลับมาเพื่อเก็บลง jobs.jd_extraction
+    (สคริปต์จัดฝั่งใหม่ต้องใช้) · backend ไม่เชื่อว่า HR แก้หรือไม่จากฝั่งหน้าเว็บ แต่คำนวณ
+    ผลของ AI จากป้ายนี้ใหม่เอง (ฟังก์ชันบริสุทธิ์ ไม่เรียก LLM) แล้วเทียบ
+    None = AI อ่านไม่สำเร็จ HR กรอกเกณฑ์เองทั้งหมด
+    """
+    job_title: str = Field(..., min_length=1, max_length=255)
+    min_experience_years: int = Field(0, ge=0, le=60)
+    education: str = Field("", max_length=500)
+    required_skills: list[SkillName] = Field(default_factory=list, max_length=50)
+    preferred_skills: list[SkillName] = Field(default_factory=list, max_length=50)
+    extraction: Optional[JDExtraction] = None
+
+
+class JobCreate(BaseModel):
+    raw_text: str = Field(..., min_length=1, max_length=20000, description="ข้อความ JD ดิบ")
+    # มี = ผ่านขั้นยืนยันเกณฑ์แล้ว ไม่เรียก AI ซ้ำ · ไม่มี = แบบเดิม ให้ AI อ่านตอนสร้าง
+    criteria: Optional[JobCriteriaConfirm] = None
+
+
+class JobAnalyzeOut(BaseModel):
+    """ร่างเกณฑ์จาก AI สำหรับขั้นยืนยัน — ยังไม่มีอะไรถูกบันทึก."""
+    job_title: str
+    min_experience_years: int
+    education: str
+    required_skills: list[str]
+    preferred_skills: list[str]
+    warnings: list[str]
+    dropped: list[str]
+    # ทักษะแต่ละข้อมาจากบรรทัดไหนในประกาศ (ข้อความจริง) — ข้อที่หาไม่เจอไม่มีคีย์
+    sources: dict[str, list[str]]
+    extraction: JDExtraction
 
 
 class CriteriaImpact(BaseModel):

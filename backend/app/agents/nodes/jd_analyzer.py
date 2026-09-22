@@ -425,6 +425,44 @@ def to_requirement(ex: JDExtraction, raw_jd: str | None = None) -> JobRequiremen
     )
 
 
+# ข้อความที่มาต่อบรรทัดยาวได้มากในประกาศที่วางต่อกันบรรทัดเดียว — ตัดไว้ให้อ่านได้บนหน้าจอ
+_SOURCE_MAX_CHARS = 300
+_SOURCE_MAX_LINES = 3
+
+
+def criteria_sources(criteria: list[str], ex: JDExtraction, raw_jd: str | None) -> dict[str, list[str]]:
+    """เกณฑ์แต่ละข้อมาจากบรรทัดไหนในประกาศ — ให้ HR เห็นว่าทำไมทักษะนี้อยู่ฝั่งนี้.
+
+    ใช้บรรทัดจริงในประกาศ (ตามต้นฉบับ ไม่ใช่รูป normalize) ผ่าน _line_keys เดียวกับที่ใช้จัดฝั่ง
+    กลุ่ม "A | B" รวมบรรทัดของทุกตัวเลือก · ข้อที่ HR เพิ่มเองหรือหาไม่เจอ ไม่มีคีย์
+    ฟังก์ชันบริสุทธิ์ ไม่เรียก LLM
+    """
+    originals = {}
+    for raw in (raw_jd or "").splitlines():
+        n = _norm_line(raw)
+        if n and n not in originals:
+            originals[n] = raw.strip()
+    by_name: dict[str, list[str]] = {}
+    for item, key in zip(ex.items, _line_keys(ex.items, raw_jd)):
+        name = _clean_name(item.name, item.kind).casefold()
+        line = originals.get(key) or item.source_line.strip()
+        if len(line) > _SOURCE_MAX_CHARS:
+            line = line[:_SOURCE_MAX_CHARS] + "…"
+        lines = by_name.setdefault(name, [])
+        if line and line not in lines:
+            lines.append(line)
+    out: dict[str, list[str]] = {}
+    for c in criteria:
+        lines: list[str] = []
+        for alt in alternatives(c):
+            for line in by_name.get(alt.strip().casefold(), []):
+                if line not in lines:
+                    lines.append(line)
+        if lines:
+            out[c] = lines[:_SOURCE_MAX_LINES]
+    return out
+
+
 def extract_jd(raw_jd: str, once: bool = False) -> tuple[JobRequirement, JDExtraction]:
     """เรียก LLM หนึ่งครั้ง คืนทั้งผลที่จัดฝั่งแล้วและป้ายดิบ (create_job เก็บป้ายลง jobs.jd_extraction).
 

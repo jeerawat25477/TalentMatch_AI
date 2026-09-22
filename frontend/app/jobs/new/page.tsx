@@ -5,26 +5,50 @@ import { useState } from "react";
 import AiInsight from "@/components/ai-insight";
 import Breadcrumb from "@/components/breadcrumb";
 import JDReviewCard from "@/components/jd-review-card";
-import { createJob, reviewJD } from "@/lib/api";
-import type { JDReview } from "@/lib/types";
+import SkillListsEditor from "@/components/skill-lists-editor";
+import type { SkillLists } from "@/components/skill-lists-editor";
+import { analyzeJD, createJob, reviewJD } from "@/lib/api";
+import type { JDReview, JobAnalyzeResult } from "@/lib/types";
 
-const PLACEHOLDER = `ตำแหน่ง: Senior Python Developer
-ประสบการณ์ขั้นต่ำ: 3 ปี
-ทักษะที่ต้องมี: Python, FastAPI, PostgreSQL
-ทักษะที่มีก็ดี: Docker, LangGraph
+// ตัวอย่างประกาศจริง ไม่ใช่คำสั่งว่าให้ทำอะไร — HR จะได้เห็นว่า "วางอะไรลงไป" ได้ทันที
+// เขียนแบบที่ประกาศจริงเขียนกัน (มีหัวข้อ มีคำว่า "หรือ" มีส่วนที่มีก็ดี) ไม่ใช่รูปแบบในอุดมคติ
+const PLACEHOLDER = `วางประกาศของคุณทับข้อความนี้ได้เลย เช่น
+
+Senior Python Developer
+หน้าที่: ดูแลระบบหลังบ้านและ API ร่วมกับทีม
+คุณสมบัติ: ประสบการณ์ Python อย่างน้อย 3 ปี, FastAPI หรือ Django, PostgreSQL
+จะพิจารณาเป็นพิเศษ: Docker, LangGraph
 การศึกษา: ปริญญาตรีสาขาคอมพิวเตอร์`;
 
+/**
+ * สร้างตำแหน่งงาน — สองจังหวะ: วางประกาศ แล้ว **ยืนยันเกณฑ์** ก่อนบันทึก
+ *
+ * ที่มา: เดิมกดปุ่มเดียวแล้ว AI อ่านและบันทึกเกณฑ์ทันที HR เห็นเกณฑ์ก็ต่อเมื่อเข้าไปดูหน้าตำแหน่ง
+ * ทีหลัง — ตำแหน่ง Junior Web Developer (2026-09-22) จึงมีผู้สมัครได้ 100 คะแนนจากเกณฑ์ที่ผิด
+ * ก่อนที่ใครจะทันสังเกต · ตอนนี้ AI ร่างให้ คนตรวจและยืนยัน แล้วจึงบันทึก (มนุษย์อนุมัติ
+ * แบบเดียวกับตอนคัดผู้สมัคร แต่ขยับมาตั้งแต่ตอนสร้างตำแหน่ง)
+ *
+ * AI ล้มหรือโควตาหมด → ยังสร้างตำแหน่งได้ โดย HR กรอกเกณฑ์เอง (ปุ่ม "กรอกเกณฑ์เอง")
+ */
 export default function NewJobPage() {
   const router = useRouter();
   const [rawText, setRawText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // state ของการ "ตรวจ" แยกจากการ "สร้าง" เด็ดขาด — คนละปุ่ม คนละผลลัพธ์
+
+  // ร่างจาก AI (null = HR กรอกเอง เพราะ AI อ่านไม่สำเร็จ) · ยังไม่ถูกบันทึกจนกว่าจะกดยืนยัน
+  const [draft, setDraft] = useState<JobAnalyzeResult | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [lists, setLists] = useState<SkillLists>({ required: [], preferred: [] });
+  const [title, setTitle] = useState("");
+  const [years, setYears] = useState(0);
+  const [education, setEducation] = useState("");
+
+  // state ของการ "ตรวจ JD" แยกจากการวิเคราะห์เด็ดขาด — คนละปุ่ม คนละผลลัพธ์
   const [reviewing, setReviewing] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [review, setReview] = useState<JDReview | null>(null);
 
-  // แก้ข้อความแล้วผลตรวจเก่าใช้ไม่ได้อีก — ถ้าค้างไว้ HR จะเข้าใจว่าตรวจฉบับใหม่แล้ว
   function editText(next: string) {
     setRawText(next);
     if (review || reviewError) {
@@ -46,15 +70,46 @@ export default function NewJobPage() {
     }
   }
 
-  async function handleSubmit() {
+  function startConfirm(d: JobAnalyzeResult | null) {
+    setDraft(d);
+    setLists({
+      required: d?.required_skills ?? [],
+      preferred: d?.preferred_skills ?? [],
+    });
+    setTitle(d?.job_title || rawText.trim().split("\n")[0].slice(0, 255));
+    setYears(d?.min_experience_years ?? 0);
+    setEducation(d?.education ?? "");
+    setConfirming(true);
+  }
+
+  async function handleAnalyze() {
     if (!rawText.trim()) return;
     setBusy(true);
     setError(null);
     try {
-      const job = await createJob(rawText);
+      startConfirm(await analyzeJD(rawText));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "วิเคราะห์ไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCreate() {
+    setBusy(true);
+    setError(null);
+    try {
+      const job = await createJob(rawText, {
+        job_title: title.trim() || "Untitled Position",
+        min_experience_years: years,
+        education: education.trim(),
+        required_skills: lists.required,
+        preferred_skills: lists.preferred,
+        extraction: draft?.extraction ?? null,
+      });
       router.push(`/jobs/${job.id}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "สร้างงานไม่สำเร็จ");
+      setError(e instanceof Error ? e.message : "สร้างตำแหน่งไม่สำเร็จ");
       setBusy(false);
     }
   }
@@ -62,74 +117,211 @@ export default function NewJobPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-md">
       <Breadcrumb
-        items={[
-          { label: "ตำแหน่งงาน", href: "/" },
-          { label: "สร้างตำแหน่งใหม่" },
-        ]}
+        items={[{ label: "ตำแหน่งงาน", href: "/" }, { label: "สร้างตำแหน่งใหม่" }]}
       />
 
       <div>
         <h1 className="text-headline-lg text-on-surface">สร้างตำแหน่งงานใหม่</h1>
         <p className="text-body-md text-on-surface-variant">
-          วางข้อความ Job Description แล้ว AI จะสกัดทักษะที่ต้องการให้อัตโนมัติ
+          วางประกาศ แล้วตรวจเกณฑ์ที่ AI ร่างให้ ก่อนบันทึก
         </p>
       </div>
 
-      <AiInsight title="ทำงานอย่างไร">
-        ระบบจะส่ง JD ให้ตัววิเคราะห์แยกเป็น ทักษะที่ต้องมี / ทักษะที่อยากได้ /
-        ประสบการณ์ขั้นต่ำ แล้วใช้เกณฑ์นี้ให้คะแนนผู้สมัครทุกคนที่อัปโหลดเข้ามา
-      </AiInsight>
+      {!confirming && (
+        <AiInsight title="ทำงาน 2 ขั้น">
+          <b className="text-on-surface">1.</b> วางประกาศแล้วกด “วิเคราะห์” — AI แยกให้เป็นทักษะที่ต้องมี
+          ทักษะที่อยากได้ และประสบการณ์ขั้นต่ำ · <b className="text-on-surface">2.</b> คุณตรวจและแก้
+          แล้วกดยืนยัน ตำแหน่งจึงถูกสร้าง · เกณฑ์ที่ยืนยันคือสิ่งที่ใช้ให้คะแนนผู้สมัครทุกคน
+          แก้ทีหลังได้ตลอด
+        </AiInsight>
+      )}
 
       <div className="glass-card-elevated rounded-2xl p-md space-y-sm">
-        <textarea
-          value={rawText}
-          onChange={(e) => editText(e.target.value)}
-          placeholder={PLACEHOLDER}
-          rows={12}
-          className="input-glass w-full resize-y"
-        />
-        {error && <p className="text-error text-label-md">{error}</p>}
-        {reviewError && (
+        {confirming ? (
+          // ระหว่างยืนยันเกณฑ์: โชว์ประกาศแบบอ่านอย่างเดียว ให้ยังเทียบกับเกณฑ์ได้
+          <details className="rounded-xl border border-outline-variant/40 p-sm">
+            <summary className="text-label-md font-semibold text-on-surface cursor-pointer">
+              ประกาศที่วางไว้ (กดเพื่อดู)
+            </summary>
+            <pre className="mt-xs whitespace-pre-wrap break-words font-sans text-label-md text-on-surface-variant max-h-60 overflow-y-auto">
+              {rawText}
+            </pre>
+          </details>
+        ) : (
+          <textarea
+            value={rawText}
+            onChange={(e) => editText(e.target.value)}
+            placeholder={PLACEHOLDER}
+            rows={12}
+            className="input-glass w-full resize-y"
+          />
+        )}
+
+        {error && (
+          <p className="text-error text-label-md" role="alert">
+            {error}
+          </p>
+        )}
+        {reviewError && !confirming && (
           <p className="text-error text-label-md" role="alert">
             {reviewError}
           </p>
         )}
-        <div className="flex justify-end gap-xs flex-wrap">
-          <button onClick={() => router.push("/")} className="btn-secondary-glass">
-            ยกเลิก
-          </button>
-          {/* ปุ่มตรวจแยกจากปุ่มสร้างโดยตั้งใจ — ต้องกดเอง ไม่ยิงอัตโนมัติตอนพิมพ์
-              เพราะแต่ละครั้งกินโควตา AI (ฟรีวันละ 20 ครั้ง) */}
+        {/* AI อ่านไม่ได้ (โควตาหมด/ล่ม) ไม่ควรทำให้สร้างตำแหน่งไม่ได้เลย */}
+        {error && !confirming && rawText.trim() && (
           <button
-            onClick={handleReview}
-            disabled={reviewing || !rawText.trim()}
-            className="btn-secondary-glass disabled:opacity-50"
+            onClick={() => startConfirm(null)}
+            className="text-label-md text-primary hover:underline"
           >
-            <span className="material-symbols-outlined text-[18px]">rate_review</span>
-            {reviewing ? "กำลังตรวจ JD…" : "ตรวจ JD ก่อนโพสต์"}
+            กรอกเกณฑ์เองแล้วสร้างตำแหน่ง
           </button>
-          <button
-            onClick={handleSubmit}
-            disabled={busy || !rawText.trim()}
-            className="btn-primary"
-          >
-            {busy ? (
-              "กำลังวิเคราะห์ JD…"
-            ) : (
-              <>
-                <span className="material-symbols-outlined text-[18px]">
-                  auto_awesome
-                </span>
-                สร้างและวิเคราะห์
-              </>
-            )}
-          </button>
-        </div>
+        )}
+
+        {!confirming && (
+          <div className="flex justify-end gap-xs flex-wrap">
+            <button onClick={() => router.push("/")} className="btn-secondary-glass">
+              ยกเลิก
+            </button>
+            {/* ปุ่มตรวจแยกจากปุ่มวิเคราะห์โดยตั้งใจ — แต่ละครั้งกินโควตา AI */}
+            <button
+              onClick={handleReview}
+              disabled={reviewing || busy || !rawText.trim()}
+              className="btn-secondary-glass disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined text-[18px]">rate_review</span>
+              {reviewing ? "กำลังตรวจ JD…" : "ตรวจ JD ก่อนโพสต์"}
+            </button>
+            <button
+              onClick={handleAnalyze}
+              disabled={busy || !rawText.trim()}
+              className="btn-primary"
+            >
+              {busy ? (
+                "AI กำลังอ่านประกาศ…"
+              ) : (
+                <>
+                  <span className="material-symbols-outlined text-[18px]">auto_awesome</span>
+                  วิเคราะห์
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* ผลตรวจเป็นคำแนะนำเท่านั้น — ปุ่ม "สร้างและวิเคราะห์" ด้านบนยังกดได้ตลอด
-          ไม่ว่าจะเคยตรวจหรือไม่ และไม่ว่าผลตรวจจะบอกว่าอย่างไร */}
-      {review && <JDReviewCard review={review} />}
+      {review && !confirming && <JDReviewCard review={review} />}
+
+      {confirming && (
+        <div className="glass-card-elevated rounded-2xl p-md space-y-sm">
+          <div>
+            <h2 className="text-headline-md text-on-surface">ตรวจเกณฑ์ก่อนบันทึก</h2>
+            <p className="text-label-md text-on-surface">
+              {draft
+                ? "AI ร่างจากประกาศให้แล้ว ยังไม่ได้บันทึก — แก้ได้ทุกช่อง กดที่ชื่อทักษะเพื่อดูว่ามาจากบรรทัดไหน"
+                : "AI อ่านประกาศไม่สำเร็จ — กรอกเกณฑ์เองได้ที่นี่ แก้ทีหลังในหน้าตำแหน่งงานก็ได้"}
+            </p>
+            <p className="text-label-sm text-on-surface-variant mt-0.5">
+              ทุกข้อในฝั่ง “ต้องมี” นับเป็นข้อบังคับ · ถ้ามีตัวใดตัวหนึ่งก็พอ ให้พิมพ์คั่นด้วย “หรือ”
+              เช่น PyTorch หรือ TensorFlow (นับเป็น 1 ข้อ)
+            </p>
+          </div>
+
+          {draft?.warnings.map((w) => (
+            <div
+              key={w}
+              role="note"
+              className="flex gap-base items-start p-xs rounded-lg border border-tertiary/40 bg-tertiary-container/10"
+            >
+              <span
+                className="material-symbols-outlined text-tertiary text-[18px] flex-none"
+                style={{ fontVariationSettings: "'FILL' 1" }}
+              >
+                warning
+              </span>
+              <p className="text-label-md text-on-surface">{w}</p>
+            </div>
+          ))}
+          {draft && draft.dropped.length > 0 && (
+            <p className="text-label-sm text-on-surface">
+              คัดออกเพราะไม่ใช่ทักษะ (เช่นชื่อบทบาท): {draft.dropped.join(", ")}
+            </p>
+          )}
+
+          <div className="grid gap-sm sm:grid-cols-2">
+            <label className="block space-y-xs sm:col-span-2">
+              <span className="text-label-sm text-outline">ชื่อตำแหน่ง</span>
+              <input
+                className="input-glass w-full"
+                value={title}
+                maxLength={255}
+                onChange={(e) => setTitle(e.target.value)}
+                disabled={busy}
+              />
+            </label>
+            <label className="block space-y-xs">
+              <span className="text-label-sm text-outline">ประสบการณ์ขั้นต่ำ (ปี)</span>
+              <input
+                type="number"
+                min={0}
+                max={60}
+                className="input-glass w-full"
+                value={years}
+                onChange={(e) => setYears(Math.max(0, Math.min(60, Number(e.target.value) || 0)))}
+                disabled={busy}
+              />
+            </label>
+            <label className="block space-y-xs">
+              <span className="text-label-sm text-outline">การศึกษา</span>
+              <input
+                className="input-glass w-full"
+                value={education}
+                maxLength={500}
+                onChange={(e) => setEducation(e.target.value)}
+                placeholder="เช่น ปริญญาตรีสาขาคอมพิวเตอร์"
+                disabled={busy}
+              />
+            </label>
+          </div>
+
+          <SkillListsEditor
+            lists={lists}
+            onChange={setLists}
+            disabled={busy}
+            sources={draft?.sources}
+          />
+
+          <div className="flex flex-wrap items-center justify-end gap-xs pt-xs">
+            <button
+              type="button"
+              className="btn-secondary-glass me-auto"
+              onClick={() => {
+                setConfirming(false);
+                setError(null);
+              }}
+              disabled={busy}
+              title="แก้ข้อความประกาศแล้ววิเคราะห์ใหม่ (ใช้ AI อีก 1 ครั้ง)"
+            >
+              กลับไปแก้ประกาศ
+            </button>
+            <button
+              type="button"
+              className="btn-secondary-glass"
+              onClick={() => router.push("/")}
+              disabled={busy}
+            >
+              ยกเลิก
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleCreate}
+              disabled={busy || !title.trim()}
+            >
+              {busy ? "กำลังบันทึก…" : "ยืนยันและสร้างตำแหน่ง"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
