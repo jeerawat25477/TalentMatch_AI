@@ -1,4 +1,4 @@
-"""เราเตอร์ค่าตั้งค่าระบบ — ตอนนี้มีแค่สวิตช์ปากทางรับอีเมล.
+"""เราเตอร์ค่าตั้งค่าระบบ — สวิตช์ปากทางรับอีเมล และสวิตช์แสดงรูปผู้สมัครหน้าคัดกรอง.
 
 สวิตช์อยู่ใน DB ไม่ใช่ env เพราะ HR ต้องเปิด/ปิดเองได้จากหน้าเว็บโดยไม่ต้องรีสตาร์ต
 (worker อ่านค่าทุกรอบ tick ผ่าน app/settings.py ที่แคชสั้น ๆ ให้)
@@ -27,10 +27,15 @@ from app.schemas import (
     EmailIntakeActivityItem,
     EmailIntakeSettingIn,
     EmailIntakeSettingOut,
+    ScreeningPhotosSetting,
 )
 from app.settings import get_setting, patch_setting
 
 log = logging.getLogger(__name__)
+
+# สวิตช์แสดงรูปผู้สมัครหน้าคัดกรอง — ดีฟอลต์ปิด ต้องตรงกับแถว seed ใน schema.sql
+SCREENING_PHOTOS_KEY = "screening_photos"
+SCREENING_PHOTOS_DEFAULT = {"enabled": False}
 
 # กันทั้ง router ด้วย JWT เหมือนทุก router อื่น — ทุก path ต้องล็อกอินก่อน
 router = APIRouter(
@@ -126,3 +131,20 @@ def set_email_intake(payload: EmailIntakeSettingIn) -> EmailIntakeSettingOut:
     patch_setting(SETTING_KEY, {"enabled": payload.enabled}, DEFAULT_SETTING)
     log.info("HR %s ปากทางรับอีเมล", "เปิด" if payload.enabled else "ปิด")
     return _status()
+
+
+@router.get("/screening-photos", response_model=ScreeningPhotosSetting)
+def get_screening_photos() -> ScreeningPhotosSetting:
+    """หน้าคัดกรองควรแสดงรูปผู้สมัครไหม — อ่านผ่านแคช 10 วินาทีเหมือนสวิตช์อื่น."""
+    setting = get_setting(SCREENING_PHOTOS_KEY, SCREENING_PHOTOS_DEFAULT)
+    return ScreeningPhotosSetting(enabled=bool(setting.get("enabled")))
+
+
+@router.patch("/screening-photos", response_model=ScreeningPhotosSetting)
+def set_screening_photos(payload: ScreeningPhotosSetting) -> ScreeningPhotosSetting:
+    """เปิด/ปิดการแสดงรูปบนหน้าคัดกรอง — มีผลทันที ไม่ต้องรีสตาร์ต."""
+    patch_setting(
+        SCREENING_PHOTOS_KEY, {"enabled": payload.enabled}, SCREENING_PHOTOS_DEFAULT
+    )
+    log.info("HR %s การแสดงรูปผู้สมัครหน้าคัดกรอง", "เปิด" if payload.enabled else "ปิด")
+    return get_screening_photos()

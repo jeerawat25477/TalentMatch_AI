@@ -4,6 +4,7 @@ import { Inbox, Monitor, Moon, Palette, Sun } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import Breadcrumb from "@/components/breadcrumb";
+import ScreeningPhotosCard from "@/components/screening-photos-card";
 import {
   DARK_QUERY,
   THEME_LABELS,
@@ -95,6 +96,8 @@ export default function SettingsPage() {
           })}
         </div>
       </section>
+
+      <ScreeningPhotosCard />
 
       {/* การรับสมัครทางอีเมลย้ายไปเป็นเมนูหลัก /intake แล้ว — ทิ้งทางลัดไว้ให้คนที่เคยหาที่นี่ */}
       <Link

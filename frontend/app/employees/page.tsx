@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useState } from "react";
 import useSWR from "swr";
 import Breadcrumb from "@/components/breadcrumb";
+import CandidateAvatar from "@/components/candidate-avatar";
 import { fetcher } from "@/lib/api";
-import { EMPLOYEE_STATUS, initials } from "@/lib/types";
+import { EMPLOYEE_STATUS } from "@/lib/types";
 import type { EmployeeListItem, EmployeeStatus } from "@/lib/types";
 
 const AVATAR_COLORS = [
@@ -146,12 +147,14 @@ function EmployeeRow({
       href={`/employees/${employee.id}`}
       className="glass-card rounded-2xl px-md py-sm flex items-center gap-md flex-wrap hover:shadow-lg hover:-translate-y-0.5 transition-all"
     >
-      <div
+      {/* รับเข้าแล้ว ไม่มีการตัดสินที่รูปจะไปมีผล — แสดงรูปเสมอ ไม่ดูสวิตช์หน้าคัดกรอง */}
+      <CandidateAvatar
+        candidateId={employee.candidate_id}
+        name={employee.full_name}
+        show
         className="w-12 h-12 flex-none rounded-xl flex items-center justify-center text-body-md font-semibold text-white"
         style={{ background: AVATAR_COLORS[index % AVATAR_COLORS.length] }}
-      >
-        {initials(employee.full_name)}
-      </div>
+      />
 
       <div className="flex-[2] min-w-[180px]">
         <div className="text-body-md font-semibold text-on-surface mb-0.5">

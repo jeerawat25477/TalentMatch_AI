@@ -5,9 +5,10 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import useSWR from "swr";
 import Breadcrumb from "@/components/breadcrumb";
+import CandidateAvatar from "@/components/candidate-avatar";
 import ConfirmDialog from "@/components/confirm-dialog";
 import { fetcher, setEmployeeStatus } from "@/lib/api";
-import { EMPLOYEE_STATUS, initials } from "@/lib/types";
+import { EMPLOYEE_STATUS } from "@/lib/types";
 import type { EmployeeDetail, EmployeeStatus } from "@/lib/types";
 
 // ปุ่มเปลี่ยนสถานะที่จะโชว์ (ยกเว้นสถานะปัจจุบัน) + ป้ายกำกับการกระทำ
@@ -80,12 +81,14 @@ export default function EmployeeDetailPage() {
       {/* โปรไฟล์ */}
       <div className="glass-card-elevated rounded-2xl p-md md:p-lg">
         <div className="flex flex-col md:flex-row gap-md md:items-center">
-          <div
+          {/* แสดงรูปเสมอ — รับเข้าแล้ว ไม่มีความเสี่ยงอคติในการตัดสินอีก */}
+          <CandidateAvatar
+            candidateId={e.candidate_id}
+            name={e.full_name}
+            show
             className="w-20 h-20 flex-none rounded-2xl flex items-center justify-center text-headline-md font-semibold text-white"
             style={{ background: "#0058be" }}
-          >
-            {initials(e.full_name)}
-          </div>
+          />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-xs flex-wrap">
               <h1 className="text-headline-lg text-on-surface">{e.full_name}</h1>

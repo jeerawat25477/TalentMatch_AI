@@ -13,6 +13,7 @@
   4. แกะข้อความ  — ล้มได้ ไม่ควรทำให้ทั้งชุดพัง
   5. อ่านไม่ออก  — กันเรซูเม่สแกน/ถ่ายรูปที่จะเสียโควตา LLM ไปอ่านความว่างเปล่า
   6. INSERT      — ON CONFLICT DO NOTHING กันสองทางเข้าแทรกไฟล์เดียวกันพร้อมกัน
+  7. รูปโปรไฟล์  — best-effort เฉพาะไฟล์ที่รับจริง พังแล้วผู้สมัครยังเข้าระบบตามปกติ
 
 **คืนคำตัดสิน ไม่ raise** โดยตั้งใจ: เราเตอร์ต้องแปลงเป็น HTTPException (400/413) ส่วน
 worker ต้องแปลงเป็น log + แถวใน email_intake_log — ถ้าฟังก์ชันนี้ raise HTTPException เอง
@@ -26,6 +27,7 @@ from pathlib import PurePath
 from typing import Optional
 from uuid import UUID
 
+from app.resume_photo import extract_candidate_photo
 from app.utils.pdf_extractor import extract_text_from_pdf
 
 log = logging.getLogger(__name__)
@@ -142,4 +144,33 @@ def admit_resume(
     ).fetchone()
     if row is None:  # มีคนอื่นแทรกไฟล์เดียวกันเข้าไปก่อนแล้ว
         return Verdict.DUPLICATE, None
+    save_candidate_photo(conn, row["id"], content, filename)
     return Verdict.ACCEPTED, row["id"]
+
+
+def save_candidate_photo(conn, candidate_id, content: bytes, filename: str) -> bool:
+    """ดึงรูปโปรไฟล์จาก PDF แล้วบันทึก — **best-effort ห้ามทำให้การรับไฟล์ล้ม**.
+
+    ต้องทำตอนนี้เท่านั้น: หลัง admit_resume จบ ไบต์ PDF ไม่ถูกเก็บไว้ที่ไหนอีก (reprocess
+    มีแค่ข้อความ) · ดึงเสมอไม่ว่าสวิตช์ screening_photos จะเปิดหรือปิด — สวิตช์คุมแค่การแสดง
+    ถ้าดึงตามสวิตช์ คนที่อัปโหลดตอนปิดจะไม่มีรูปตลอดไปแม้ HR เปิดทีหลัง
+
+    ห่อด้วย SAVEPOINT (conn.transaction() ซ้อนในทรานแซกชันที่เปิดอยู่) เพราะ INSERT ที่
+    error จะทำให้ทรานแซกชันทั้งก้อน abort แล้วผู้สมัครทุกคนในชุดอัปโหลดนี้หายไปด้วย
+    """
+    try:
+        photo = extract_candidate_photo(content)
+        if photo is None:
+            return False
+        image, mime = photo
+        with conn.transaction():
+            conn.execute(
+                """INSERT INTO candidate_photos (candidate_id, image_bytes, content_type)
+                   VALUES (%s, %s, %s)
+                   ON CONFLICT (candidate_id) DO NOTHING""",
+                (candidate_id, image, mime),
+            )
+        return True
+    except Exception as exc:  # noqa: BLE001 — รูปเป็นของแถม ไม่ใช่เหตุให้ปฏิเสธใบสมัคร
+        log.warning("ดึงรูปจาก %s ไม่สำเร็จ ข้ามไป: %s", filename, exc)
+        return False

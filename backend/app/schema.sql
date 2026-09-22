@@ -245,6 +245,13 @@ VALUES ('email_intake',
           "last_poll_at": null, "last_error": null}')
 ON CONFLICT (key) DO NOTHING;
 
+-- แสดงรูปผู้สมัครบนหน้าคัดกรอง — **ดีฟอลต์ปิดเสมอ** (เห็นหน้าก่อนตัดสินอาจทำให้ไม่เป็นกลาง)
+-- สวิตช์นี้คุมแค่ "แสดงไหม" ไม่ได้คุม "ดึงไหม" — รูปถูกดึงตอนรับไฟล์ทุกครั้ง (ดู candidate_photos)
+-- DO NOTHING ด้วยเหตุผลเดียวกับ email_intake: บูตใหม่ต้องไม่ทับค่าที่ HR ตั้งไว้
+INSERT INTO app_settings (key, value)
+VALUES ('screening_photos', '{"enabled": false}')
+ON CONFLICT (key) DO NOTHING;
+
 -- บันทึกทุกฉบับที่ปากทางอีเมลเห็น — ทั้งที่รับเข้าและที่ปฏิเสธ
 -- มีไว้เพื่อสองอย่าง: (1) ให้ HR เห็นว่าเมลที่จับคู่ไม่ได้มีกี่ฉบับและเพราะอะไร
 -- โดยไม่ต้องเปิด container log (2) ให้ตัวนับรายวันคำนวณจากข้อมูลจริงด้วย GROUP BY
@@ -361,4 +368,23 @@ CREATE TABLE IF NOT EXISTS job_offers (
     offered_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     responded_at TIMESTAMP WITH TIME ZONE,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- ============================================================
+-- รูปโปรไฟล์ที่ดึงจากหน้าแรกของเรซูเม่ — หนึ่งแถวต่อผู้สมัคร (ไม่มีแถว = ไม่มีรูป)
+-- ============================================================
+-- ดึงตอนรับไฟล์เท่านั้น (app/resume_ingest.py) เพราะไบต์ PDF ไม่ถูกเก็บไว้ที่ไหนหลังจากนั้น
+-- ผู้สมัครที่เข้ามาก่อนมีตารางนี้จึงไม่มีรูปตลอดไป และ reprocess ก็ดึงไม่ได้ (มีแค่ข้อความ)
+-- — ข้อจำกัดชนิดเดียวกับ resume_sha256 ที่ backfill ไม่ได้
+--
+-- เลือกรูปด้วย heuristic ขนาด+สัดส่วน (app/resume_photo.py) ไม่มี face detection —
+-- อาจหยิบโลโก้หรือกราฟิกมาแทนรูปคนได้ ยอมรับไว้ตั้งแต่ต้น
+--
+-- แยกตารางแทนคอลัมน์ใน candidates เพื่อไม่ให้ SELECT รายชื่อผู้สมัครลากไบต์รูปมาด้วย
+-- ON DELETE CASCADE: ลบผู้สมัคร (อัปโหลดผิดไฟล์) รูปต้องหายไปด้วย
+CREATE TABLE IF NOT EXISTS candidate_photos (
+    candidate_id UUID PRIMARY KEY REFERENCES candidates(id) ON DELETE CASCADE,
+    image_bytes BYTEA NOT NULL,
+    content_type TEXT NOT NULL CHECK (content_type IN ('image/jpeg', 'image/png')),
+    extracted_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );

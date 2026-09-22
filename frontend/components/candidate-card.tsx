@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useState } from "react";
 import { deleteCandidate, reprocessCandidate } from "@/lib/api";
 import type { CandidateSummary } from "@/lib/types";
-import { initials, QUEUE_STATE } from "@/lib/types";
+import { QUEUE_STATE } from "@/lib/types";
 import { skillLabel } from "@/lib/skill-group";
+import CandidateAvatar, { useScreeningPhotos } from "./candidate-avatar";
 import ConfirmDialog from "./confirm-dialog";
 import ScoreRing from "./score-ring";
 
@@ -42,6 +43,8 @@ export default function CandidateCard({
   selected?: boolean;
   onSelectChange?: (checked: boolean) => void;
 }) {
+  // หน้ารายชื่อยังมีการตัดสิน (ติ๊กเลือกตัดสินหมู่) → รูปขึ้นเฉพาะเมื่อ HR เปิดสวิตช์
+  const showPhoto = useScreeningPhotos();
   const [busy, setBusy] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   // งานยังอยู่ในคิวฝั่ง backend — ระบบจะรันให้เอง ไม่ต้องให้ HR กดอะไร
@@ -97,12 +100,13 @@ export default function CandidateCard({
       ) : (
         <span className="flex-none w-5" aria-hidden />
       )}
-      <div
+      <CandidateAvatar
+        candidateId={candidate.id}
+        name={candidate.full_name}
+        show={showPhoto}
         className="w-12 h-12 flex-none rounded-xl flex items-center justify-center text-body-md font-semibold text-white"
         style={{ background: AVATAR_COLORS[index % AVATAR_COLORS.length] }}
-      >
-        {initials(candidate.full_name)}
-      </div>
+      />
 
       <div className="flex-[2] min-w-[180px]">
         <div className="text-body-md font-semibold text-on-surface mb-0.5">

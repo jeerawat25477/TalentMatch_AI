@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
 
 from app.agents.nodes.matcher import score_breakdown
 from app.criteria_edit import needs_recheck
@@ -399,6 +399,34 @@ def search_candidates(q: str, limit: int = 10) -> list[CandidateSearchHit]:
         log.exception("ค้นหาเชิงความหมายล้มเหลว: %s", exc)
         raise HTTPException(status_code=503, detail="ระบบค้นหาไม่พร้อมใช้งานชั่วคราว") from exc
     return [CandidateSearchHit(**h) for h in hits]
+
+
+@router.get(
+    "/candidates/{candidate_id}/photo",
+    response_class=Response,
+    responses={200: {"content": {"image/jpeg": {}, "image/png": {}}}, 404: {}},
+)
+def get_candidate_photo(candidate_id: UUID) -> Response:
+    """ไบต์รูปโปรไฟล์ที่ดึงไว้ตอนรับไฟล์ — 404 = ไม่มีรูป (หน้าเว็บกลับไปใช้ตัวอักษรย่อ).
+
+    **ไม่ดูสวิตช์ screening_photos โดยตั้งใจ** — ที่นี่แค่เสิร์ฟไฟล์ที่ JWT คุมอยู่แล้ว
+    หน้าเว็บเป็นฝ่ายตัดสินว่าจะขอดูไหม เพราะหน้าทะเบียนพนักงานต้องเห็นรูปเสมอ
+    ส่วนหน้าคัดกรองขอเฉพาะตอนสวิตช์เปิด
+
+    no-store: รูปคือข้อมูลส่วนบุคคล ไม่ให้เบราว์เซอร์หรือพร็อกซีเก็บไว้ในแคช
+    """
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT image_bytes, content_type FROM candidate_photos WHERE candidate_id = %s",
+            (str(candidate_id),),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="ไม่มีรูปของผู้สมัครคนนี้")
+    return Response(
+        content=bytes(row["image_bytes"]),
+        media_type=row["content_type"],
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @router.get("/candidates/{candidate_id}", response_model=CandidateDetail)

@@ -781,3 +781,11 @@ export interface JobOfferUpsert {
   respond_by?: string | null;
   note?: string | null;
 }
+
+/**
+ * สวิตช์แสดงรูปผู้สมัครบนหน้าคัดกรอง — ดีฟอลต์ปิด (เห็นหน้าก่อนตัดสินอาจทำให้ไม่เป็นกลาง)
+ * คุมแค่หน้าที่ HR ยังตัดสินผู้สมัครอยู่ · หน้าทะเบียนพนักงานแสดงรูปเสมอ
+ */
+export interface ScreeningPhotosSetting {
+  enabled: boolean;
+}

@@ -30,6 +30,7 @@ import type {
   JobDeleteResult,
   JobListItem,
   JobStatus,
+  ScreeningPhotosSetting,
   TokenResponse,
   UserInfo,
 } from "./types";
@@ -309,6 +310,34 @@ export const getEmailIntakeActivity = (limit = 30) =>
 
 export const setEmailIntake = (enabled: boolean) =>
   request<EmailIntakeSettings>("/api/v1/settings/email-intake", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+
+// ---------- รูปผู้สมัคร ----------
+/**
+ * รูปโปรไฟล์ที่ดึงจากเรซูเม่ — คืน null เมื่อไม่มีรูป (404) ให้ผู้เรียกกลับไปใช้ตัวอักษรย่อ
+ *
+ * แยกจาก request<T> เพราะคำตอบเป็นไบต์รูป ไม่ใช่ JSON · ใช้ <img src> ตรง ๆ ไม่ได้เพราะ
+ * เบราว์เซอร์ไม่แนบ Bearer token ให้ จึงต้อง fetch เป็น blob แล้วให้ผู้เรียกทำ object URL เอง
+ */
+export async function getCandidatePhoto(candidateId: string): Promise<Blob | null> {
+  const res = await fetch(`${API_BASE}/api/v1/candidates/${candidateId}/photo`, {
+    headers: authHeaders(),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    if (res.status === 401) handleUnauthorized();
+    throw new Error(`${res.status}: โหลดรูปไม่สำเร็จ`);
+  }
+  return res.blob();
+}
+
+export const SCREENING_PHOTOS_KEY = "/api/v1/settings/screening-photos";
+
+export const setScreeningPhotos = (enabled: boolean) =>
+  request<ScreeningPhotosSetting>(SCREENING_PHOTOS_KEY, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),

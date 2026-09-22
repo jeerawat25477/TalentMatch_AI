@@ -505,6 +505,15 @@ class EmailIntakeSettingIn(BaseModel):
     enabled: bool
 
 
+class ScreeningPhotosSetting(BaseModel):
+    """สวิตช์แสดงรูปผู้สมัครบนหน้าคัดกรอง (ใช้ทั้งขาเข้าและขาออก).
+
+    คุมแค่ "หน้าคัดกรองแสดงไหม" — การดึงรูปตอนรับไฟล์ทำเสมอ และหน้าทะเบียนพนักงาน
+    แสดงรูปเสมอโดยไม่ดูค่านี้
+    """
+    enabled: bool
+
+
 class EmailIntakeSettingOut(BaseModel):
     """สถานะปากทางรับอีเมลสำหรับหน้าตั้งค่า."""
     enabled: bool

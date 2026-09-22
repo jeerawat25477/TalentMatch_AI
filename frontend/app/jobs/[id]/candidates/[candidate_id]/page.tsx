@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import Breadcrumb from "@/components/breadcrumb";
+import CandidateAvatar, { useScreeningPhotos } from "@/components/candidate-avatar";
 import CandidateTimeline from "@/components/candidate-timeline";
 import EmailTemplatePicker from "@/components/email-template-picker";
 import HireEmployeeDialog from "@/components/hire-employee-dialog";
@@ -38,7 +39,6 @@ import {
   DEFAULT_REJECTION,
   emailMode,
   fillTemplate,
-  initials,
   INTERVIEW_RESULT,
   normalizeQuestions,
   QUEUE_STATE,
@@ -61,6 +61,7 @@ export default function CandidateDeepDive() {
   );
   // ใช้เฉพาะชื่อตำแหน่งใน breadcrumb (SWR แคชร่วมกับหน้า job dashboard)
   const { data: job } = useSWR<Job>(`/api/v1/jobs/${id}`, fetcher);
+  const showPhoto = useScreeningPhotos();
 
   const [notes, setNotes] = useState("");
   const [emailBody, setEmailBody] = useState("");
@@ -289,11 +290,13 @@ export default function CandidateDeepDive() {
               <div className="flex flex-col items-center text-center p-md rounded-xl bg-glass/40">
                 <div className="relative mb-sm">
                   <div className="w-28 h-28 rounded-full border-4 border-tertiary-container p-1">
-                    <div
+                    {/* หน้านี้มีปุ่มตัดสิน → รูปขึ้นเฉพาะเมื่อ HR เปิดสวิตช์ในหน้าตั้งค่า */}
+                    <CandidateAvatar
+                      candidateId={candidate_id}
+                      name={c.full_name}
+                      show={showPhoto}
                       className="w-full h-full rounded-full flex items-center justify-center text-headline-md font-semibold bg-primary-container text-on-primary"
-                    >
-                      {initials(c.full_name)}
-                    </div>
+                    />
                   </div>
                   <div
                     className="absolute -bottom-1 -right-1 px-3 py-1 rounded-full text-label-md font-semibold shadow-lg border-2 border-surface text-surface"
