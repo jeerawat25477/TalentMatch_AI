@@ -136,6 +136,18 @@ class TestTransparentCanvas:
             r, g, b = pix.pixel(x, y)[:3]
             assert b > 150 and (r, g, b) != (0, 0, 0)
 
+    def test_ไม่รู้ตำแหน่งบนหน้าก็ยังตัดพื้นดำออก(self, monkeypatch):
+        """รูปซ้อนใน form XObject หาตำแหน่งบนหน้าไม่ได้ → ตัดจากตัวรูปตามกรอบที่มองเห็นแทน."""
+        pdf = make_masked_pdf((600, 640), (150, 100, 390, 400))
+        monkeypatch.setattr(pymupdf.Page, "get_image_rects", lambda self, *a, **k: [])
+        image, mime = extract_candidate_photo(pdf)
+        assert mime == "image/jpeg"
+        pix = pymupdf.Pixmap(image)
+        assert (pix.width, pix.height) == (240, 300)  # ขนาดส่วนที่มองเห็นพอดี
+        for x, y in [(2, 2), (pix.width - 3, pix.height - 3)]:
+            r, g, b = pix.pixel(x, y)[:3]
+            assert b > 150 and (r, g, b) != (0, 0, 0)
+
     def test_ไอคอนเล็กบนแผ่นโปร่งใสใหญ่ไม่นับเป็นรูป(self):
         """วัดจากส่วนที่มองเห็น ไม่ใช่ขนาดแผ่น — ไอคอน 40px บนแผ่น 600px ต้องถูกตัดทิ้ง."""
         assert extract_candidate_photo(make_masked_pdf((600, 600), (10, 10, 50, 50))) is None

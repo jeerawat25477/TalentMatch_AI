@@ -9,6 +9,7 @@ key `screening_photos`)
 ที่เหลือโปร่งใส (วัดจริง: แผ่น 1315×1452 มีส่วนมองเห็น 20%) — หยิบแค่ชั้นรูปโดยไม่ใช้ mask
 ส่วนโปร่งใสจะกลายเป็นสีดำ รูปคนเหลือตัวเล็กบนพื้นดำ จึงวัดขนาดจากส่วนที่มองเห็นจริง และตัดรูปด้วย
 การวาดเฉพาะบริเวณนั้นของหน้า (ได้ภาพตรงกับที่คนเห็นตอนเปิดไฟล์ รวมการผสมกับพื้นหลังแล้ว)
+ถ้าหาตำแหน่งบนหน้าไม่ได้ ตัดจากตัวรูปตามกรอบที่มองเห็นแทน (รูปวงกลมอาจเหลือมุมดำเล็กน้อย)
 
 ฟังก์ชันบริสุทธิ์: รับไบต์ คืนไบต์ ไม่แตะ DB — ผู้เรียก (resume_ingest) เป็นคนบันทึก
 """
@@ -150,6 +151,31 @@ def _render_visible(page, m: dict) -> Optional[tuple[bytes, str]]:
     return pix.tobytes("jpg", jpg_quality=85), "image/jpeg"
 
 
+def _crop_visible(doc, m: dict) -> Optional[tuple[bytes, str]]:
+    """ทางสำรองเมื่อไม่รู้ว่ารูปวางตรงไหนของหน้า (เช่นซ้อนใน form XObject) — ตัดจากตัวรูปเอง.
+
+    ตัดตามกรอบส่วนที่มองเห็นใน mask พื้นดำรอบรูปจึงหายเกือบหมด แต่รูปวงกลม/มุมมนยังเหลือ
+    มุมดำเล็กน้อย เพราะไม่ได้ผสมสีกับพื้นหลัง (ต้องไล่ทีละพิกเซลหรือเพิ่มไลบรารี — ไม่คุ้มกับกรณีที่
+    ยังไม่เคยเจอในไฟล์จริง)
+    """
+    pix = pymupdf.Pixmap(doc, m["xref"])
+    if pix.alpha:
+        pix = pymupdf.Pixmap(pix, 0)
+    if pix.n >= 4:  # CMYK → RGB ให้ JPEG เปิดได้ทุกเบราว์เซอร์
+        pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
+    fx0, fy0, fx1, fy1 = m["frac"]
+    box = pymupdf.IRect(
+        round(pix.width * fx0), round(pix.height * fy0),
+        round(pix.width * fx1), round(pix.height * fy1),
+    )
+    if box.is_empty:
+        return None
+    crop = pymupdf.Pixmap(pix.colorspace, box, False)
+    crop.copy(pix, box)
+    crop.set_origin(0, 0)
+    return crop.tobytes("jpg", jpg_quality=85), "image/jpeg"
+
+
 def extract_candidate_photo(pdf_bytes: bytes) -> Optional[tuple[bytes, str]]:
     """รูปที่น่าจะเป็นรูปโปรไฟล์จากหน้าแรก → (bytes, mime) หรือ None ถ้าไม่เจอที่เข้าเกณฑ์.
 
@@ -172,8 +198,11 @@ def extract_candidate_photo(pdf_bytes: bytes) -> Optional[tuple[bytes, str]]:
         best = max(measured, key=lambda m: m["w"] * m["h"], default=None)
         if best is None:
             return None
-        # รูปมี mask → วาดส่วนที่มองเห็นจากหน้า · ไม่มี mask → ใช้ไบต์ต้นฉบับตรง ๆ (คมสุด)
-        result = _render_visible(page, best) if best["masked"] else None
+        # รูปมี mask → วาดส่วนที่มองเห็นจากหน้า ถ้าไม่รู้ตำแหน่งบนหน้าก็ตัดจากตัวรูปแทน
+        # ไม่มี mask → ใช้ไบต์ต้นฉบับตรง ๆ (คมสุด)
+        result = None
+        if best["masked"]:
+            result = _render_visible(page, best) or _crop_visible(doc, best)
         if result is None:
             result = _to_browser_image(doc, best["xref"])
     if result is None or len(result[0]) > MAX_PHOTO_BYTES:
