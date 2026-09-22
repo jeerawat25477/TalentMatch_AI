@@ -11,6 +11,7 @@ import ConfirmDialog from "@/components/confirm-dialog";
 import CriteriaEditorDialog from "@/components/criteria-editor-dialog";
 import FileUpload from "@/components/file-upload";
 import PipelineFunnel from "@/components/pipeline-funnel";
+import ScoreHistogram from "@/components/score-histogram";
 import { bulkDecision, fetcher } from "@/lib/api";
 import { JOB_STATUS, scoreBand } from "@/lib/types";
 import { skillLabel } from "@/lib/skill-group";
@@ -21,6 +22,7 @@ import type {
   FunnelStage,
   Job,
   ScoreBand,
+  ScoreDistribution,
 } from "@/lib/types";
 
 /** เลือกตัดสินหมู่ได้เฉพาะคนที่กราฟหยุดรอ HR อยู่จริง — คนอื่น backend ข้ามอยู่ดี */
@@ -51,6 +53,12 @@ export default function JobDashboard() {
   // กรวยรวมทั้งตำแหน่ง — อ่านอย่างเดียว นับจากข้อมูลชุดเดียวกับกระดาน
   const { data: funnel } = useSWR<FunnelStage[]>(
     `/api/v1/jobs/${id}/funnel`,
+    fetcher,
+    { refreshInterval: 4000 },
+  );
+  // คะแนนทยอยขึ้นระหว่างวิเคราะห์ จึง poll จังหวะเดียวกับกรวย
+  const { data: distribution } = useSWR<ScoreDistribution>(
+    `/api/v1/jobs/${id}/score-distribution`,
     fetcher,
     { refreshInterval: 4000 },
   );
@@ -251,6 +259,8 @@ export default function JobDashboard() {
           }
         />
       )}
+
+      {distribution && <ScoreHistogram data={distribution} />}
 
       {/* Upload — ปิดรับสมัครแล้วอัปโหลดไม่ได้ (backend ตอบ 409 ด้วย) */}
       {job?.status === "closed" ? (

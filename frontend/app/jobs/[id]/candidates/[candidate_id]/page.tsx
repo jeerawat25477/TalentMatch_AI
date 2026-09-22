@@ -19,6 +19,7 @@ import {
 import InterviewOutcomeDialog from "@/components/interview-outcome-dialog";
 import RadarChart from "@/components/radar-chart";
 import ScoreBreakdown from "@/components/score-breakdown";
+import ScoreHistogram from "@/components/score-histogram";
 import SkillGap from "@/components/skill-gap";
 import StatusBadge from "@/components/status-badge";
 import WorkingNote from "@/components/working-note";
@@ -50,6 +51,7 @@ import type {
   CandidateSearchHit,
   Decision,
   Job,
+  ScoreDistribution,
 } from "@/lib/types";
 
 export default function CandidateDeepDive() {
@@ -62,6 +64,11 @@ export default function CandidateDeepDive() {
   // ใช้เฉพาะชื่อตำแหน่งใน breadcrumb (SWR แคชร่วมกับหน้า job dashboard)
   const { data: job } = useSWR<Job>(`/api/v1/jobs/${id}`, fetcher);
   const showPhoto = useScreeningPhotos();
+  // ขอเฉพาะเมื่อคนนี้มีคะแนนแล้ว — ยังไม่มีผล ไม่มีหมุดให้ปัก จึงไม่แสดงกราฟนี้เลย
+  const { data: distribution } = useSWR<ScoreDistribution>(
+    c?.fit_score != null ? `/api/v1/jobs/${id}/score-distribution` : null,
+    fetcher,
+  );
 
   const [notes, setNotes] = useState("");
   const [emailBody, setEmailBody] = useState("");
@@ -418,6 +425,10 @@ export default function CandidateDeepDive() {
                   ไม่มีผลวิเคราะห์ (gap_analysis เป็น null) = ไม่แสดง */}
               {c.gap_analysis && c.score_breakdown && c.fit_score != null && (
                 <ScoreBreakdown breakdown={c.score_breakdown} fitScore={c.fit_score} />
+              )}
+              {/* คู่กับที่มาของคะแนน: อันนั้นบอกว่าได้มายังไง อันนี้บอกว่าอยู่ตรงไหนเทียบคนอื่น */}
+              {c.fit_score != null && distribution && (
+                <ScoreHistogram data={distribution} highlightScore={c.fit_score} />
               )}
               <SkillGap gap={c.gap_analysis} evidence={c.skill_evidence} />
             </div>

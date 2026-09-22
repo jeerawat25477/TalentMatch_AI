@@ -505,6 +505,24 @@ class EmailIntakeSettingIn(BaseModel):
     enabled: bool
 
 
+class ScoreBucket(BaseModel):
+    """ช่วงคะแนนหนึ่งช่วงของฮิสโตแกรม — ช่วง [range_start, range_start + 10) ยกเว้นช่วงท้าย
+    90 ที่รวม 100 ด้วย."""
+    range_start: int
+    count: int
+
+
+class ScoreDistribution(BaseModel):
+    """การกระจายคะแนนของผู้สมัครในตำแหน่งหนึ่ง (นับเฉพาะคนที่มีผลคะแนนแล้ว).
+
+    เส้นแบ่งแบนด์ส่งมาด้วยจาก app/agents/bands.py — หน้าเว็บวาดเส้นจากค่านี้ ไม่เขียนเลขเอง
+    """
+    buckets: list[ScoreBucket]
+    total: int
+    auto_advance_above: int
+    review_from: int
+
+
 class ScreeningPhotosSetting(BaseModel):
     """สวิตช์แสดงรูปผู้สมัครบนหน้าคัดกรอง (ใช้ทั้งขาเข้าและขาออก).
 

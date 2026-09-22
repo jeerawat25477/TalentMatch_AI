@@ -6,6 +6,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from psycopg.types.json import Json
 
+from app.agents.bands import AUTO_ADVANCE_ABOVE, REVIEW_FROM
 from app.agents.llm import DEFAULT_MODEL
 from app.agents.nodes.jd_analyzer import extract_jd
 from app.agents.nodes.jd_reviewer import review_jd
@@ -27,6 +28,8 @@ from app.schemas import (
     JobListItem,
     JobOut,
     JobStatusUpdate,
+    ScoreBucket,
+    ScoreDistribution,
 )
 
 # คอลัมน์ที่ทุก endpoint คืนเป็น JobOut — รวมไว้ที่เดียวกันเผื่อเพิ่มฟิลด์ทีหลัง
@@ -153,6 +156,56 @@ def get_job(job_id: str) -> JobOut:
     if row is None:
         raise HTTPException(status_code=404, detail="ไม่พบตำแหน่งงานนี้")
     return JobOut(**row)
+
+
+# ---------- การกระจายคะแนน ----------
+SCORE_BUCKET_WIDTH = 10
+SCORE_BUCKET_COUNT = 10  # 0-9, 10-19, ..., 90-100
+
+
+def _score_buckets(scores: list[int]) -> list[ScoreBucket]:
+    """นับคะแนนเข้าช่วงละ 10 — ช่วงท้าย (90) รวม 100 ด้วย ไม่งั้น 100 พอดีจะตกขอบเป็นช่วงที่ 11.
+
+    ฟังก์ชันบริสุทธิ์ให้เทสได้โดยไม่ต่อ DB · คะแนนนอก 0-100 (ไม่ควรมี เพราะ CHECK ใน DB)
+    ถูกหนีบเข้าช่วงแรก/ช่วงท้าย แทนที่จะทำให้ index หลุด
+    """
+    counts = [0] * SCORE_BUCKET_COUNT
+    for s in scores:
+        i = min(max(s // SCORE_BUCKET_WIDTH, 0), SCORE_BUCKET_COUNT - 1)
+        counts[i] += 1
+    return [
+        ScoreBucket(range_start=i * SCORE_BUCKET_WIDTH, count=n)
+        for i, n in enumerate(counts)
+    ]
+
+
+@router.get("/{job_id}/score-distribution", response_model=ScoreDistribution)
+def get_score_distribution(job_id: str) -> ScoreDistribution:
+    """ฮิสโตแกรมคะแนนของผู้สมัครในตำแหน่งนี้ — อ่านอย่างเดียว ไม่เรียก LLM.
+
+    นับเฉพาะคนที่มีแถวใน evaluations (= มีผลคะแนนแล้ว) คนที่ยังรอคิว/วิเคราะห์ไม่สำเร็จ
+    ไม่มีแถวนั้นจึงไม่ถูกนับ · ยังไม่มีใครมีคะแนนเลย → ทุกช่วงเป็น 0 total=0 ไม่ error
+    """
+    with get_conn() as conn:
+        if conn.execute("SELECT 1 FROM jobs WHERE id = %s", (job_id,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail="ไม่พบตำแหน่งงานนี้")
+        rows = conn.execute(
+            # DISTINCT ON: นับคนละครั้งเสมอ — runner ลบแถวเดิมก่อนบันทึกใหม่อยู่แล้ว แต่
+            # evaluations ไม่มี UNIQUE (candidate_id) กันไว้ ถ้าวันหนึ่งมีสองแถวจะนับคนซ้ำ
+            """SELECT DISTINCT ON (e.candidate_id) e.fit_score
+                 FROM evaluations e
+                 JOIN candidates c ON c.id = e.candidate_id
+                WHERE c.job_id = %s AND e.fit_score IS NOT NULL
+                ORDER BY e.candidate_id, e.created_at DESC""",
+            (job_id,),
+        ).fetchall()
+    scores = [r["fit_score"] for r in rows]
+    return ScoreDistribution(
+        buckets=_score_buckets(scores),
+        total=len(scores),
+        auto_advance_above=AUTO_ADVANCE_ABOVE,
+        review_from=REVIEW_FROM,
+    )
 
 
 # ---------- HR แก้เกณฑ์ทักษะ ----------

@@ -789,3 +789,17 @@ export interface JobOfferUpsert {
 export interface ScreeningPhotosSetting {
   enabled: boolean;
 }
+
+/** ฮิสโตแกรมคะแนนต่อตำแหน่ง — ช่วงละ 10 (ช่วงท้ายรวม 100) นับเฉพาะคนที่มีคะแนนแล้ว */
+export interface ScoreBucket {
+  range_start: number;
+  count: number;
+}
+
+export interface ScoreDistribution {
+  buckets: ScoreBucket[];
+  total: number;
+  /** เส้นแบ่งแบนด์จาก backend/app/agents/bands.py — วาดเส้นจากค่านี้ ไม่เขียนเลขเอง */
+  auto_advance_above: number;
+  review_from: number;
+}
