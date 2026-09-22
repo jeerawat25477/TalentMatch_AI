@@ -80,3 +80,37 @@ def test_falls_back_when_primary_returns_empty(monkeypatch):
     """PDF บางแบบ engine หลักคืนว่างโดยไม่ error — ต้องลองทางสำรองด้วย ไม่ใช่คืนว่างเลย."""
     monkeypatch.setattr(pdf_extractor, "_extract_pymupdf", lambda _data: "")
     assert "Suda Rakdee" in extract_text_from_pdf(_sample("mid_suda"))
+
+
+# ---------- รหัสพิเศษของฟอนต์ไทย (U+F700–F71A) ----------
+# ของจริงจากเรซูเม่ที่ใช้ฟอนต์ FCMinimal — PyMuPDF คืนรหัสเหล่านี้แทนวรรณยุกต์/สระ
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("ปรียานนท กรุตนิด", "ปรียานนท์ กรุตนิด"),
+        ("คอมพิวเตอรธุรกิจ", "คอมพิวเตอร์ธุรกิจ"),
+        ("ผูอื่นไดดี", "ผู้อื่นได้ดี"),
+        ("ประวัติสวนตัว", "ประวัติส่วนตัว"),
+        ("ตุกตา", "ตุ๊กตา"),
+        ("อายุ 20 ป", "อายุ 20 ปี"),
+        ("ทำงานเปนทีม", "ทำงานเป็นทีม"),
+        ("แกไขปญหา", "แก้ไขปัญหา"),
+    ],
+)
+def test_แปลงรหัสพิเศษของฟอนต์ไทยเป็นตัวปกติ(raw, expected):
+    assert pdf_extractor.normalize_thai_pua(raw) == expected
+
+
+def test_ตารางครบทุกรหัสและแปลงเป็นตัวไทยเสมอ():
+    assert set(pdf_extractor.THAI_PUA_MAP) == set(range(0xF700, 0xF71B))
+    assert all("฀" <= v <= "๿" for v in pdf_extractor.THAI_PUA_MAP.values())
+
+
+def test_ข้อความปกติไม่เปลี่ยน():
+    text = "จีรวัฒน์ ศักดิ์วงษ์ Python, FastAPI • emoji \U0001F600 "
+    assert pdf_extractor.normalize_thai_pua(text) == text
+
+
+def test_ทั้งสอง_engine_ผ่านการแปลงรหัสพิเศษ():
+    """แปลงใน _finish ที่สอง engine ใช้ร่วมกัน — ทางสำรองจึงไม่หลุด."""
+    assert pdf_extractor._finish(["คอมพิวเตอร", "ผู"]) == "คอมพิวเตอร์\nผู้"
