@@ -2,6 +2,7 @@
 import logging
 import os
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
@@ -429,6 +430,39 @@ def get_candidate_photo(candidate_id: UUID) -> Response:
     )
 
 
+@router.get(
+    "/candidates/{candidate_id}/resume.pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}, 404: {}},
+)
+def get_resume_file(candidate_id: UUID) -> Response:
+    """ไฟล์เรซูเม่ PDF ต้นฉบับ — 404 = ไม่มีไฟล์ (ผู้สมัครที่เข้ามาก่อนเริ่มเก็บไฟล์).
+
+    ไฟล์มาจากคนนอก จึงเสิร์ฟแบบที่ให้เบราว์เซอร์เปิดด้วยตัวดู PDF ของมันเอง:
+    - Content-Type ตายตัวเป็น application/pdf + nosniff — ห้ามเบราว์เซอร์เดาเป็น HTML
+    - inline + ชื่อไฟล์แบบ RFC 5987 (ชื่อไทยได้) — เปิดในแท็บ ไม่บังคับดาวน์โหลด
+    - no-store — ข้อมูลส่วนบุคคล ไม่ให้เบราว์เซอร์/พร็อกซีเก็บไว้ในแคช
+    หน้าเว็บ fetch พร้อม JWT แล้วเปิดเป็น blob ในแท็บใหม่ ไม่ฝังลงในหน้าของเรา
+    """
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT pdf_bytes, filename FROM candidate_files WHERE candidate_id = %s",
+            (str(candidate_id),),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="ไม่มีไฟล์ต้นฉบับของผู้สมัครคนนี้")
+    name = quote(row["filename"] or "resume.pdf")
+    return Response(
+        content=bytes(row["pdf_bytes"]),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"inline; filename=\"resume.pdf\"; filename*=UTF-8''{name}",
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.get("/candidates/{candidate_id}", response_model=CandidateDetail)
 def get_candidate(candidate_id: str) -> CandidateDetail:
     """รายงานรายบุคคล: ประวัติที่แกะแล้ว, Gap Analysis, และผลลัพธ์ของ AI."""
@@ -444,6 +478,8 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
                    e.email_draft_edited, e.email_draft_edited_at,
                    e.score_explanation, e.confidence, (e.id IS NOT NULL) AS has_eval,
                    e.created_at AS evaluated_at,
+                   EXISTS (SELECT 1 FROM candidate_files cf WHERE cf.candidate_id = c.id)
+                       AS has_resume_file,
                    emp.id AS employee_id, emp.hired_at, hd.decision AS hr_decision,
                    hd.notes AS hr_notes, hd.updated_at AS hr_decided_at,
                    e.rescored_from, e.rescored_at,

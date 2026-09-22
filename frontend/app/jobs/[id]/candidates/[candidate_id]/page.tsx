@@ -20,6 +20,7 @@ import InterviewOutcomeDialog from "@/components/interview-outcome-dialog";
 import RadarChart from "@/components/radar-chart";
 import ScoreBreakdown from "@/components/score-breakdown";
 import ScoreHistogram from "@/components/score-histogram";
+import ResumeSource from "@/components/resume-source";
 import SkillGap from "@/components/skill-gap";
 import StatusBadge from "@/components/status-badge";
 import WorkingNote from "@/components/working-note";
@@ -346,6 +347,15 @@ export default function CandidateDeepDive() {
                 <InfoRow label="การศึกษา">{profile?.education || "—"}</InfoRow>
                 <InfoRow label="อีเมล">{c.email ?? "—"}</InfoRow>
               </div>
+
+              {/* เทียบไฟล์จริงกับสิ่งที่ระบบอ่านได้ — ไฟล์มีเฉพาะคนที่เข้ามาหลังเริ่มเก็บ */}
+              <ResumeSource
+                candidateId={candidate_id}
+                candidateName={c.full_name}
+                hasFile={c.has_resume_file}
+                text={c.raw_resume_text}
+                photosHidden={!showPhoto}
+              />
 
               {/* Bias Auditor */}
               {c.audit_log && (

@@ -361,6 +361,8 @@ export interface SimilarCandidate {
 
 export interface CandidateDetail extends CandidateSummary {
   raw_resume_text: string | null;
+  /** มีไฟล์ PDF ต้นฉบับให้เปิดดูไหม — ผู้สมัครที่เข้ามาก่อนเริ่มเก็บไฟล์ไม่มี */
+  has_resume_file: boolean;
   parsed_resume: ParsedResume | null;
   gap_analysis: GapAnalysis | null;
   audit_log: string | null;

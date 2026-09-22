@@ -14,6 +14,7 @@
   5. อ่านไม่ออก  — กันเรซูเม่สแกน/ถ่ายรูปที่จะเสียโควตา LLM ไปอ่านความว่างเปล่า
   6. INSERT      — ON CONFLICT DO NOTHING กันสองทางเข้าแทรกไฟล์เดียวกันพร้อมกัน
   7. รูปโปรไฟล์  — best-effort เฉพาะไฟล์ที่รับจริง พังแล้วผู้สมัครยังเข้าระบบตามปกติ
+  8. ไฟล์ต้นฉบับ — best-effort เหมือนกัน ให้ HR เปิดดู PDF จริงได้
 
 **คืนคำตัดสิน ไม่ raise** โดยตั้งใจ: เราเตอร์ต้องแปลงเป็น HTTPException (400/413) ส่วน
 worker ต้องแปลงเป็น log + แถวใน email_intake_log — ถ้าฟังก์ชันนี้ raise HTTPException เอง
@@ -145,7 +146,29 @@ def admit_resume(
     if row is None:  # มีคนอื่นแทรกไฟล์เดียวกันเข้าไปก่อนแล้ว
         return Verdict.DUPLICATE, None
     save_candidate_photo(conn, row["id"], content, filename)
+    save_resume_file(conn, row["id"], content, filename)
     return Verdict.ACCEPTED, row["id"]
+
+
+def save_resume_file(conn, candidate_id, content: bytes, filename: str) -> bool:
+    """เก็บไฟล์ PDF ต้นฉบับ — **best-effort ห้ามทำให้การรับไฟล์ล้ม**.
+
+    ต้องทำตอนนี้เท่านั้น เหตุผลเดียวกับรูปโปรไฟล์: หลังจากนี้ไม่มีไบต์ให้เก็บอีก
+    SAVEPOINT กัน INSERT ที่ error ทำให้ทรานแซกชันของทั้งชุดอัปโหลด abort
+    ขนาดไฟล์ถูกจำกัดที่ MAX_BYTES ไปแล้วที่ด่านข้างบน
+    """
+    try:
+        with conn.transaction():
+            conn.execute(
+                """INSERT INTO candidate_files (candidate_id, pdf_bytes, filename, size_bytes)
+                   VALUES (%s, %s, %s, %s)
+                   ON CONFLICT (candidate_id) DO NOTHING""",
+                (candidate_id, content, (filename or "resume.pdf")[:255], len(content)),
+            )
+        return True
+    except Exception as exc:  # noqa: BLE001 — ไฟล์ต้นฉบับเป็นของเสริม ไม่ใช่เหตุให้ปฏิเสธใบสมัคร
+        log.warning("เก็บไฟล์ต้นฉบับ %s ไม่สำเร็จ ข้ามไป: %s", filename, exc)
+        return False
 
 
 def save_candidate_photo(conn, candidate_id, content: bytes, filename: str) -> bool:

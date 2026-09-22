@@ -388,3 +388,22 @@ CREATE TABLE IF NOT EXISTS candidate_photos (
     content_type TEXT NOT NULL CHECK (content_type IN ('image/jpeg', 'image/png')),
     extracted_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- ============================================================
+-- ไฟล์เรซูเม่ต้นฉบับ (PDF) — หนึ่งแถวต่อผู้สมัคร (ไม่มีแถว = ไม่มีไฟล์)
+-- ============================================================
+-- ให้ HR เปิดไฟล์จริงเทียบกับสิ่งที่ระบบอ่านได้ (ตัวอักษรไทยเพี้ยน ชื่อพิมพ์ผิด ทักษะที่เทียบไม่เจอ)
+-- เก็บตอนรับไฟล์ใน app/resume_ingest.py เท่านั้น — ผู้สมัครที่เข้ามาก่อนมีตารางนี้จึงไม่มีไฟล์
+-- ตลอดไป (ไบต์ไม่เคยถูกเก็บ) เหมือน candidate_photos และ resume_sha256
+--
+-- แยกตารางเพื่อไม่ให้ SELECT รายชื่อผู้สมัครลากไบต์ไฟล์มาด้วย
+-- ON DELETE CASCADE: ลบผู้สมัครแล้วไฟล์ต้องหายไปด้วยเสมอ (ข้อมูลส่วนบุคคล)
+-- ⚠️ ไฟล์มาจากคนนอก อาจฝังสคริปต์ — เสิร์ฟผ่าน endpoint ที่ต้องล็อกอิน ให้เบราว์เซอร์เปิดด้วย
+--    ตัวดู PDF ของมันเอง ห้ามฝังลงในหน้าเว็บของเราตรง ๆ
+CREATE TABLE IF NOT EXISTS candidate_files (
+    candidate_id UUID PRIMARY KEY REFERENCES candidates(id) ON DELETE CASCADE,
+    pdf_bytes BYTEA NOT NULL,
+    filename TEXT,
+    size_bytes INT NOT NULL,
+    stored_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);

@@ -334,6 +334,22 @@ export async function getCandidatePhoto(candidateId: string): Promise<Blob | nul
   return res.blob();
 }
 
+/**
+ * ไฟล์เรซูเม่ PDF ต้นฉบับ — null เมื่อไม่มีไฟล์ (404) · fetch เองเพราะคำตอบเป็นไบต์ ไม่ใช่ JSON
+ * และลิงก์ธรรมดาเปิดไม่ได้เพราะเบราว์เซอร์ไม่แนบ Bearer token ให้
+ */
+export async function getResumeFile(candidateId: string): Promise<Blob | null> {
+  const res = await fetch(`${API_BASE}/api/v1/candidates/${candidateId}/resume.pdf`, {
+    headers: authHeaders(),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    if (res.status === 401) handleUnauthorized();
+    throw new Error(`${res.status}: เปิดไฟล์ไม่สำเร็จ`);
+  }
+  return res.blob();
+}
+
 export const SCREENING_PHOTOS_KEY = "/api/v1/settings/screening-photos";
 
 export const setScreeningPhotos = (enabled: boolean) =>

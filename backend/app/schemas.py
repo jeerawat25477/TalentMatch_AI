@@ -242,6 +242,8 @@ class JobOffer(BaseModel):
 
 class CandidateDetail(CandidateSummary):
     raw_resume_text: Optional[str] = None
+    # มีไฟล์ PDF ต้นฉบับให้เปิดดูไหม — ผู้สมัครที่เข้ามาก่อนมีตาราง candidate_files ไม่มี
+    has_resume_file: bool = False
     parsed_resume: Optional[dict[str, Any]] = None
     gap_analysis: Optional[dict[str, Any]] = None
     audit_log: Optional[str] = None
