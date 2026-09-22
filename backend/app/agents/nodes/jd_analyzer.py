@@ -103,6 +103,24 @@ def _is_label(line: str, name: str) -> bool:
     return re.search(re.escape(n) + r"\s*(\([^)]*\))?\s*:", line.casefold()) is not None
 
 
+# คำที่ใช้ตั้งชื่อหมวด แต่ไม่มีใครใช้เป็นชื่อทักษะ — หัวข้อที่ลงท้ายด้วยคำพวกนี้ถูกตัดแม้อยู่ในกลุ่ม
+# ตัวเลือก ("Back-end Basics: Node.js หรือ PHP") · อังกฤษดูคำสุดท้ายของแต่ละท่อนที่คั่นด้วย "&"
+# ("Tooling & Build") ไม่ดูทุกคำ เพราะ "Knowledge Graph" เป็นทักษะจริง · ไทยดูว่ามีคำนี้อยู่ในชื่อ
+_HEADING_WORDS_EN = {
+    "basics", "basic", "fundamentals", "essentials", "tools", "tooling",
+    "framework", "frameworks", "handling", "knowledge", "skills",
+}
+_HEADING_WORDS_TH = ("พื้นฐาน", "ความรู้", "เครื่องมือ", "ทักษะ")
+
+
+def _is_generic_heading_name(name: str) -> bool:
+    n = name.casefold()
+    if any(w in n for w in _HEADING_WORDS_TH):
+        return True
+    parts = re.split(r"&|\band\b|/", n)
+    return any(p.split() and p.split()[-1] in _HEADING_WORDS_EN for p in parts)
+
+
 def _heading_items(kept) -> set[int]:
     """index ของ item ที่เป็นหัวข้อย่อยนำหน้ารายการทักษะ — "Version Control: Git, GitHub / GitLab".
 
@@ -348,6 +366,11 @@ def to_requirement(ex: JDExtraction, raw_jd: str | None = None) -> JobRequiremen
         kept.append((item.model_copy(update={"section": section, "source_line": key}), name))
 
     # รวมตัวเลือกเป็นกลุ่ม "A | B | C" = 1 ข้อ มีตัวใดตัวหนึ่งก็ผ่าน (ทางแก้ข้อ 3)
+    # หัวข้อที่เป็นคำกว้าง ("Back-end Basics:", "Database Basics:") ตัดก่อนจัดกลุ่ม ไม่งั้นมันเข้าไป
+    # เป็นตัวเลือกในกลุ่มของท่อนถัดไป · หัวข้อที่เป็นทักษะจริง ("Responsive Design:") ยังอยู่
+    generic = {i for i in _heading_items(kept) if _is_generic_heading_name(kept[i][1])}
+    kept = [k for i, k in enumerate(kept) if i not in generic]
+
     ids = _group_ids(kept)
     headings = _heading_items(kept)
     members: dict[int, list[int]] = {}

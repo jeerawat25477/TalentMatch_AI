@@ -437,6 +437,52 @@ def test_heading_of_other_line_does_not_count():
     assert r.required_skills == ["Docker", "Kubernetes"]
 
 
+# ---------- หัวข้อที่เป็นคำกว้าง ตัดแม้อยู่ในกลุ่มตัวเลือก ----------
+
+
+def _labelled_group(label, options, label_kind="method"):
+    line = f"{label}: " + ", ".join(options[:-1]) + f", หรือ {options[-1]}"
+    return line, [item(label, kind=label_kind, line=line),
+                  *(item(n, necessity="one_of", group="g", line=line) for n in options)]
+
+
+@pytest.mark.parametrize("label", ["Back-end Basics", "Database Basics", "Front-end Framework",
+                                   "Tooling & Build", "พื้นฐาน Back-end"])
+def test_generic_heading_is_dropped_from_its_or_group(label):
+    line, items = _labelled_group(label, ["MySQL", "PostgreSQL", "MongoDB"])
+    r = to_requirement(ex(*items), line)
+    assert r.required_skills == ["MySQL | PostgreSQL | MongoDB"]
+
+
+def test_real_skill_heading_stays_in_its_or_group():
+    line, items = _labelled_group("Responsive Design", ["Bootstrap", "Tailwind CSS"])
+    r = to_requirement(ex(*items), line)
+    assert r.required_skills == ["Responsive Design | Bootstrap | Tailwind CSS"]
+
+
+def test_knowledge_graph_is_not_a_generic_heading():
+    """ดูคำสุดท้ายเท่านั้น — "Knowledge Graph" ขึ้นต้นด้วยคำกว้างแต่เป็นทักษะจริง."""
+    line, items = _labelled_group("Knowledge Graph", ["Neo4j", "Neptune"])
+    r = to_requirement(ex(*items), line)
+    assert r.required_skills == ["Knowledge Graph | Neo4j | Neptune"]
+
+
+def test_generic_name_without_following_skills_is_kept():
+    """"Linux Basics" เป็นรายการธรรมดา ไม่ได้นำหน้ารายการ — ไม่ตัด."""
+    r = to_requirement(ex(item("Linux Basics"), item("Python")), "Linux Basics\nPython")
+    assert r.required_skills == ["Linux Basics", "Python"]
+
+
+def test_generic_headings_on_one_pasted_line():
+    line = ("Nice-to-Have: Back-end Basics: Node.js หรือ PHP Database Basics: MySQL, "
+            "หรือ MongoDB")
+    names = ["Back-end Basics", "Node.js", "PHP", "Database Basics", "MySQL", "MongoDB"]
+    r = to_requirement(ex(*(item(n, kind="method" if "Basics" in n else "technology", line=line)
+                            for n in names)), line)
+    assert r.required_skills == []
+    assert r.preferred_skills == ["Node.js | PHP", "MySQL | MongoDB"]
+
+
 def test_blank_and_role_names_are_filtered():
     r = to_requirement(ex(item("  "), item("data scientists"), item(" Go ")))
     assert r.required_skills == ["Go"]
