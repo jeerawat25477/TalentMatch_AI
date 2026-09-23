@@ -18,7 +18,9 @@ log = logging.getLogger(__name__)
 
 # จำกัดจำนวนผู้สมัครที่รันกราฟพร้อมกันทั้งโปรเซส — กันหลาย upload request ยิง LLM
 # ชนกันจนทะลุเพดาน RPM ของ Gemini free tier (backoff ใน llm.py รับ burst เล็ก ๆ ต่ออีกชั้น)
-_MAX_CONCURRENCY = int(os.getenv("GRAPH_MAX_CONCURRENCY", "2"))
+# ค่าเริ่มต้นเท่ากับจำนวนเธรดของ worker (QUEUE_WORKERS = 3) — ตั้งน้อยกว่านั้นเธรดที่เกินจะ
+# ไปยืนรอหน้าประตูเปล่า ๆ · Tier 1 ของ Gemini ให้ 1,000 req/นาที เพดานจริงจึงไม่ใช่ตัวนี้
+_MAX_CONCURRENCY = int(os.getenv("GRAPH_MAX_CONCURRENCY", "3"))
 _gate = threading.BoundedSemaphore(_MAX_CONCURRENCY)
 
 # ทะเบียนผู้สมัครที่กราฟกำลังทำงานอยู่ (รวมคนที่ยังรอคิว gate) — ให้ DELETE /jobs/{id}

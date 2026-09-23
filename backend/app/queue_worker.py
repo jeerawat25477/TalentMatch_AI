@@ -1,13 +1,22 @@
-"""Worker ตัวเดียวที่ดึงงานจาก processing_queue มารันทีละชิ้นตามโควตาที่เหลือ.
+"""Worker ที่ดึงงานจาก processing_queue มารันตามโควตาที่เหลือ (ค่าเริ่มต้น 3 เธรด).
 
 ทำไมต้องมีแทน BackgroundTasks: BackgroundTasks อยู่ในโปรเซส — รีสตาร์ตแล้วงานหาย
 และมันยิงงานทั้ง batch เข้ากราฟทันทีโดยไม่รู้ว่าโควตาวันนี้เหลือเท่าไร อัปโหลด 20 ไฟล์
 คนที่ 7 เป็นต้นไปจึงชน RPD แล้วตายเงียบยกแผง (ดู CLAUDE.md)
 
-**ตัวเดียวเท่านั้น** เหมือน active_candidates() และ rate limiter ของล็อกอิน:
+**โปรเซสเดียวเท่านั้น** เหมือน active_candidates() และ rate limiter ของล็อกอิน:
 backend เป็นเรพลิกาเดียว และ _gate ใน agents/runner.py เป็น semaphore ระดับโปรเซส
 ถ้าจะสเกลเป็นหลายเรพลิกาต้องย้ายทั้งสามอย่างพร้อมกัน (claim_next อะตอมมิกอยู่แล้ว
 จึงไม่ใช่ตัวที่ขวาง)
+
+**หลายเธรดในโปรเซสเดียว** (QUEUE_WORKERS, ดีฟอลต์ 3): claim_next ใช้ FOR UPDATE SKIP
+LOCKED อยู่แล้ว สองเธรดจึงไม่มีทางหยิบงานชิ้นเดียวกัน · ตั้งเป็น 1 แล้วได้พฤติกรรมเดิม
+(ทำทีละชิ้น) โดยไม่ต้องแก้โค้ด · เพดานจริงของการยิง LLM พร้อมกันคือ _gate ใน runner.py
+(GRAPH_MAX_CONCURRENCY) ไม่ใช่จำนวนเธรดนี้ — ตั้งจำนวนเธรดเกิน gate ก็แค่ไปยืนรอเปล่า ๆ
+
+**ปลุกทันทีเมื่อมีงานใหม่** แทนการรอครบรอบ poll: ก่อนหน้านี้อัปโหลดเสร็จแล้วอาจนั่งรอ
+ถึง POLL_SEC วินาทีทั้งที่ไม่มีอะไรทำอยู่เลย · ยังตื่นเองตามรอบไว้เป็นตาข่าย เพราะงานที่ถูก
+พักเพราะโควตา (deferred_quota) และแถวที่ reclaim_running() คืนมาหลังรีสตาร์ต ไม่มีใครปลุก
 
 ใช้ threading.Thread ไม่ใช่ asyncio task เพราะ graph.invoke() เป็น blocking call —
 วางบน event loop จะไปบล็อก request ของ FastAPI ทั้งเซิร์ฟเวอร์
@@ -31,9 +40,21 @@ from app.llm_quota import GEMINI_DAILY_CHAT_QUOTA, has_room, used_today
 log = logging.getLogger(__name__)
 
 POLL_SEC = int(os.getenv("QUEUE_POLL_SEC", "10"))
+# กี่งานที่รันพร้อมกันได้ — ดีฟอลต์ 3 · 1 = พฤติกรรมเดิม (ทีละชิ้น)
+WORKERS = max(1, int(os.getenv("QUEUE_WORKERS", "3")))
 
 _stop = threading.Event()
-_thread: threading.Thread | None = None
+# มีงานใหม่เข้าคิว — job_queue.enqueue* ตั้งค่านี้เพื่อปลุกเธรดที่กำลังนอนรอ
+_wake = threading.Event()
+_threads: list[threading.Thread] = []
+# เช็คโควตา + รับงาน ทำทีละเธรด: สามเธรดที่เช็คพร้อมกันจะเห็นยอดใช้เท่ากันแล้วผ่านหมด
+# ทำให้ใช้เกินเพดานที่ตั้งไว้ · ส่วนการ "รันงาน" ยังขนานกันเต็มที่ ไม่อยู่ในล็อกนี้
+_claim_lock = threading.Lock()
+
+
+def wake() -> None:
+    """ปลุก worker ให้หยิบงานทันที — เรียกจากเธรดของ request หลัง enqueue (ไม่บล็อก)."""
+    _wake.set()
 
 
 class _JobDataMissing(Exception):
@@ -100,17 +121,19 @@ def _run_job(row: dict) -> None:
 
 def run_once() -> bool:
     """หยิบและรันงานหนึ่งชิ้น — คืน True ถ้ามีงานให้ทำ (แยกออกมาเพื่อทดสอบได้ตรง ๆ)."""
-    row = claim_next()
-    if row is None:
-        return False
+    # ล็อกครอบแค่ "หยิบงาน + เช็คโควตา" ไม่ครอบการรัน — ไม่งั้นหลายเธรดก็ไม่ต่างจากเธรดเดียว
+    with _claim_lock:
+        row = claim_next()
+        if row is None:
+            return False
 
-    qid, attempts, kind = row["id"], row["attempts"], row["kind"]
+        qid, attempts, kind = row["id"], row["attempts"], row["kind"]
 
-    # เช็คโควตา "ก่อน" รัน แล้วพักไว้ทั้งชิ้น — ไม่ข้ามไปงานถัดไปในรอบนี้ เพราะคิวเป็น
-    # FIFO ถ้าปล่อยให้งานที่ถูกกว่าแซงคิว ลำดับที่ HR เห็นจะอธิบายไม่ได้
-    if _quota_blocked(kind):
-        mark(qid, "deferred_quota", attempts, "โควตา AI วันนี้เหลือไม่พอ")
-        return True
+        # เช็คโควตา "ก่อน" รัน แล้วพักไว้ทั้งชิ้น — ไม่ข้ามไปงานถัดไปในรอบนี้ เพราะคิวเป็น
+        # FIFO ถ้าปล่อยให้งานที่ถูกกว่าแซงคิว ลำดับที่ HR เห็นจะอธิบายไม่ได้
+        if _quota_blocked(kind):
+            mark(qid, "deferred_quota", attempts, "โควตา AI วันนี้เหลือไม่พอ")
+            return True
 
     try:
         _run_job(row)
@@ -134,27 +157,34 @@ def _loop() -> None:
             # ทำต่อเนื่องจนคิวหมด แล้วค่อยไปนอน — ไม่งั้น batch 20 คนจะใช้เวลา
             # อย่างน้อย 20 × POLL_SEC เพียงเพราะรอนาฬิกา
             while not _stop.is_set() and run_once():
-                pass
+                _wake.clear()  # งานที่ปลุกไว้ถูกหยิบแล้ว
         except Exception as exc:  # noqa: BLE001 — worker ต้องไม่ตายไม่ว่าเกิดอะไรขึ้น
             log.exception("ลูปคิวล้มทั้งรอบ (จะลองใหม่รอบหน้า): %s", exc)
-        _stop.wait(POLL_SEC)
+        # ตื่นเมื่อมีงานใหม่ หรือครบรอบ (ตาข่ายของงานที่ถูกพักไว้/แถวค้างหลังรีสตาร์ต)
+        if _wake.wait(POLL_SEC):
+            _wake.clear()
     log.info("worker คิวหยุดแล้ว")
 
 
 def start_worker() -> None:
     """สตาร์ต worker (idempotent) — เรียกจาก lifespan ของ main.py."""
-    global _thread
-    if _thread is not None and _thread.is_alive():
+    if any(t.is_alive() for t in _threads):
         return
     _stop.clear()
-    _thread = threading.Thread(target=_loop, name="queue-worker", daemon=True)
-    _thread.start()
-    log.info("worker คิวเริ่มทำงาน (poll ทุก %s วินาที)", POLL_SEC)
+    _wake.clear()
+    _threads.clear()
+    for i in range(WORKERS):
+        t = threading.Thread(target=_loop, name=f"queue-worker-{i + 1}", daemon=True)
+        t.start()
+        _threads.append(t)
+    log.info("worker คิวเริ่มทำงาน %s เธรด (poll ทุก %s วินาที)", WORKERS, POLL_SEC)
 
 
 def stop_worker(timeout: float = 5.0) -> None:
-    """สั่งหยุดแล้วรอสั้น ๆ — งานที่กำลังรันอยู่จะรันจนจบ (daemon thread ตายพร้อมโปรเซส
-    ถ้าเกินเวลา และแถวจะค้าง 'running' ซึ่ง reclaim_running() ตอนบูตหน้าเก็บให้เอง)."""
+    """สั่งหยุดทุกเธรดแล้วรอสั้น ๆ — งานที่กำลังรันอยู่จะรันจนจบ (daemon thread ตายพร้อม
+    โปรเซสถ้าเกินเวลา และแถวจะค้าง 'running' ซึ่ง reclaim_running() ตอนบูตหน้าเก็บให้เอง)."""
     _stop.set()
-    if _thread is not None:
-        _thread.join(timeout=timeout)
+    _wake.set()  # ปลุกเธรดที่กำลังนอนให้เห็น _stop ทันที ไม่ต้องรอครบรอบ
+    for t in _threads:
+        t.join(timeout=timeout)
+    _threads.clear()

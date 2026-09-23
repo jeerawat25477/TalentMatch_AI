@@ -107,6 +107,16 @@ def enqueue(
     enqueue_many([(candidate_id, job_id, kind, payload)])
 
 
+def _wake_worker() -> None:
+    """ปลุก worker ให้เริ่มทันที — import ที่นี่กัน import วน (queue_worker import ไฟล์นี้)."""
+    try:
+        from app.queue_worker import wake
+
+        wake()
+    except Exception as exc:  # noqa: BLE001 — ปลุกไม่ได้ก็แค่ช้าลง ไม่ใช่เหตุให้ enqueue ล้ม
+        log.debug("ปลุก worker ไม่สำเร็จ (จะเริ่มตามรอบ poll แทน): %s", exc)
+
+
 def enqueue_many(rows: list[tuple]) -> None:
     """ใส่หลายงานในทรานแซกชันเดียว — ทั้ง batch เข้าคิวพร้อมกันหรือไม่เข้าเลย."""
     if not rows:
@@ -125,6 +135,7 @@ def enqueue_many(rows: list[tuple]) -> None:
             )
         conn.commit()
     log.info("เข้าคิว %s งาน (kind=%s)", len(rows), rows[0][2])
+    _wake_worker()  # หลัง commit เท่านั้น — ปลุกก่อนแล้ว worker อาจหาแถวไม่เจอ
 
 
 def claim_next() -> Optional[dict[str, Any]]:

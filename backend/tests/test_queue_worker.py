@@ -218,3 +218,61 @@ class TestDecideKind:
         )
         queue_worker.run_once()
         assert ran == [("decide", cid, "approved", "ผ่าน")]
+
+
+class TestWakeAndParallel:
+    """ปลุกทันทีเมื่อมีงานใหม่ + รันหลายเธรดโดยไม่หยิบงานซ้ำกัน."""
+
+    def test_enqueue_ปลุก_worker_ให้ไม่ต้องรอครบรอบ(self, job_and_candidates, monkeypatch):
+        job_id, ids = job_and_candidates
+        queue_worker._wake.clear()
+        job_queue.enqueue(ids[0], job_id, "process")
+        assert queue_worker._wake.is_set()
+
+    def test_ปลุกไม่สำเร็จต้องไม่ทำให้_enqueue_ล้ม(self, job_and_candidates, monkeypatch):
+        """เข้าคิวสำเร็จสำคัญกว่าการปลุก — ปลุกพังก็แค่เริ่มช้าตามรอบ poll."""
+        job_id, ids = job_and_candidates
+        monkeypatch.setattr(
+            queue_worker, "wake", lambda: (_ for _ in ()).throw(RuntimeError("พัง"))
+        )
+        job_queue.enqueue(ids[0], job_id, "process")
+        with get_conn() as conn:
+            n = conn.execute(
+                "SELECT count(*) AS n FROM processing_queue WHERE candidate_id = %s",
+                (ids[0],),
+            ).fetchone()["n"]
+        assert n == 1
+
+    def test_หลายเธรดไม่หยิบงานชิ้นเดียวกัน(self, job_and_candidates, monkeypatch):
+        """claim_next ใช้ FOR UPDATE SKIP LOCKED — งาน 2 ชิ้นกับ 4 เธรดต้องรันคนละชิ้น."""
+        import threading
+
+        job_id, ids = job_and_candidates
+        ran: list[str] = []
+        lock = threading.Lock()
+
+        def fake_run(row):
+            with lock:
+                ran.append(str(row["candidate_id"]))
+
+        monkeypatch.setattr(queue_worker, "_run_job", fake_run)
+        for cid in ids:
+            job_queue.enqueue(cid, job_id, "process")
+
+        threads = [threading.Thread(target=queue_worker.run_once) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        assert sorted(ran) == sorted(ids)  # ครบทุกชิ้น ไม่ซ้ำ ไม่ขาด
+
+    def test_สตาร์ต_แล้วหยุดได้ครบทุกเธรด(self, monkeypatch):
+        monkeypatch.setattr(queue_worker, "WORKERS", 3)
+        queue_worker.start_worker()
+        try:
+            assert len(queue_worker._threads) == 3
+            assert all(t.is_alive() for t in queue_worker._threads)
+        finally:
+            queue_worker.stop_worker(timeout=5)
+        assert queue_worker._threads == []
