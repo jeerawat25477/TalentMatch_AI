@@ -394,6 +394,17 @@ export default function CandidateDeepDive() {
               {c.gap_analysis && c.score_breakdown && c.fit_score != null && (
                 <ScoreBreakdown breakdown={c.score_breakdown} fitScore={c.fit_score} />
               )}
+            </div>
+          </div>
+
+          {/* ใต้สองคอลัมน์: ของที่อ่านง่ายกว่าเมื่อเต็มความกว้าง — เดิมกองอยู่ในคอลัมน์ขวา
+              คอลัมน์ซ้ายจึงเหลือพื้นที่ว่างยาวลงไปจนสุดการ์ด */}
+          <div className="mt-md space-y-md">
+            {/* ผลตรวจอคติเป็นบรรทัดสั้น ๆ — วางคู่กันเฉพาะตอนมีทั้งสองใบ
+                ใบเดียวแล้วบังคับครึ่งจอจะเหลือที่ว่างข้างเดียวอีก */}
+            <div
+              className={`grid gap-md ${c.bias_revision ? "lg:grid-cols-2" : ""}`}
+            >
               {/* Bias Auditor */}
               {c.audit_log && (
                 <div className="p-sm rounded-xl border border-secondary/20 bg-secondary-container/10 flex gap-xs items-start">
@@ -440,21 +451,21 @@ export default function CandidateDeepDive() {
                   </div>
                 </div>
               )}
-
-              {/* คู่กับที่มาของคะแนน: อันนั้นบอกว่าได้มายังไง อันนี้บอกว่าอยู่ตรงไหนเทียบคนอื่น
-                  มีคนที่มีคะแนนน้อยกว่า 3 คน = ไม่มีใครให้เทียบ กราฟจะเหลือแท่งเดียวกับที่ว่าง
-                  ทั้งใบ จึงบอกเป็นประโยคแทน */}
-              {c.fit_score != null && distribution && distribution.total >= 3 && (
-                <ScoreHistogram data={distribution} highlightScore={c.fit_score} compact />
-              )}
-              {c.fit_score != null && distribution && distribution.total < 3 && (
-                <p className="text-label-sm text-on-surface-variant">
-                  ยังเทียบคะแนนกับผู้สมัครคนอื่นไม่ได้ — ตำแหน่งนี้มีผู้ที่มีผลคะแนนแล้ว{" "}
-                  {distribution.total} คน
-                </p>
-              )}
-              <SkillGap gap={c.gap_analysis} evidence={c.skill_evidence} />
             </div>
+
+            {/* คู่กับที่มาของคะแนน: อันนั้นบอกว่าได้มายังไง อันนี้บอกว่าอยู่ตรงไหนเทียบคนอื่น
+                มีคนที่มีคะแนนน้อยกว่า 3 คน = ไม่มีใครให้เทียบ กราฟจะเหลือแท่งเดียวกับที่ว่าง
+                ทั้งใบ จึงบอกเป็นประโยคแทน */}
+            {c.fit_score != null && distribution && distribution.total >= 3 && (
+              <ScoreHistogram data={distribution} highlightScore={c.fit_score} />
+            )}
+            {c.fit_score != null && distribution && distribution.total < 3 && (
+              <p className="text-label-sm text-on-surface-variant">
+                ยังเทียบคะแนนกับผู้สมัครคนอื่นไม่ได้ — ตำแหน่งนี้มีผู้ที่มีผลคะแนนแล้ว{" "}
+                {distribution.total} คน
+              </p>
+            )}
+            <SkillGap gap={c.gap_analysis} evidence={c.skill_evidence} />
           </div>
         </div>
       </div>
