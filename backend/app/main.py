@@ -1,9 +1,10 @@
 """จุดรันแอปพลิเคชันหลักของ TalentMatch AI API (FastAPI).
 
 - เปิด/ปิด connection pool และ init ตาราง (แอป + checkpointer) ผ่าน lifespan
-- เปิด CORS ให้ frontend Next.js ที่ http://localhost:3000
+- เปิด CORS ให้ frontend Next.js (ดีฟอลต์ localhost, โปรดักชันตั้ง ALLOWED_ORIGINS)
 """
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -61,10 +62,32 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="TalentMatch AI API", lifespan=lifespan)
 
+# ดีฟอลต์ = พอร์ตหน้าบ้าน Next.js ตอน dev (3000 ตามสเปค, 4000 ใช้บน Windows ที่ 3000
+# ติด reserved range) โปรดักชันตั้ง ALLOWED_ORIGINS เป็นโดเมนจริง คั่นด้วยจุลภาค
+#
+# **ห้ามใส่ "*"** โดยเด็ดขาด: allow_credentials=True คู่กับ origin เป็น * เบราว์เซอร์จะ
+# ปฏิเสธทุก request อยู่แล้ว และถ้าใช้ได้จริงก็เท่ากับเปิดให้เว็บใด ๆ ยิง API แทนผู้ใช้ที่
+# ล็อกอินค้างอยู่ · ค่าที่กรองแล้วว่างจะถอยไปใช้ดีฟอลต์ ไม่ปล่อยให้ allow_origins เป็น []
+# เงียบ ๆ เพราะนั่นทำให้หน้าเว็บใช้ไม่ได้ทั้งใบโดยไม่มี error บอกที่ backend
+DEFAULT_ORIGINS = ["http://localhost:3000", "http://localhost:4000"]
+
+
+def allowed_origins(raw: str | None) -> list[str]:
+    """แปลงค่า ALLOWED_ORIGINS เป็นรายการ origin — ฟังก์ชันบริสุทธิ์เพื่อทดสอบได้ตรง ๆ.
+
+    ตัดช่องว่างและ / ท้ายสุดออก (Origin header ของเบราว์เซอร์ไม่มี / ท้าย ถ้าตั้งมาเกิน
+    มันจะไม่ตรงแล้วโดนบล็อกทั้งที่ตั้งค่าถูก) · ทิ้ง "*" ทิ้งเสมอ · ว่าง = ใช้ดีฟอลต์
+    """
+    items = [o.strip().rstrip("/") for o in (raw or "").split(",")]
+    return [o for o in items if o and o != "*"] or DEFAULT_ORIGINS
+
+
+ALLOWED_ORIGINS = allowed_origins(os.getenv("ALLOWED_ORIGINS"))
+log.info("CORS อนุญาต origin: %s", ", ".join(ALLOWED_ORIGINS))
+
 app.add_middleware(
     CORSMiddleware,
-    # พอร์ตหน้าบ้าน Next.js — 3000 ตามสเปค, 4000 ใช้บน Windows ที่ 3000 ติด reserved range
-    allow_origins=["http://localhost:3000", "http://localhost:4000"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

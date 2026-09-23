@@ -1,0 +1,44 @@
+# Caddy — ประตูเดียวที่เปิดออกเน็ต ขอใบรับรอง Let's Encrypt และต่ออายุให้เองอัตโนมัติ
+#
+# หน้าเว็บกับ API อยู่โดเมนเดียวกัน แยกด้วย path — ทำแบบนี้เพราะ
+#   - ใบรับรองใบเดียว ไม่ต้องตั้งสองโดเมน
+#   - เบราว์เซอร์มองเป็น same-origin จึงไม่ต้องพึ่ง CORS เลย
+#   - โค้ดหน้าเว็บยิงไป /api/v1/... อยู่แล้ว ไม่ต้องแก้อะไร
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$PUBLIC_DOMAIN} {
+	encode zstd gzip
+
+	# API และ health check ไปที่ backend
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+	handle /health {
+		reverse_proxy backend:8000
+	}
+
+	# ที่เหลือทั้งหมดเป็นของ Next.js
+	handle {
+		reverse_proxy frontend:3000
+	}
+
+	# ส่วนหัวความปลอดภัยพื้นฐาน
+	header {
+		# บังคับ HTTPS ในเบราว์เซอร์ 1 ปี
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# อัปโหลดเรซูเม่ได้ทีละ 20 ไฟล์ ไฟล์ละไม่เกิน 10MB (ดู resume_ingest.py)
+	# เผื่อไว้ 220MB — ถ้าตั้งต่ำกว่านี้ Caddy จะตัดทิ้งก่อนถึง backend แล้ว HR
+	# จะเห็นเป็น error ที่อธิบายไม่ได้แทนข้อความ "ไฟล์ใหญ่เกิน" ของระบบเอง
+	request_body {
+		max_size 220MB
+	}
+}

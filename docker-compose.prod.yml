@@ -1,0 +1,102 @@
+# TalentMatch AI — โปรดักชัน (VPS หนึ่งเครื่อง + Caddy ทำ TLS ให้อัตโนมัติ)
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# ต่างจาก docker-compose.yml (dev) ห้าอย่าง
+#   1. ไม่ mount ซอร์สโค้ดจาก host และไม่มี --reload — โค้ดอยู่ในอิมเมจอย่างเดียว
+#   2. ไม่ publish พอร์ตของ db/backend/frontend ออก host เลย มีแต่ Caddy ที่เปิด 80/443
+#   3. ไม่มี MailHog — ต้องตั้ง SMTP จริงใน backend/.env
+#   4. ความลับทุกตัวมาจากไฟล์ .env ไม่ได้เขียนไว้ในไฟล์นี้ (ดูหมายเหตุใหญ่ข้างล่าง)
+#   5. restart: unless-stopped ทุกตัว — เครื่องรีบูตแล้วระบบกลับมาเอง
+#
+# ⚠️ **รันได้ทีละหนึ่งชุดเท่านั้น ห้ามเพิ่ม replicas**
+#    worker คิว, ตัวกันลบงานที่กำลังรัน (active_candidates) และ rate limit ของล็อกอิน
+#    ล้วนเก็บสถานะในหน่วยความจำของโปรเซส สองอินสแตนซ์จะทำงานซ้อนกันและนับผิดทันที
+#
+# ⚠️ **หมายเหตุใหญ่เรื่องความลับ**
+#    docker-compose.yml ตัว dev เขียน JWT_SECRET / ADMIN_PASSWORD / รหัส Postgres ไว้ตรง ๆ
+#    และ repo นี้เป็น public — ใครก็อ่านได้ ไฟล์นี้จึงไม่เขียนค่าพวกนั้นเลย
+#    ใน Docker Compose ค่าใน environment: **ทับ** ค่าจาก env_file: เสมอ การเอาค่าใหม่ไป
+#    ใส่ .env โดยยังปล่อยให้ environment: มีค่าเดิมอยู่จึงไม่มีผลใด ๆ (พลาดกันบ่อยมาก)
+
+name: talentmatch
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?ต้องตั้งใน .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?ต้องตั้งใน .env}
+      POSTGRES_DB: ${POSTGRES_DB:?ต้องตั้งใน .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # ปรับตามขนาดเครื่อง — ค่านี้ตั้งไว้สำหรับ VPS 4GB
+    mem_limit: 1g
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # ความลับของแอป (GOOGLE_API_KEY, JWT_SECRET, ADMIN_*, SMTP_*) อยู่ในไฟล์นี้
+    env_file:
+      - ./backend/.env
+    environment:
+      # ค่าที่ต้องประกอบจากตัวแปรอื่น จึงเขียนที่นี่แทนการซ้ำใน .env สองที่
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # โดเมนจริงของหน้าเว็บ — ถ้าไม่ตั้ง backend จะถอยไปใช้ localhost แล้วเบราว์เซอร์
+      # จะบล็อกทุก request (ตอนนี้หน้าเว็บกับ API อยู่โดเมนเดียวกัน จึงเป็นแค่ตาข่ายกันพลาด)
+      ALLOWED_ORIGINS: https://${PUBLIC_DOMAIN:?ต้องตั้งใน .env}
+    healthcheck:
+      # อิมเมจ python:slim ไม่มี curl — ใช้ไลบรารีมาตรฐานแทน
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: 1500m
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        # ⚠️ ค่านี้ถูกฝังลงไฟล์ JS ตอน build — เปลี่ยนโดเมนแล้วต้อง --build ใหม่เสมอ
+        #    หน้าเว็บกับ API อยู่โดเมนเดียวกัน Caddy แยกด้วย path /api/*
+        NEXT_PUBLIC_API_BASE_URL: https://${PUBLIC_DOMAIN}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    mem_limit: 512m
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?ต้องตั้งใน .env — Let's Encrypt ใช้แจ้งเตือนใบรับรองใกล้หมดอายุ}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # ใบรับรองอยู่ใน volume — ถ้าไม่เก็บไว้ จะขอใหม่ทุกครั้งที่ deploy จนชน rate limit
+      # ของ Let's Encrypt (5 ใบต่อโดเมนต่อสัปดาห์) แล้วเว็บจะเปิดไม่ได้เป็นวัน
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - backend
+    mem_limit: 256m
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

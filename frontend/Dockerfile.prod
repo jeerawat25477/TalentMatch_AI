@@ -1,0 +1,36 @@
+# TalentMatch AI — Frontend (โปรดักชัน)
+#
+# ต่างจาก Dockerfile ตัว dev สามอย่าง: build จริงแทน next dev · ไม่ mount ซอร์สโค้ดจาก host
+# · รันด้วยผู้ใช้ที่ไม่ใช่ root
+#
+# ⚠️ NEXT_PUBLIC_* ถูกฝังลงไฟล์ JS ตอน build ไม่ใช่ตอนรัน จึงต้องส่งเป็น ARG ที่นี่
+#    ตั้งทีหลังใน environment ของ compose จะไม่มีผลใด ๆ และหน้าเว็บจะยิงไป localhost
+#    ของเครื่องผู้ใช้แทน backend จริง (ขึ้น error ต่อ API ไม่ได้ทั้งเว็บ)
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm ci
+
+COPY . .
+
+ARG NEXT_PUBLIC_API_BASE_URL
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
+RUN test -n "$NEXT_PUBLIC_API_BASE_URL" || (echo "ต้องส่ง build-arg NEXT_PUBLIC_API_BASE_URL" && exit 1)
+RUN npm run build
+
+# ── ชั้นที่รันจริง: เอาเฉพาะผลลัพธ์ ไม่มีซอร์สและ devDependencies ──
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+
+# ผู้ใช้ node (uid 1000) มากับอิมเมจอยู่แล้ว — ไม่รันเป็น root
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+
+USER node
+EXPOSE 3000
+CMD ["node", "server.js"]
