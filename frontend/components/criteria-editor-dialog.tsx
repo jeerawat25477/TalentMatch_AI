@@ -7,6 +7,7 @@ import SkillListsEditor from "@/components/skill-lists-editor";
 import type { SkillLists } from "@/components/skill-lists-editor";
 import { BANDS } from "@/lib/types";
 import type { CriteriaPreview, CriteriaSaveResult, Job } from "@/lib/types";
+import Spinner from "./spinner";
 
 // รอให้หยุดกดสักครู่ก่อนยิง ลบ/ย้ายชิปติดกันหลายตัวจะได้เรียก backend ครั้งเดียว
 const AUTO_PREVIEW_DELAY_MS = 400;
@@ -277,7 +278,11 @@ export default function CriteriaEditorDialog({
               disabled={!!busy}
               title="อ่านประกาศของตำแหน่งนี้ใหม่ด้วยวิธีล่าสุด (ใช้ AI 1 ครั้ง) — ยังไม่บันทึกจนกว่าจะกดบันทึก"
             >
-              <span className="material-symbols-outlined text-[16px]">auto_awesome</span>
+              {busy === "reanalyze" ? (
+                <Spinner className="text-[16px]" />
+              ) : (
+                <span className="material-symbols-outlined text-[16px]">auto_awesome</span>
+              )}
               {busy === "reanalyze" ? "AI กำลังอ่านประกาศ…" : "ให้ AI อ่านประกาศใหม่"}
             </button>
           </div>
@@ -291,6 +296,7 @@ export default function CriteriaEditorDialog({
             disabled={!!busy || !previewFresh}
             title={previewFresh ? undefined : "รอผลกระทบของรายการปัจจุบันสักครู่"}
           >
+            {busy === "save" && <Spinner className="text-[18px]" />}
             {busy === "save" ? "กำลังบันทึก…" : "บันทึกและคำนวณใหม่"}
           </button>
         </div>

@@ -6,6 +6,7 @@ import ScoreRing from "@/components/score-ring";
 import { searchCandidates } from "@/lib/api";
 import { initials } from "@/lib/types";
 import type { CandidateSearchHit } from "@/lib/types";
+import Spinner from "@/components/spinner";
 
 const EXAMPLES = [
   "นักออกแบบกราฟิกและงานดีไซน์เว็บ",
@@ -71,6 +72,7 @@ export default function SearchPage() {
           />
           <button type="submit" disabled={busy || !q.trim()} className="btn-primary">
             <span className="material-symbols-outlined text-[18px]">search</span>
+            {busy && <Spinner className="text-[18px]" />}
             {busy ? "กำลังค้น…" : "ค้นหา"}
           </button>
         </div>

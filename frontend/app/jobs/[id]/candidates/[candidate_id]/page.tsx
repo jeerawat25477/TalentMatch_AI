@@ -24,6 +24,7 @@ import ResumeSource from "@/components/resume-source";
 import SkillGap from "@/components/skill-gap";
 import StatusBadge from "@/components/status-badge";
 import WorkingNote from "@/components/working-note";
+import Spinner from "@/components/spinner";
 import {
   clearEmailDraft,
   fetcher,
@@ -248,7 +249,10 @@ export default function CandidateDeepDive() {
             { label: "รายงานเชิงลึก" },
           ]}
         />
-        <p className="text-outline text-label-md">กำลังโหลด…</p>
+        <p className="text-outline text-label-md flex items-center gap-xs" role="status">
+          <Spinner className="text-[18px]" />
+          กำลังโหลด…
+        </p>
       </div>
     );
 
@@ -357,6 +361,39 @@ export default function CandidateDeepDive() {
                 photosHidden={!showPhoto}
               />
 
+            </div>
+
+            {/* ขวา: Gap Analysis */}
+            <div className="flex-1 space-y-md">
+              <div className="ai-glow-border p-md rounded-xl bg-glass/40">
+                <h3 className="text-headline-md text-primary flex items-center gap-xs mb-xs">
+                  <span className="material-symbols-outlined">query_stats</span>
+                  Gap Analysis
+                </h3>
+                {c.gap_analysis && (
+                  <p className="text-label-md text-on-surface-variant mb-xs">
+                    ตรงตามทักษะที่ต้องมี{" "}
+                    <b className="text-on-surface">
+                      {c.gap_analysis.matched_required.length}/
+                      {c.gap_analysis.matched_required.length +
+                        c.gap_analysis.missing_required.length}
+                    </b>{" "}
+                    ข้อ และทักษะที่อยากได้{" "}
+                    <b className="text-on-surface">
+                      {c.gap_analysis.matched_preferred.length}/
+                      {c.gap_analysis.matched_preferred.length +
+                        c.gap_analysis.missing_preferred.length}
+                    </b>{" "}
+                    ข้อ
+                  </p>
+                )}
+                <RadarChart gap={c.gap_analysis} />
+              </div>
+              {/* คู่กับเรดาร์: เรดาร์บอกว่าทักษะไหนตรง แท่งนี้บอกว่าแปลงเป็นคะแนนยังไง
+                  ไม่มีผลวิเคราะห์ (gap_analysis เป็น null) = ไม่แสดง */}
+              {c.gap_analysis && c.score_breakdown && c.fit_score != null && (
+                <ScoreBreakdown breakdown={c.score_breakdown} fitScore={c.fit_score} />
+              )}
               {/* Bias Auditor */}
               {c.audit_log && (
                 <div className="p-sm rounded-xl border border-secondary/20 bg-secondary-container/10 flex gap-xs items-start">
@@ -403,42 +440,18 @@ export default function CandidateDeepDive() {
                   </div>
                 </div>
               )}
-            </div>
 
-            {/* ขวา: Gap Analysis */}
-            <div className="flex-1 space-y-md">
-              <div className="ai-glow-border p-md rounded-xl bg-glass/40">
-                <h3 className="text-headline-md text-primary flex items-center gap-xs mb-xs">
-                  <span className="material-symbols-outlined">query_stats</span>
-                  Gap Analysis
-                </h3>
-                {c.gap_analysis && (
-                  <p className="text-label-md text-on-surface-variant mb-xs">
-                    ตรงตามทักษะที่ต้องมี{" "}
-                    <b className="text-on-surface">
-                      {c.gap_analysis.matched_required.length}/
-                      {c.gap_analysis.matched_required.length +
-                        c.gap_analysis.missing_required.length}
-                    </b>{" "}
-                    ข้อ และทักษะที่อยากได้{" "}
-                    <b className="text-on-surface">
-                      {c.gap_analysis.matched_preferred.length}/
-                      {c.gap_analysis.matched_preferred.length +
-                        c.gap_analysis.missing_preferred.length}
-                    </b>{" "}
-                    ข้อ
-                  </p>
-                )}
-                <RadarChart gap={c.gap_analysis} />
-              </div>
-              {/* คู่กับเรดาร์: เรดาร์บอกว่าทักษะไหนตรง แท่งนี้บอกว่าแปลงเป็นคะแนนยังไง
-                  ไม่มีผลวิเคราะห์ (gap_analysis เป็น null) = ไม่แสดง */}
-              {c.gap_analysis && c.score_breakdown && c.fit_score != null && (
-                <ScoreBreakdown breakdown={c.score_breakdown} fitScore={c.fit_score} />
+              {/* คู่กับที่มาของคะแนน: อันนั้นบอกว่าได้มายังไง อันนี้บอกว่าอยู่ตรงไหนเทียบคนอื่น
+                  มีคนที่มีคะแนนน้อยกว่า 3 คน = ไม่มีใครให้เทียบ กราฟจะเหลือแท่งเดียวกับที่ว่าง
+                  ทั้งใบ จึงบอกเป็นประโยคแทน */}
+              {c.fit_score != null && distribution && distribution.total >= 3 && (
+                <ScoreHistogram data={distribution} highlightScore={c.fit_score} compact />
               )}
-              {/* คู่กับที่มาของคะแนน: อันนั้นบอกว่าได้มายังไง อันนี้บอกว่าอยู่ตรงไหนเทียบคนอื่น */}
-              {c.fit_score != null && distribution && (
-                <ScoreHistogram data={distribution} highlightScore={c.fit_score} />
+              {c.fit_score != null && distribution && distribution.total < 3 && (
+                <p className="text-label-sm text-on-surface-variant">
+                  ยังเทียบคะแนนกับผู้สมัครคนอื่นไม่ได้ — ตำแหน่งนี้มีผู้ที่มีผลคะแนนแล้ว{" "}
+                  {distribution.total} คน
+                </p>
               )}
               <SkillGap gap={c.gap_analysis} evidence={c.skill_evidence} />
             </div>
@@ -755,6 +768,7 @@ export default function CandidateDeepDive() {
                   className="btn-tonal text-label-sm py-1 disabled:opacity-50"
                 >
                   <span className="material-symbols-outlined text-[16px]">save</span>
+                  {savingDraft && <Spinner className="text-[16px]" />}
                   {savingDraft ? "กำลังบันทึก…" : "บันทึกร่าง"}
                 </button>
                 {draftDirty ? (
@@ -810,7 +824,11 @@ export default function CandidateDeepDive() {
                 disabled={sending || !emailTo || !emailSubject || !emailBody}
                 className="btn-primary w-full disabled:opacity-50"
               >
-                <span className="material-symbols-outlined text-[18px]">send</span>
+                {sending ? (
+                  <Spinner className="text-[18px]" />
+                ) : (
+                  <span className="material-symbols-outlined text-[18px]">send</span>
+                )}
                 {sending
                   ? "กำลังส่ง…"
                   : mode === "rejection"
@@ -898,6 +916,7 @@ export default function CandidateDeepDive() {
             className="btn-primary md:w-auto justify-center disabled:opacity-50"
           >
             <span className="material-symbols-outlined text-[18px]">search</span>
+            {searching && <Spinner className="text-[16px]" />}
             {searching ? "กำลังค้นหา…" : "ค้นหา"}
           </button>
           {/* ล้างผลค้นหา — รายการยาวทำให้ต้องเลื่อนผ่านทุกครั้งที่กลับมาหน้านี้
@@ -1030,6 +1049,7 @@ export default function CandidateDeepDive() {
               }}
             >
               <span className="material-symbols-outlined text-[18px]">play_arrow</span>
+              {resuming && <Spinner className="text-[16px]" />}
               {resuming ? "กำลังสั่ง…" : "ทำต่อจากจุดที่ค้าง"}
             </button>
             {resumeError && (
@@ -1226,6 +1246,7 @@ export default function CandidateDeepDive() {
                   >
                     check_circle
                   </span>
+                  {busy === "approved" && <Spinner className="text-[16px]" />}
                   {busy === "approved" ? "กำลังส่ง…" : "ผ่านคัดกรอง"}
                 </button>
                 <button
@@ -1234,6 +1255,7 @@ export default function CandidateDeepDive() {
                   className="flex-1 py-sm px-md bg-glass/80 text-error border-2 border-error/50 rounded-xl text-body-lg font-semibold flex items-center justify-center gap-xs hover:bg-error/5 active:scale-95 duration-200 disabled:opacity-50"
                 >
                   <span className="material-symbols-outlined text-[26px]">cancel</span>
+                  {busy === "rejected" && <Spinner className="text-[16px]" />}
                   {busy === "rejected" ? "กำลังส่ง…" : "ไม่ผ่านคัดกรอง"}
                 </button>
                 {editing && (

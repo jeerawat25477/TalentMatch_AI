@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { hireCandidate } from "@/lib/api";
 import { hireDefaults, localToday } from "@/lib/offer";
 import type { EmployeeCreate, JobOffer } from "@/lib/types";
+import Spinner from "./spinner";
 
 /**
  * โมดัลกรอกข้อมูลตอนรับผู้สมัครเข้าเป็นพนักงาน.
@@ -159,6 +160,7 @@ export default function HireEmployeeDialog({
             onClick={submit}
             disabled={busy || !position.trim()}
           >
+            {busy && <Spinner className="text-[18px]" />}
             {busy ? "กำลังบันทึก…" : "ยืนยันรับเข้า"}
           </button>
         </div>

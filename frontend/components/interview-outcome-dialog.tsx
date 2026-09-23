@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { saveInterviewOutcome } from "@/lib/api";
 import { INTERVIEW_RESULT, normalizeQuestions } from "@/lib/types";
+import Spinner from "./spinner";
 import type {
   InterviewOutcome,
   InterviewPlan,
@@ -246,6 +247,7 @@ export default function InterviewOutcomeDialog({
             ยกเลิก
           </button>
           <button className="btn-primary" onClick={submit} disabled={busy || !result}>
+            {busy && <Spinner className="text-[18px]" />}
             {busy ? "กำลังบันทึก…" : "บันทึกผล"}
           </button>
         </div>

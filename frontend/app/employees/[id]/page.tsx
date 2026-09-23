@@ -10,6 +10,7 @@ import ConfirmDialog from "@/components/confirm-dialog";
 import { fetcher, setEmployeeStatus } from "@/lib/api";
 import { EMPLOYEE_STATUS } from "@/lib/types";
 import type { EmployeeDetail, EmployeeStatus } from "@/lib/types";
+import Spinner from "@/components/spinner";
 
 // ปุ่มเปลี่ยนสถานะที่จะโชว์ (ยกเว้นสถานะปัจจุบัน) + ป้ายกำกับการกระทำ
 const ACTIONS: Record<EmployeeStatus, { label: string; danger?: boolean }> = {
@@ -60,7 +61,10 @@ export default function EmployeeDetailPage() {
             { label: "รายละเอียด" },
           ]}
         />
-        <p className="text-outline text-label-md">กำลังโหลด…</p>
+        <p className="text-outline text-label-md flex items-center gap-xs" role="status">
+          <Spinner className="text-[18px]" />
+          กำลังโหลด…
+        </p>
       </div>
     );
 

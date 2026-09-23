@@ -8,6 +8,7 @@ import JobActions from "@/components/job-actions";
 import { fetcher } from "@/lib/api";
 import { skillLabel } from "@/lib/skill-group";
 import { JOB_STATUS, type JobListItem } from "@/lib/types";
+import Spinner from "@/components/spinner";
 
 type Tab = "all" | "open" | "closed";
 
@@ -65,7 +66,10 @@ export default function HomePage() {
           {actionError}
         </p>
       )}
-      {isLoading && <p className="text-outline text-label-md">กำลังโหลด…</p>}
+      {isLoading && <p className="text-outline text-label-md flex items-center gap-xs" role="status">
+          <Spinner className="text-[18px]" />
+          กำลังโหลด…
+        </p>}
 
       {jobs && jobs.length > 0 && (
         <div className="flex gap-base bg-glass/50 border border-outline/30 backdrop-blur-md p-1 rounded-xl w-fit">

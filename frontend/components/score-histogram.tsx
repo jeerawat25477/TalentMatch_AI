@@ -19,11 +19,14 @@ import type { ScoreDistribution } from "@/lib/types";
 export default function ScoreHistogram({
   data,
   highlightScore,
+  compact = false,
   children,
 }: {
   data: ScoreDistribution;
   /** คะแนนของผู้สมัครคนที่กำลังดู — ไม่ส่ง = ไม่ปักหมุด */
   highlightScore?: number | null;
+  /** เตี้ยลงสำหรับหน้าที่กราฟนี้เป็นข้อมูลประกอบ (หน้ารายละเอียดผู้สมัคร) ไม่ใช่พระเอกของหน้า */
+  compact?: boolean;
   /** ส่วนเสริมท้ายการ์ด (เช่นทักษะที่ขาดบ่อยแบบพับได้) */
   children?: React.ReactNode;
 }) {
@@ -91,7 +94,7 @@ export default function ScoreHistogram({
               ))}
             </div>
 
-            <div className="relative h-40">
+            <div className={compact ? "relative h-28" : "relative h-40"}>
               {/* พื้นโซน */}
               {zones.map((z, i) => (
                 <div
@@ -119,7 +122,7 @@ export default function ScoreHistogram({
               ))}
 
               {/* แท่ง — เว้นที่ด้านบนไว้ให้ตัวเลขบนหัวแท่งสูงสุด */}
-              <div className="relative flex items-end gap-1.5 h-full pt-6">
+              <div className={`relative flex items-end gap-1.5 h-full ${compact ? "pt-5" : "pt-6"}`}>
                 {buckets.map((b, i) => {
                   const h = max > 0 ? (b.count / max) * 100 : 0;
                   const mine = i === pinBucket;

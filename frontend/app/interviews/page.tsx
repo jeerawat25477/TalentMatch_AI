@@ -7,6 +7,7 @@ import Breadcrumb from "@/components/breadcrumb";
 import { getInterviews } from "@/lib/api";
 import { INTERVIEW_RESULT } from "@/lib/types";
 import type { InterviewSlot } from "@/lib/types";
+import Spinner from "@/components/spinner";
 
 /**
  * ตารางนัดสัมภาษณ์รวมทุกตำแหน่ง — อ่านอย่างเดียว
@@ -137,7 +138,10 @@ export default function InterviewsPage() {
         </p>
       )}
 
-      {isLoading && !data && <p className="text-outline text-label-md">กำลังโหลด…</p>}
+      {isLoading && !data && <p className="text-outline text-label-md flex items-center gap-xs" role="status">
+          <Spinner className="text-[18px]" />
+          กำลังโหลด…
+        </p>}
 
       {data && groups.length === 0 && !error && (
         <div className="glass-card rounded-2xl p-lg text-center">

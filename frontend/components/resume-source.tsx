@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import Spinner from "@/components/spinner";
 import { getResumeFile } from "@/lib/api";
 
 /**
@@ -67,9 +68,13 @@ export default function ResumeSource({
             disabled={busy}
             className="btn-secondary-glass inline-flex items-center gap-1"
           >
-            <span className="material-symbols-outlined text-[18px]" aria-hidden>
-              picture_as_pdf
-            </span>
+            {busy ? (
+              <Spinner className="text-[18px]" />
+            ) : (
+              <span className="material-symbols-outlined text-[18px]" aria-hidden>
+                picture_as_pdf
+              </span>
+            )}
             {busy ? "กำลังเปิด…" : "ดูเรซูเม่ต้นฉบับ"}
           </button>
         )}

@@ -6,6 +6,7 @@ import { getMe } from "@/lib/api";
 import { clearToken, isAuthed } from "@/lib/auth";
 import { IntakeNotificationsProvider } from "./intake-notifications";
 import SideNav from "./side-nav";
+import Spinner from "./spinner";
 
 const COLLAPSE_KEY = "tm-sidebar-collapsed";
 
@@ -91,7 +92,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   if (checking) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <p className="text-outline text-label-md">กำลังตรวจสอบสิทธิ์…</p>
+        <p className="text-outline text-label-md flex items-center gap-xs" role="status">
+          <Spinner className="text-[18px]" />
+          กำลังตรวจสอบสิทธิ์…
+        </p>
       </div>
     );
   }

@@ -1,3 +1,4 @@
+import Spinner from "./spinner";
 import { BANDS, scoreBand } from "@/lib/types";
 
 // วงแหวนคะแนน (conic-gradient) + ป้ายแบนด์ — ตาม mockup Candidate List
@@ -5,9 +6,12 @@ export default function ScoreRing({
   score,
   size = 56,
   showLabel = true,
+  working = false,
 }: {
   score: number | null;
   size?: number;
+  /** ระบบกำลังวิเคราะห์คนนี้อยู่จริง — โชว์ไอคอนหมุนแทนขีด ให้รู้ว่าไม่ได้ค้าง */
+  working?: boolean;
   /** false = วงอย่างเดียว สำหรับที่ที่ป้ายแบนด์ไม่มีความหมายแล้ว (เช่นกระดานติดตาม) */
   showLabel?: boolean;
 }) {
@@ -25,7 +29,7 @@ export default function ScoreRing({
           className="rounded-full bg-surface-container-lowest flex items-center justify-center font-bold"
           style={{ width: size - 10, height: size - 10, color: band.color, fontSize: 14 }}
         >
-          {score == null ? "—" : score}
+          {score == null ? (working ? <Spinner className="text-[16px]" /> : "—") : score}
         </div>
       </div>
     );
@@ -41,12 +45,14 @@ export default function ScoreRing({
           className="rounded-full bg-surface-container-lowest flex items-center justify-center font-bold"
           style={{ width: inner, height: inner, color: band.color, fontSize: 14 }}
         >
-          {score == null ? "—" : score}
+          {score == null ? (working ? <Spinner className="text-[16px]" /> : "—") : score}
         </div>
       </div>
       <div
-        className="text-[10px] font-semibold tracking-wide uppercase text-center"
-        style={{ color: band.color }}
+        className={`text-[10px] font-semibold tracking-wide uppercase text-center ${
+          working ? "text-primary" : ""
+        }`}
+        style={working ? undefined : { color: band.color }}
       >
         {band.label}
       </div>

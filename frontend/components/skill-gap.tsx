@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import type { GapAnalysis } from "@/lib/types";
 import { skillLabel } from "@/lib/skill-group";
 
@@ -68,7 +71,7 @@ function Panel({
       : "bg-error/10 text-on-error-container";
 
   return (
-    <div className={`p-md rounded-xl border ${wrap}`}>
+    <div className={`p-md rounded-xl border h-full ${wrap}`}>
       <div className={`flex items-center gap-xs mb-xs ${head}`}>
         <span className="material-symbols-outlined text-[20px]">{icon}</span>
         <span className="text-label-md font-bold">
@@ -93,22 +96,75 @@ function Panel({
       {/* หลักฐานจากเรซูเม่ — ผ่านการตรวจว่ามีข้อความนี้อยู่ในไฟล์จริงแล้วฝั่ง backend
           ทักษะที่หาหลักฐานยืนยันไม่ได้จะไม่อยู่ในลิสต์นี้ (โชว์เป็นชิปด้านบนอย่างเดียว) */}
       {quotes.length > 0 && (
-        <div className="mt-sm pt-sm border-t border-outline-variant/30 space-y-xs">
-          <p className="text-label-sm text-outline flex items-center gap-xs">
-            <span className="material-symbols-outlined text-[16px]">
-              format_quote
-            </span>
-            หลักฐานจากเรซูเม่ ({quotes.length}/{skills.length})
-          </p>
-          {quotes.map(([skill, quote]) => (
-            <div key={skill}>
-              <p className="text-label-sm font-semibold text-on-surface">{skillLabel(skill)}</p>
+        <EvidenceList quotes={quotes} total={skills.length} tone={tone} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * หลักฐานจากเรซูเม่ — พับไว้เป็นค่าตั้งต้น กดเพื่อกาง
+ *
+ * รวมทักษะที่อ้างข้อความเดียวกันไว้ด้วยกัน: เรซูเม่หนึ่งท่อนมักยืนยันหลายทักษะพร้อมกัน
+ * ("ระบบ multi-agent ด้วย LangGraph, FastAPI, PostgreSQL") ถ้าแสดงทีละทักษะจะเห็นข้อความ
+ * เดิมซ้ำติดกันหลายรอบจนลิสต์ยาวดันการ์ดอื่นตกจอ
+ */
+function EvidenceList({
+  quotes,
+  total,
+  tone,
+}: {
+  quotes: readonly (readonly [string, string])[];
+  total: number;
+  tone: "secondary" | "error";
+}) {
+  const [open, setOpen] = useState(false);
+  const border = tone === "secondary" ? "border-secondary/40" : "border-error/40";
+
+  // จัดกลุ่มตามข้อความ คงลำดับที่เจอครั้งแรก (ลำดับเดียวกับชิปด้านบน)
+  const groups: { quote: string; skills: string[] }[] = [];
+  for (const [skill, quote] of quotes) {
+    const hit = groups.find((g) => g.quote === quote);
+    if (hit) hit.skills.push(skill);
+    else groups.push({ quote, skills: [skill] });
+  }
+
+  return (
+    <div className="mt-sm pt-sm border-t border-outline-variant/30">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="w-full flex items-center gap-xs text-label-sm text-outline hover:text-primary transition-colors"
+      >
+        <span className="material-symbols-outlined text-[16px]" aria-hidden>
+          format_quote
+        </span>
+        <span className="flex-1 text-start">
+          หลักฐานจากเรซูเม่ ({quotes.length}/{total})
+        </span>
+        <span className="text-primary">{open ? "ซ่อน" : "ดู"}</span>
+        <span
+          className={`material-symbols-outlined text-[18px] text-primary transition-transform ${
+            open ? "rotate-180" : ""
+          }`}
+          aria-hidden
+        >
+          expand_more
+        </span>
+      </button>
+
+      {open && (
+        <div className="mt-xs space-y-xs">
+          {groups.map((g) => (
+            <div key={g.quote}>
+              <p className="text-label-sm font-semibold text-on-surface">
+                {g.skills.map(skillLabel).join(" · ")}
+              </p>
               <blockquote
-                className={`border-l-2 pl-sm mt-0.5 text-label-sm italic text-on-surface-variant ${
-                  tone === "secondary" ? "border-secondary/40" : "border-error/40"
-                }`}
+                className={`border-l-2 pl-sm mt-0.5 text-label-sm italic text-on-surface-variant ${border}`}
               >
-                {quote}
+                {g.quote}
               </blockquote>
             </div>
           ))}

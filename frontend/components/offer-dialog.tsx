@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { saveOffer } from "@/lib/api";
 import { addDaysIso, localToday } from "@/lib/offer";
 import type { JobOffer } from "@/lib/types";
+import Spinner from "./spinner";
 
 /**
  * โมดัลบันทึก/แก้ข้อเสนอจ้างงาน
@@ -188,6 +189,7 @@ export default function OfferDialog({
             onClick={save}
             disabled={busy || !position.trim() || salaryInvalid}
           >
+            {busy && <Spinner className="text-[18px]" />}
             {busy ? "กำลังบันทึก…" : existing ? "บันทึกข้อเสนอ" : "ยื่นข้อเสนอ"}
           </button>
         </div>

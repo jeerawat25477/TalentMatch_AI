@@ -9,6 +9,7 @@ import SkillListsEditor from "@/components/skill-lists-editor";
 import type { SkillLists } from "@/components/skill-lists-editor";
 import { analyzeJD, createJob, reviewJD } from "@/lib/api";
 import type { JDReview, JobAnalyzeResult } from "@/lib/types";
+import Spinner from "@/components/spinner";
 
 // ตัวอย่างประกาศจริง ไม่ใช่คำสั่งว่าให้ทำอะไร — HR จะได้เห็นว่า "วางอะไรลงไป" ได้ทันที
 // เขียนแบบที่ประกาศจริงเขียนกัน (มีหัวข้อ มีคำว่า "หรือ" มีส่วนที่มีก็ดี) ไม่ใช่รูปแบบในอุดมคติ
@@ -188,7 +189,11 @@ export default function NewJobPage() {
               disabled={reviewing || busy || !rawText.trim()}
               className="btn-secondary-glass disabled:opacity-50"
             >
-              <span className="material-symbols-outlined text-[18px]">rate_review</span>
+              {reviewing ? (
+                <Spinner className="text-[18px]" />
+              ) : (
+                <span className="material-symbols-outlined text-[18px]">rate_review</span>
+              )}
               {reviewing ? "กำลังตรวจ JD…" : "ตรวจ JD ก่อนโพสต์"}
             </button>
             <button
@@ -197,7 +202,10 @@ export default function NewJobPage() {
               className="btn-primary"
             >
               {busy ? (
-                "AI กำลังอ่านประกาศ…"
+                <>
+                  <Spinner className="text-[18px]" />
+                  AI กำลังอ่านประกาศ…
+                </>
               ) : (
                 <>
                   <span className="material-symbols-outlined text-[18px]">auto_awesome</span>
@@ -317,7 +325,8 @@ export default function NewJobPage() {
               onClick={handleCreate}
               disabled={busy || !title.trim()}
             >
-              {busy ? "กำลังบันทึก…" : "ยืนยันและสร้างตำแหน่ง"}
+              {busy && <Spinner className="text-[18px]" />}
+            {busy ? "กำลังบันทึก…" : "ยืนยันและสร้างตำแหน่ง"}
             </button>
           </div>
         </div>

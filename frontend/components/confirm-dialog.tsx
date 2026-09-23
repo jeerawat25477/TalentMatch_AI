@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Spinner from "./spinner";
 
 /**
  * กล่องยืนยันการกระทำ — ใช้แทน window.confirm สำหรับงานที่ย้อนกลับไม่ได้.
@@ -104,6 +105,7 @@ export default function ConfirmDialog({
             onClick={onConfirm}
             disabled={busy || !ready}
           >
+            {busy && <Spinner className="text-[18px]" />}
             {busy ? "กำลังดำเนินการ…" : confirmLabel}
           </button>
         </div>

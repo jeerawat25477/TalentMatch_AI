@@ -6,6 +6,7 @@ import Breadcrumb from "@/components/breadcrumb";
 import EmailIntakeCard from "@/components/email-intake-card";
 import { useIntakeFeed } from "@/components/intake-notifications";
 import { INTAKE_OUTCOME, type EmailIntakeActivityItem } from "@/lib/types";
+import Spinner from "@/components/spinner";
 
 type Filter = "all" | "matched" | "attention";
 
@@ -92,7 +93,10 @@ export default function IntakePage() {
               โหลดรายการไม่สำเร็จ — ลองรีเฟรชหน้าอีกครั้ง
             </p>
           ) : !items ? (
-            <p className="text-outline text-label-md">กำลังโหลด…</p>
+            <p className="text-outline text-label-md flex items-center gap-xs" role="status">
+          <Spinner className="text-[18px]" />
+          กำลังโหลด…
+        </p>
           ) : visible.length === 0 ? (
             <EmptyFeed filter={filter} />
           ) : (

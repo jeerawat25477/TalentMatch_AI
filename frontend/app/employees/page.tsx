@@ -8,6 +8,7 @@ import CandidateAvatar from "@/components/candidate-avatar";
 import { fetcher } from "@/lib/api";
 import { EMPLOYEE_STATUS } from "@/lib/types";
 import type { EmployeeListItem, EmployeeStatus } from "@/lib/types";
+import Spinner from "@/components/spinner";
 
 const AVATAR_COLORS = [
   "#0058be",
@@ -73,7 +74,10 @@ export default function EmployeesPage() {
           โหลดรายชื่อพนักงานไม่สำเร็จ: {error.message}
         </p>
       )}
-      {isLoading && <p className="text-outline text-label-md">กำลังโหลด…</p>}
+      {isLoading && <p className="text-outline text-label-md flex items-center gap-xs" role="status">
+          <Spinner className="text-[18px]" />
+          กำลังโหลด…
+        </p>}
 
       {employees && employees.length === 0 && (
         <div className="glass-card rounded-2xl p-lg text-center flex flex-col items-center gap-sm">

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import Spinner from "./spinner";
 import {
   googleCalendarUrl,
   interviewDetails,
@@ -216,6 +217,7 @@ export function InterviewScheduleDialog({
             onClick={() => save()}
             disabled={busy || !when}
           >
+            {busy && <Spinner className="text-[18px]" />}
             {busy ? "กำลังบันทึก…" : "บันทึกวันนัด"}
           </button>
         </div>

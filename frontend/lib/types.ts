@@ -157,12 +157,12 @@ export const QUEUE_STATE: Record<
 > = {
   queued: {
     label: "รอคิวประมวลผล",
-    chip: "bg-primary-container/40 text-on-primary-container",
+    chip: "bg-primary/15 text-primary border border-primary/30",
     icon: "schedule",
   },
   running: {
     label: "กำลังวิเคราะห์…",
-    chip: "bg-primary-container/40 text-on-primary-container",
+    chip: "bg-primary/15 text-primary border border-primary/30",
     icon: "autorenew",
   },
   deferred_quota: {

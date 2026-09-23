@@ -9,6 +9,7 @@ import { skillLabel } from "@/lib/skill-group";
 import CandidateAvatar, { useScreeningPhotos } from "./candidate-avatar";
 import ConfirmDialog from "./confirm-dialog";
 import ScoreRing from "./score-ring";
+import Spinner from "@/components/spinner";
 
 const AVATAR_COLORS = [
   "#0058be",
@@ -120,9 +121,11 @@ export default function CandidateCard({
             <span
               className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full ${queued.chip}`}
             >
-              <span className="material-symbols-outlined text-[14px]">
-                {queued.icon}
-              </span>
+              {candidate.queue_status === "running" ? (
+                <Spinner className="text-[14px]" />
+              ) : (
+                <span className="material-symbols-outlined text-[14px]">{queued.icon}</span>
+              )}
               {queued.label}
             </span>
           </div>
@@ -174,7 +177,7 @@ export default function CandidateCard({
         </div>
       </div>
 
-      <ScoreRing score={candidate.fit_score} />
+      <ScoreRing score={candidate.fit_score} working={candidate.queue_status === "running"} />
 
       <div className="flex-none flex items-center gap-xs">
         {candidate.stalled && !queued && (
@@ -189,6 +192,7 @@ export default function CandidateCard({
             >
               refresh
             </span>
+            {busy && <Spinner className="text-[16px]" />}
             {busy ? "กำลังเริ่ม…" : "วิเคราะห์ใหม่"}
           </button>
         )}
