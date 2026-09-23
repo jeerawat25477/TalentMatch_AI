@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="TalentMatch AI">
+  <!-- ไอคอนแท็บเบราว์เซอร์ ใช้มาร์กเดียวกับโลโก้ในแถบเมนู (ตัว T บนสี่เหลี่ยมมนไล่สี)
+       สีมาจาก token ธีมสว่าง c-primary #0058be ไล่ไป c-primary-container #2170e4
+       เขียนเป็นเลขฐานสิบหกตรง เพราะไฟล์นี้อยู่นอก CSS จึงอ่านตัวแปรธีมไม่ได้
+       ตัว T วาดด้วยสี่เหลี่ยม ไม่ใช้ text element เพราะฟอนต์บนเครื่องผู้ใช้ทำให้รูปร่างเพี้ยนได้ -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0058be"/>
+      <stop offset="1" stop-color="#2170e4"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#g)"/>
+  <g fill="#ffffff">
+    <rect x="16" y="17" width="32" height="9" rx="2.5"/>
+    <rect x="27.5" y="17" width="9" height="30" rx="2.5"/>
+  </g>
+</svg>
