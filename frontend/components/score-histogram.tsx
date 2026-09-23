@@ -160,16 +160,21 @@ export default function ScoreHistogram({
               </div>
             </div>
 
-            {/* แกนคะแนน — ตัวเลขเส้นแบ่งเป็นตัวหนาสีเดียวกับเส้น */}
+            {/* แกนคะแนน — ตัวเลขเส้นแบ่งเป็นตัวหนาสีเดียวกับเส้น
+                จอแคบเหลือแค่ 0 · เส้นแบ่งแบนด์ · ค่าสูงสุด — สิบเอ็ดตัวเลขบนจอมือถือชนกัน
+                จนอ่านไม่ออก (90 กับ 100 ทับกันตรง ๆ) และตัวที่เหลือคือตัวที่มีความหมาย */}
             <div className="relative h-5 mt-1 border-t border-outline/30" aria-hidden>
               {Array.from({ length: buckets.length + 1 }, (_, i) => i * step).map((v) => {
                 const line = lines.find((l) => l.at === v);
+                const always = v === 0 || v === top || line != null;
                 return (
                   <span
                     key={v}
                     className={`absolute top-1 text-[11px] leading-none ${
                       v === 0 ? "" : v === top ? "-translate-x-full" : "-translate-x-1/2"
-                    } ${line ? "font-bold" : "text-outline"}`}
+                    } ${line ? "font-bold" : "text-outline"} ${
+                      always ? "" : "hidden sm:inline"
+                    }`}
                     style={{ left: `${pct(v)}%`, ...(line ? { color: line.color } : {}) }}
                   >
                     {v}
