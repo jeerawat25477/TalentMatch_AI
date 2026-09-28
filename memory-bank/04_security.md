@@ -93,11 +93,11 @@ resume text เข้า LLM (`resume_parser`, `bias_auditor`, `planner`, `draft
 
 ## ✅ Checklist ก่อน deploy จริง (production readiness)
 1. [x] **Auth** — ล็อกอิน JWT กันทุก endpoint แล้ว (เหลือ: role/ownership, ย้าย token ไป cookie ถ้าเหมาะ)
-2. [ ] **TLS** — reverse proxy + cert (Let's Encrypt)
+2. [x] **TLS** — Caddy ใน `docker-compose.prod.yml` ขอ/ต่ออายุใบรับรอง Let's Encrypt เอง (2026-09-23) · ยังไม่ได้ deploy จริง
 3. [ ] **Rate limiting แบบถาวร** — login rate-limit มีแล้วแต่ in-memory · ย้ายไป Redis + คลุม API ทั่วไป/การส่งอีเมล
 4. [ ] **Secrets manager** — ย้าย `JWT_SECRET`/`GOOGLE_API_KEY`/`ADMIN_PASSWORD` ออกจากไฟล์ `.env`, rotate
-5. [ ] **Non-root container** + resource limits
-6. [ ] **จำกัดจำนวนหน้า/เวลาแกะ PDF** (decompression bomb)
+5. [ ] **Non-root container** + resource limits — ทำแล้วบางส่วน: frontend โปรดักชันรันเป็น uid 1000 และมี `mem_limit` ทุก service ใน `docker-compose.prod.yml` · **backend ยังรันเป็น root**
+6. [x] **จำกัดจำนวนหน้า PDF** — `MAX_PDF_PAGES` (ดีฟอลต์ 30) ใน `utils/pdf_extractor.py` · ยังไม่จำกัดเวลาแกะ
 7. [ ] **Audit log ถาวร** — ตอนนี้ log ไป stdout เท่านั้น (login สำเร็จ/ส่งอีเมล log แล้ว แต่ไม่ persist)
 8. [ ] **Supabase RLS / Data API** — ทุกตารางอยู่ใน `public` และยังไม่เปิด RLS ถ้า Data API เปิด
    คนที่มี anon key อาจอ่านเรซูเม่และ `users` ได้ · รายละเอียด [05_database.md](05_database.md) ข้อ 1
