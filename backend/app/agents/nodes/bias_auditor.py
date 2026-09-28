@@ -105,7 +105,7 @@ def build_jd_audit(llm: Optional[BiasAudit], raw_jd: str) -> dict[str, Any]:
     else:
         log = "ไม่พบถ้อยคำที่เข้าข่ายอคติในประกาศ (ตรวจด้วยกฎตายตัว)"
 
-    jd_criteria = merge_criteria(llm.biased_jd_criteria if llm else [], hits)
+    jd_criteria = merge_criteria(llm.biased_jd_criteria if llm else [], hits, raw_jd or "")
     if jd_criteria:
         log = (
             f"{log}\n"

@@ -132,21 +132,80 @@ def _squash(s: str) -> str:
     return re.sub(r"\s+", "", s).lower()
 
 
-def merge_criteria(llm_items: list[str], hits: list[RuleHit]) -> list[str]:
-    """รวมรายการของ LLM กับของกฎ โดยไม่ให้ซ้ำความหมาย.
+# คำเชื่อมที่เหลือค้างหลังตัดถ้อยคำของกฎออกจากข้อของ LLM ("เพศหญิง และบุคลิกดี" → "และบุคลิกดี")
+_CONNECTORS = ("และ", "หรือ", "กับ", "รวมถึง", ",", "/", "、", "·", "-", ";", ":", "(", ")", "and", "or")
+# เศษที่สั้นกว่านี้ไม่ใช่ถ้อยคำ แค่ตัวอักษรตกค้าง
+_MIN_REST_CHARS = 3
 
-    LLM มักรวมหลายเกณฑ์เป็นข้อเดียว ("เพศชาย อายุไม่เกิน 30 ปี") หรือเขียนสั้นกว่า
-    ("อายุไม่เกิน 30") จึงเทียบแบบตัดช่องว่างแล้วดูว่าฝั่งใดเป็น substring ของอีกฝั่ง
-    ถ้าใช่ถือว่าเป็นเรื่องเดียวกันและเก็บของ LLM ไว้
+
+def _trim_connectors(s: str) -> str:
+    changed = True
+    while changed and s:
+        changed = False
+        for c in _CONNECTORS:
+            if s.startswith(c):
+                s, changed = s[len(c):], True
+            if s.endswith(c):
+                s, changed = s[: -len(c)], True
+    return s
+
+
+def _verbatim(squashed: str, raw_jd: str) -> str | None:
+    """หาข้อความในประกาศที่ตัดช่องว่างแล้วตรงกับ squashed — คืนตามตัวสะกดและช่องว่างเดิม."""
+    if not squashed or not raw_jd:
+        return None
+    pattern = r"\s*".join(re.escape(ch) for ch in squashed)
+    m = re.search(pattern, raw_jd, re.IGNORECASE)
+    return m.group(0).strip() if m else None
+
+
+def merge_criteria(llm_items: list[str], hits: list[RuleHit], raw_jd: str = "") -> list[str]:
+    """รวมรายการของ LLM กับของกฎ ให้ได้ถ้อยคำทีละเรื่อง ไม่ซ้ำความหมาย.
+
+    **ถ้อยคำของกฎเป็นหน่วยหลัก** เพราะกฎยกข้อความจากประกาศตรงตัวและจับทีละเรื่องเสมอ
+    ซึ่งคือหน่วยที่ HR ยืนยัน "จำเป็นกับงานนี้" ทีละข้อ (app/bias_ack.py) เดิมเก็บของ LLM เมื่อทับกัน
+    แล้ว LLM รวม "เพศหญิง อายุไม่เกิน 35 ปี" เป็นข้อเดียว — การยืนยันครั้งเดียวจึงครอบทั้งเพศและอายุ
+    ทั้งที่งานอาจจำเป็นแค่เรื่องเดียว (เจอจากการลองจริง 2026-09-28)
+
+    1. ถ้อยคำของกฎทั้งหมด ตามลำดับในประกาศ
+    2. ข้อของ LLM ที่ไม่ทับกฎเลย → เก็บ (เรื่องที่กฎจับไม่ได้)
+    3. ข้อของ LLM ที่ทับกฎ → ตัดส่วนที่กฎครอบออก เศษที่เหลือเก็บต่อเมื่อยาวพอและ **ปรากฏตรงตัว
+       ในประกาศ** — กันคำสรุปที่ LLM แต่งเองกลายเป็นถ้อยคำที่ HR ต้องไปยืนยัน
+       ข้อของ LLM ที่สั้นกว่า/เท่ากับถ้อยคำของกฎ ("อายุไม่เกิน 30") ถือว่ากฎครอบแล้ว
     """
-    merged = [c.strip() for c in llm_items if c and c.strip()]
-    keys = [_squash(c) for c in merged]
+    merged: list[str] = []
+    keys: list[str] = []
+
+    def add(phrase: str) -> None:
+        k = _squash(phrase)
+        if k and k not in keys:
+            merged.append(phrase)
+            keys.append(k)
+
     for hit in hits:
-        k = _squash(hit.phrase)
-        if any(k in existing or existing in k for existing in keys):
+        add(hit.phrase)
+    rule_keys = [_squash(h.phrase) for h in hits]
+
+    for item in llm_items:
+        item = (item or "").strip()
+        k = _squash(item)
+        if not k:
             continue
-        merged.append(hit.phrase)
-        keys.append(k)
+        inside = [r for r in rule_keys if r in k]
+        if any(k in r for r in rule_keys):
+            continue  # กฎครอบทั้งข้อแล้ว
+        if not inside:
+            add(item)
+            continue
+        rest = k
+        for r in sorted(inside, key=len, reverse=True):
+            rest = rest.replace(r, "\x00")
+        for piece in rest.split("\x00"):
+            piece = _trim_connectors(piece)
+            if len(piece) >= _MIN_REST_CHARS:
+                found = _verbatim(piece, raw_jd)
+                if found:
+                    add(found)
     return merged
 
 
