@@ -7,6 +7,7 @@ import useSWR from "swr";
 import Breadcrumb from "@/components/breadcrumb";
 import CandidateAvatar, { useScreeningPhotos } from "@/components/candidate-avatar";
 import CandidateTimeline from "@/components/candidate-timeline";
+import ConfirmDialog from "@/components/confirm-dialog";
 import EmailTemplatePicker from "@/components/email-template-picker";
 import HireEmployeeDialog from "@/components/hire-employee-dialog";
 import HireOrCloseCard from "@/components/hire-or-close-card";
@@ -27,6 +28,7 @@ import StatusBadge from "@/components/status-badge";
 import WorkingNote from "@/components/working-note";
 import Spinner from "@/components/spinner";
 import {
+  biasWarningOf,
   clearEmailDraft,
   fetcher,
   resumeCandidate,
@@ -50,6 +52,7 @@ import {
   scoreBand,
 } from "@/lib/types";
 import type {
+  BiasPhrase,
   CandidateDetail,
   CandidateSearchHit,
   Decision,
@@ -84,6 +87,8 @@ export default function CandidateDeepDive() {
   const [editing, setEditing] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  // ถ้อยคำที่ backend เตือนตอนกดส่ง — มีค่า = เปิดหน้าต่างให้ HR เลือกกลับไปแก้หรือส่งต่อ
+  const [biasWarning, setBiasWarning] = useState<BiasPhrase[] | null>(null);
   const [showHire, setShowHire] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -207,7 +212,7 @@ export default function CandidateDeepDive() {
     setTextKind("rejection");
   }
 
-  async function handleSend() {
+  async function handleSend(acknowledged = false) {
     setSending(true);
     setSendError(null);
     try {
@@ -215,10 +220,16 @@ export default function CandidateDeepDive() {
         to: emailTo,
         subject: emailSubject,
         body: emailBody,
+        acknowledged_bias_warning: acknowledged,
       });
+      setBiasWarning(null);
       mutate(); // ดึง email_sent_at ล่าสุดมาแสดงป้าย "ส่งแล้ว"
     } catch (e) {
-      setSendError(e instanceof Error ? e.message : "ส่งอีเมลไม่สำเร็จ");
+      // backend ตรวจถ้อยคำที่อาจเป็นการเลือกปฏิบัติก่อนส่งเสมอ — เจอแล้วยังไม่ยืนยัน = ยังไม่ส่ง
+      // ถามให้ HR เลือก: กลับไปแก้ หรือส่งต่อ (บางงานจำเป็นจริง ระบบไม่ห้าม แต่ต้องรู้ตัวก่อน)
+      const phrases = biasWarningOf(e);
+      if (phrases) setBiasWarning(phrases);
+      else setSendError(e instanceof Error ? e.message : "ส่งอีเมลไม่สำเร็จ");
     } finally {
       setSending(false);
     }
@@ -852,6 +863,35 @@ export default function CandidateDeepDive() {
                       ? `ส่งซ้ำ (ส่งแล้ว ${c.email_send_count} ครั้ง)`
                       : "ส่งอีเมล"}
               </button>
+
+              {biasWarning && (
+                <ConfirmDialog
+                  title="อีเมลนี้มีถ้อยคำที่อาจเป็นการเลือกปฏิบัติ"
+                  body={
+                    <div className="space-y-xs">
+                      <ul className="flex flex-wrap gap-base">
+                        {biasWarning.map((w) => (
+                          <li
+                            key={w.phrase}
+                            className="text-label-sm px-2 py-0.5 rounded-full bg-tertiary/15 text-on-surface"
+                          >
+                            “{w.phrase}” <span className="text-outline">({w.category})</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <p>
+                        ยังไม่ได้ส่ง · ถ้อยคำพวกนี้ถึงมือผู้สมัครจริง กด “ยกเลิก” เพื่อกลับไปแก้
+                        ถ้างานนี้จำเป็นจริงกด “ส่งต่อ” — ระบบจะบันทึกว่าคุณส่งทั้งที่ถูกเตือน
+                      </p>
+                    </div>
+                  }
+                  confirmLabel="ส่งต่อ"
+                  busy={sending}
+                  error={sendError}
+                  onConfirm={() => handleSend(true)}
+                  onClose={() => setBiasWarning(null)}
+                />
+              )}
             </div>
           ) : (
             c.queue_status ? (

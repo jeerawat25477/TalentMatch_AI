@@ -5,6 +5,7 @@ import os
 from fastapi import APIRouter, Depends, HTTPException
 from psycopg.types.json import Json
 
+from app.agents.bias_rules import find_biased_message_phrases
 from app.agents.runner import active_candidates, reserve_candidates
 from app.auth import get_current_user
 from app.database import get_conn
@@ -232,7 +233,9 @@ def clear_email_draft(candidate_id: str) -> EmailDraftDeleteOut:
 
 
 @router.post("/{candidate_id}/email/send", response_model=EmailSendOut)
-def send_candidate_email(candidate_id: str, payload: EmailSendIn) -> EmailSendOut:
+def send_candidate_email(
+    candidate_id: str, payload: EmailSendIn, user: str = Depends(get_current_user)
+) -> EmailSendOut:
     """ส่งอีเมลถึงผู้สมัคร (HR กดเอง หลังตรวจผู้รับ/หัวข้อ/เนื้อความบนจอ).
 
     ส่งแบบ **synchronous** ต่างจากกราฟ — HR ต้องรู้ทันทีว่าสำเร็จหรือล้ม ไม่ใช่ยิงแล้วเงียบ
@@ -248,6 +251,26 @@ def send_candidate_email(candidate_id: str, payload: EmailSendIn) -> EmailSendOu
     if row is None:
         # ต้องมี evaluation ก่อน (คอลัมน์ email_sent_* อยู่บนตารางนี้) — ยังไม่ประเมิน = ส่งไม่ได้
         raise HTTPException(status_code=404, detail="ยังไม่มีผลประเมินของผู้สมัครนี้ ส่งอีเมลไม่ได้")
+
+    # ตรวจถ้อยคำที่อาจเป็นการเลือกปฏิบัติ **ในตัว endpoint ส่งเอง** ไม่แยก /check — หน้าเว็บลืม
+    # เรียกก่อนส่งก็ข้ามไม่ได้ · ไม่ห้ามส่ง: HR เห็นแล้วยืนยันได้ (บางงานจำเป็นจริง) แต่ต้องรู้ตัวก่อน
+    # และระบบจำไว้ว่าใครส่งทั้งที่ถูกเตือน · AI ร่างอีเมลโดยไม่เห็นข้อมูลส่วนตัว (test_prompt_privacy)
+    # ความเสี่ยงจริงจึงเป็นข้อความที่ HR แก้เองหรือเทมเพลตของตัวเอง
+    hits = find_biased_message_phrases(f"{payload.subject}\n{payload.body}")
+    if hits and not payload.acknowledged_bias_warning:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "bias_warning",
+                "message": "อีเมลนี้มีถ้อยคำที่อาจเป็นการเลือกปฏิบัติ — ตรวจก่อนส่ง",
+                "phrases": [{"category": h.category, "phrase": h.phrase} for h in hits],
+            },
+        )
+    if hits:
+        log.warning(
+            "%s ส่งอีเมลถึงผู้สมัคร %s ทั้งที่ระบบเตือนถ้อยคำ: %s",
+            user, candidate_id, [h.phrase for h in hits],
+        )
 
     try:
         send_email(to=payload.to, subject=payload.subject, body=payload.body)

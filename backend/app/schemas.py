@@ -440,6 +440,8 @@ class EmailSendIn(BaseModel):
     to: EmailStr
     subject: str = Field(..., min_length=1, max_length=500)
     body: str = Field(..., min_length=1)
+    # HR เห็นคำเตือนถ้อยคำที่อาจเป็นการเลือกปฏิบัติแล้ว และยืนยันส่งต่อ — false = เจอแล้วตอบ 409 ไม่ส่ง
+    acknowledged_bias_warning: bool = False
 
 
 class EmailDraftIn(BaseModel):

@@ -26,6 +26,7 @@ import type {
   JobOffer,
   JobOfferUpsert,
   BiasAckIn,
+  BiasPhrase,
   Job,
   JobAnalyzeResult,
   JobCriteriaConfirm,
@@ -58,6 +59,21 @@ function handleUnauthorized(): void {
   }
 }
 
+/**
+ * error จาก API — ข้อความยังเป็นรูปเดิม `"<status>: <ข้อความ>"` ทุกที่ที่แสดง e.message ใช้ได้เหมือนเดิม
+ * แต่เก็บ status กับ detail ดิบไว้ด้วย ให้จุดที่ต้องอ่าน detail แบบมีโครงสร้าง (เช่น 409 ของการตรวจ
+ * ถ้อยคำในอีเมลที่มีรายการถ้อยคำ) อ่านได้ · เดิม detail ที่เป็น object กลายเป็น "[object Object]"
+ */
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+    public detail: unknown,
+  ) {
+    super(`${status}: ${message}`);
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -65,13 +81,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     if (res.status === 401) handleUnauthorized();
-    let detail = res.statusText;
+    let detail: unknown = res.statusText;
     try {
       detail = (await res.json()).detail ?? detail;
     } catch {
       /* ไม่ใช่ JSON */
     }
-    throw new Error(`${res.status}: ${detail}`);
+    const message =
+      typeof detail === "string"
+        ? detail
+        : typeof (detail as { message?: unknown })?.message === "string"
+          ? (detail as { message: string }).message
+          : res.statusText;
+    throw new ApiError(res.status, message, detail);
   }
   return res.json() as Promise<T>;
 }
@@ -195,15 +217,27 @@ export const searchCandidates = (q: string, limit = 10) =>
   );
 
 // ส่งอีเมลจริงถึงผู้สมัคร (HR ยืนยันผู้รับ/หัวข้อ/เนื้อความเอง)
+/**
+ * ส่งอีเมลถึงผู้สมัคร — backend ตรวจถ้อยคำที่อาจเป็นการเลือกปฏิบัติก่อนส่งเสมอ
+ * เจอแล้ว acknowledged_bias_warning ไม่เป็น true → ApiError 409 ที่ detail.code = "bias_warning"
+ * (ใช้ biasWarningOf อ่าน) HR เห็นแล้วยืนยัน → เรียกซ้ำพร้อม acknowledged_bias_warning: true
+ */
 export const sendEmail = (
   candidateId: string,
-  data: { to: string; subject: string; body: string },
+  data: { to: string; subject: string; body: string; acknowledged_bias_warning?: boolean },
 ) =>
   request<EmailSendResult>(`/api/v1/candidates/${candidateId}/email/send`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
+
+/** ถ้อยคำที่ backend เตือนตอนส่งอีเมล — null ถ้า error นี้ไม่ใช่การเตือนเรื่องถ้อยคำ */
+export function biasWarningOf(e: unknown): BiasPhrase[] | null {
+  if (!(e instanceof ApiError) || e.status !== 409) return null;
+  const d = e.detail as { code?: string; phrases?: BiasPhrase[] } | null;
+  return d?.code === "bias_warning" ? (d.phrases ?? []) : null;
+}
 
 // ---------- เทมเพลตอีเมลที่บันทึกไว้ใช้ซ้ำ ----------
 // ชั้นอำนวยความสะดวกล้วน ๆ ไม่เกี่ยวกับการส่งจริง (ยังผ่าน sendEmail ด้านบนเหมือนเดิม)

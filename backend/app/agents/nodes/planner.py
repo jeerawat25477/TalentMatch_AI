@@ -1,6 +1,10 @@
 """Node 5: Interview Planner — ร่างคำถามสัมภาษณ์สำหรับผู้สมัครที่ไปต่อ.
 
 ถ้า HR ตัดสินว่า "rejected" (กรณีคะแนนก้ำกึ่งแล้วถูกปฏิเสธ) จะข้ามการเจนคำถาม.
+
+⚠️ prompt ได้แค่ชื่อตำแหน่ง ทักษะที่ผ่าน/ขาด และชื่อผู้สมัครเก่า — **ไม่ได้เห็นเรซูเม่โดยตั้งใจ**
+AI จึงไม่มีอายุ เพศ สถานภาพ ให้เอาไปตั้งคำถามที่เลือกปฏิบัติ tests/test_prompt_privacy.py ล็อกไว้
+ถ้าจะส่งข้อมูลเรซูเม่เพิ่ม อ่าน docstring ของเทสต์นั้นก่อน
 """
 from app.agents.llm import structured_invoke
 from app.agents.models import InterviewPlan

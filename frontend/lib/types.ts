@@ -29,6 +29,12 @@ export interface Job {
   bias?: JobBiasView | null;
 }
 
+/** ถ้อยคำที่กฎตายตัวจับได้ (bias_rules.RuleHit) — ยกจากต้นฉบับตรงตัว */
+export interface BiasPhrase {
+  category: string;
+  phrase: string;
+}
+
 /** คำขอยืนยันว่าถ้อยคำหนึ่ง "จำเป็นกับงานนี้" — เหตุผลอย่างน้อย BIAS_ACK_MIN_REASON ตัวอักษร */
 export interface BiasAckIn {
   phrase: string;

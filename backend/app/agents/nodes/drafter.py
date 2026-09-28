@@ -3,6 +3,10 @@
 เลือกชนิดอีเมล (คำตัดสินของ HR ชนะคะแนนเสมอ):
 - HR ตัดสินแล้ว → ตามนั้น (approved = invitation, rejected = rejection)
 - ยังไม่ตัดสิน   → ดูคะแนน: fit < 50 = rejection, นอกนั้น = invitation
+
+⚠️ prompt ได้แค่ชื่อผู้สมัครกับชื่อตำแหน่ง — ไม่มีเรซูเม่ ไม่มีคะแนน ไม่มีเหตุผลที่ไม่ผ่าน
+อีเมลปฏิเสธจึงอ้างเหตุผลส่วนตัวไม่ได้ (tests/test_prompt_privacy.py ล็อกไว้) · ข้อความที่ HR แก้เอง
+ถูกตรวจอีกชั้นตอนกดส่ง (routers/hr.py::send_candidate_email)
 """
 from app.agents.bands import is_rejected_by_score
 from app.agents.llm import structured_invoke
