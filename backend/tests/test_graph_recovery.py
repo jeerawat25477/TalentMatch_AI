@@ -23,7 +23,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from app.agents import bands, runner
 from app.agents.graph import build_graph
 from app.agents.models import EmailDraft, InterviewPlan
-from app.agents.nodes import bias_auditor, drafter, jd_analyzer, planner, resume_parser
+from app.agents.nodes import drafter, jd_analyzer, planner, resume_parser
 from app.agents.runner import _resume_point, resolve_graph_status
 from app.auth import get_current_user
 from app.database import get_conn
@@ -173,7 +173,8 @@ def llm(monkeypatch):
 
     monkeypatch.setattr(planner, "structured_invoke", fake_planner)
     monkeypatch.setattr(drafter, "structured_invoke", fake_drafter)
-    for mod in (resume_parser, bias_auditor, jd_analyzer):
+    # bias_auditor ไม่เรียก LLM แล้ว (อ่าน jobs.jd_audit) จึงไม่ต้องกันที่นี่
+    for mod in (resume_parser, jd_analyzer):
         monkeypatch.setattr(mod, "structured_invoke", forbidden)
     monkeypatch.setattr(runner, "index_candidate", lambda *a, **kw: None)
     return calls, fail

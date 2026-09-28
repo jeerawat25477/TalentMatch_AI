@@ -11,6 +11,7 @@ from app.agents.bands import AUTO_ADVANCE_ABOVE, REVIEW_FROM
 from app.agents.llm import DEFAULT_MODEL
 from app.agents.models import JDExtraction
 from app.agents.nodes.jd_analyzer import criteria_sources, extract_jd, to_requirement
+from app.agents.nodes.bias_auditor import audit_jd, build_jd_audit
 from app.agents.nodes.jd_reviewer import review_jd
 from app.agents.runner import active_candidates
 from app.agents.models import JDReview
@@ -24,6 +25,7 @@ from app.schemas import (
     CriteriaIn,
     CriteriaPreviewOut,
     CriteriaSaveOut,
+    JDBiasAudit,
     JDReviewIn,
     JobAnalyzeOut,
     JobCreate,
@@ -97,6 +99,21 @@ def _confirmed(raw_text: str, c: JobCriteriaConfirm, fallback_title: str) -> tup
     return parsed, c.extraction.model_dump(), (ai if edited else None)
 
 
+def _job_audit(raw_text: str, analyzed: dict | None, llm=None) -> dict:
+    """ผลตรวจอคติที่จะเก็บใน jobs.jd_audit — ฟังก์ชันบริสุทธิ์ ไม่เรียก LLM.
+
+    กฎตายตัวคำนวณใหม่จาก raw_text ทุกครั้ง (ไม่เชื่อสิ่งที่หน้าเว็บส่งมา) ส่วนของ LLM มาจาก
+    /jobs/analyze · เกณฑ์ทักษะที่ LLM บอกว่ามีอคติ กรองให้เหลือเฉพาะชื่อที่ยังอยู่ในเกณฑ์ที่ HR
+    ยืนยันจริง — HR อาจลบหรือแก้ไปแล้วในขั้นยืนยัน ชื่อที่ไม่อยู่แล้วถอดไม่ได้อยู่ดี
+    """
+    audit = build_jd_audit(llm, raw_text)
+    required = set((analyzed or {}).get("required_skills") or [])
+    preferred = set((analyzed or {}).get("preferred_skills") or [])
+    audit["biased_required_skills"] = [s for s in audit["biased_required_skills"] if s in required]
+    audit["biased_preferred_skills"] = [s for s in audit["biased_preferred_skills"] if s in preferred]
+    return audit
+
+
 @router.post("", response_model=JobOut, status_code=201)
 def create_job(payload: JobCreate) -> JobOut:
     """สร้างตำแหน่งงาน — สองทาง.
@@ -111,13 +128,14 @@ def create_job(payload: JobCreate) -> JobOut:
         analyzed, extraction, ai_criteria = _confirmed(
             payload.raw_text, payload.criteria, fallback_title
         )
+        jd_audit = _job_audit(payload.raw_text, analyzed, payload.criteria.bias_llm)
         with get_conn() as conn:
             row = conn.execute(
                 """
                 INSERT INTO jobs (title, raw_text, parsed_criteria, jd_extraction,
-                                  ai_criteria, criteria_edited_at)
+                                  ai_criteria, criteria_edited_at, jd_audit)
                 VALUES (%s, %s, %s, %s, %s,
-                        CASE WHEN %s THEN timezone('utc'::text, now()) END)
+                        CASE WHEN %s THEN timezone('utc'::text, now()) END, %s)
                 RETURNING """
                 + _JOB_COLS,
                 (
@@ -127,6 +145,7 @@ def create_job(payload: JobCreate) -> JobOut:
                     Json(extraction) if extraction else None,
                     Json(ai_criteria) if ai_criteria else None,
                     ai_criteria is not None or extraction is None,
+                    Json(jd_audit),
                 ),
             ).fetchone()
             conn.commit()
@@ -146,8 +165,8 @@ def create_job(payload: JobCreate) -> JobOut:
     with get_conn() as conn:
         row = conn.execute(
             """
-            INSERT INTO jobs (title, raw_text, parsed_criteria, jd_extraction)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO jobs (title, raw_text, parsed_criteria, jd_extraction, jd_audit)
+            VALUES (%s, %s, %s, %s, %s)
             RETURNING """
             + _JOB_COLS,
             (
@@ -155,6 +174,8 @@ def create_job(payload: JobCreate) -> JobOut:
                 payload.raw_text,
                 Json(analyzed) if analyzed else None,
                 Json(extraction) if extraction else None,
+                # ทางเดิม (ไม่ผ่านขั้นยืนยัน) ไม่มีผลตรวจจาก LLM — กฎอย่างเดียว ไม่เสีย call
+                Json(_job_audit(payload.raw_text, analyzed)),
             ),
         ).fetchone()
         conn.commit()
@@ -165,6 +186,8 @@ def create_job(payload: JobCreate) -> JobOut:
 # HR แก้ JD แล้วกดตรวจซ้ำได้หลายรอบตามธรรมชาติ แต่กดรัว ๆ จะกินโควตาฟรี 20/วันหมดโดยไม่ตั้งใจ
 JD_REVIEW_MAX_PER_MIN = int(os.getenv("JD_REVIEW_MAX_PER_MIN", "5"))
 _JD_REVIEW_WINDOW_SEC = 60.0
+# /jobs/analyze เรียก LLM สองครั้ง (ร่างเกณฑ์ + ตรวจอคติ) — เช็คโควตาให้พอทั้งสองก่อนเริ่ม
+ANALYZE_COST = 2
 _jd_review_hits: dict[str, list[float]] = {}
 
 
@@ -175,7 +198,8 @@ def analyze_job_description(
     """ให้ AI ร่างเกณฑ์จากประกาศ สำหรับขั้นยืนยันก่อนสร้างตำแหน่ง — **ไม่บันทึกอะไรลงฐานข้อมูล**.
 
     HR ตรวจ/แก้ร่างบนหน้าจอ แล้วส่งเกณฑ์ที่ยืนยันกลับมาที่ POST /jobs (ไม่เรียก AI ซ้ำ)
-    ใช้ 1 chat call · ไม่ retry เพราะ HR นั่งรอ · ใช้เพดานร่วมกับ "ให้ AI อ่านประกาศใหม่"
+    ใช้ 2 chat call (ร่างเกณฑ์ + ตรวจอคติของประกาศ) · ไม่ retry เพราะ HR นั่งรอ
+    ใช้เพดานร่วมกับ "ให้ AI อ่านประกาศใหม่"
     (เป็นงานเดียวกัน: AI อ่านประกาศ) · 429 เมื่อกดถี่หรือโควตาวันนี้เต็ม · 502 เมื่อ AI ล้ม —
     หน้าเว็บเปิดให้ HR กรอกเกณฑ์เองแทนได้ในทั้งสองกรณี
     """
@@ -186,7 +210,7 @@ def analyze_job_description(
             status_code=429,
             detail=f"ให้ AI อ่านประกาศได้ไม่เกิน {REANALYZE_MAX_PER_MIN} ครั้งต่อนาที — ลองใหม่ในอีก {wait} วินาที",
         )
-    if not has_room(used_today(DEFAULT_MODEL), 1):
+    if not has_room(used_today(DEFAULT_MODEL), ANALYZE_COST):
         raise HTTPException(
             status_code=429,
             detail="โควตา AI ของวันนี้เต็มแล้ว — กรอกเกณฑ์เองแล้วสร้างตำแหน่งได้เลย",
@@ -204,6 +228,18 @@ def analyze_job_description(
         [s[:_MAX_SKILL_CHARS] for s in requirement.preferred_skills[:_MAX_SKILLS]],
     )
     req, pref = clean["required_skills"], clean["preferred_skills"]
+
+    # ตรวจอคติของประกาศ "ครั้งเดียวต่อตำแหน่ง" — ผู้สมัครทุกคนอ่านผลนี้ ไม่เรียก LLM ซ้ำต่อคน
+    # ต้องรันหลังร่างเกณฑ์ ไม่ใช่คู่กัน เพราะตัวตรวจต้องเห็นรายการทักษะถึงจะชี้ได้ว่าข้อไหนมีอคติ
+    # ล้มต้องไม่ทำให้ analyze ล้ม — ถอยไปกฎตายตัวอย่างเดียว HR ยังเห็นคำเตือนที่ชัด ๆ อยู่
+    bias_llm = None
+    try:
+        bias_llm = audit_jd(
+            payload.raw_text, req, pref, requirement.education or "", requirement.min_experience_years
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("ตรวจอคติของประกาศด้วย AI ไม่สำเร็จ ใช้กฎตายตัวอย่างเดียว: %s", exc)
+
     return JobAnalyzeOut(
         job_title=(requirement.job_title or "").strip()[:255],
         min_experience_years=max(0, min(requirement.min_experience_years, 60)),
@@ -214,6 +250,8 @@ def analyze_job_description(
         dropped=clean["dropped"],
         sources=criteria_sources(req + pref, labels, payload.raw_text),
         extraction=labels,
+        bias=JDBiasAudit(**build_jd_audit(bias_llm, payload.raw_text)),
+        bias_llm=bias_llm,
     )
 
 

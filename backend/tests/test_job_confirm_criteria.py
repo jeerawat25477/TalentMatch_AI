@@ -62,6 +62,20 @@ def client() -> TestClient:
 
 
 @pytest.fixture(autouse=True)
+def no_real_bias_llm():
+    """/jobs/analyze เรียก audit_jd ต่อจากร่างเกณฑ์ — ห้ามหลุดไปเรียก Gemini จริงในเทสต์."""
+    from app.agents.models import BiasAudit
+
+    from app.routers import jobs
+
+    # เพดาน 5 ครั้ง/นาทีเก็บในหน่วยความจำต่อผู้ใช้ — เทสต์ในไฟล์นี้เรียก analyze เกินนั้น
+    jobs._reanalyze_hits.clear()
+    passed = BiasAudit(is_biased=False, audit_status="passed", audit_log="ไม่พบ")
+    with patch("app.routers.jobs.audit_jd", return_value=passed) as m:
+        yield m
+
+
+@pytest.fixture(autouse=True)
 def clean_jobs():
     """ลบตำแหน่งที่เทสสร้าง (จับจาก raw_text) — cascade เก็บของที่เหลือ."""
     yield
@@ -124,6 +138,37 @@ class TestAnalyze:
             res = client.post("/api/v1/jobs/analyze", json={"raw_text": JD})
         assert res.status_code == 429 and m.call_count == 0
 
+    # ── ตรวจอคติของประกาศครั้งเดียวตอนวิเคราะห์ (2026-09-28) ──
+
+    def test_เช็คโควตาให้พอสองครั้ง(self, client):
+        """ร่างเกณฑ์ + ตรวจอคติ = 2 call — เหลือ 1 ต้องไม่เริ่ม ไม่งั้นตายกลางทาง."""
+        from app.routers.jobs import ANALYZE_COST
+
+        with patch("app.routers.jobs.has_room", return_value=False) as room, \
+             patch("app.routers.jobs.extract_jd") as m:
+            client.post("/api/v1/jobs/analyze", json={"raw_text": JD})
+        assert ANALYZE_COST == 2 and room.call_args.args[1] == 2 and m.call_count == 0
+
+    def test_ตัวตรวจเห็นเกณฑ์ที่ร่างแล้ว(self, client, no_real_bias_llm):
+        """ต้องรันหลังร่างเกณฑ์ ไม่ใช่คู่กัน — ไม่งั้นชี้เกณฑ์ทักษะที่มีอคติไม่ได้."""
+        with patch("app.routers.jobs.extract_jd", side_effect=fake_extract):
+            body = client.post("/api/v1/jobs/analyze", json={"raw_text": JD}).json()
+        args = no_real_bias_llm.call_args.args
+        assert args[1] == ["Python", "FastAPI"] and args[2] == ["Docker | Kubernetes"]
+        assert body["bias"]["status"] == "passed" and body["bias"]["llm_checked"] is True
+        assert body["bias_llm"]["audit_status"] == "passed"
+
+    def test_ตัวตรวจล้มแล้ววิเคราะห์ยังสำเร็จด้วยกฎตายตัว(self, client, no_real_bias_llm):
+        no_real_bias_llm.side_effect = RuntimeError("quota")
+        biased = JD + "\nเพศชาย อายุไม่เกิน 30 ปี"
+        with patch("app.routers.jobs.extract_jd", side_effect=fake_extract):
+            res = client.post("/api/v1/jobs/analyze", json={"raw_text": biased})
+        assert res.status_code == 200
+        bias = res.json()["bias"]
+        assert bias["status"] == "flagged" and bias["llm_checked"] is False
+        assert "เพศชาย" in bias["jd_criteria"]
+        assert res.json()["bias_llm"] is None
+
 
 class TestCreateWithConfirmedCriteria:
     def confirm(self, **over):
@@ -182,6 +227,46 @@ class TestCreateWithConfirmedCriteria:
         assert row["ai_criteria"] is None  # ไม่มีของ AI ให้คืนค่า
         assert row["criteria_edited_at"] is not None  # แต่เป็นเกณฑ์ที่คนกรอก ไม่ใช่ของ AI
         assert row["parsed_criteria"]["required_skills"] == ["Python"]
+
+    def _audit(self):
+        with get_conn() as conn:
+            return conn.execute(
+                "SELECT jd_audit FROM jobs WHERE raw_text LIKE %s", (JD + "%",)
+            ).fetchone()["jd_audit"]
+
+    def test_เก็บผลตรวจของตำแหน่งจากที่_llm_ตรวจไว้(self, client):
+        from app.agents.models import BiasAudit
+
+        llm = BiasAudit(
+            is_biased=True, audit_status="flagged", audit_log="ใช้สถาบันเป็นเกณฑ์",
+            biased_required_skills=["FastAPI", "ไม่อยู่ในเกณฑ์แล้ว"],
+        )
+        client.post("/api/v1/jobs", json=self.confirm(bias_llm=llm.model_dump()))
+        audit = self._audit()
+        assert audit["status"] == "flagged" and audit["llm_checked"] is True
+        assert audit["log"].startswith("ใช้สถาบันเป็นเกณฑ์")
+        # ชื่อที่ HR ลบไปแล้วในขั้นยืนยันถอดไม่ได้อยู่ดี — กรองทิ้งตอนเก็บ
+        assert audit["biased_required_skills"] == ["FastAPI"]
+
+    def test_กฎตายตัวคำนวณใหม่ฝั่ง_server_แม้หน้าเว็บไม่ส่งผลตรวจมา(self, client):
+        global JD
+        original = JD
+        JD = original + "\nเพศชาย อายุไม่เกิน 30 ปี"
+        try:
+            client.post("/api/v1/jobs", json=self.confirm())  # ไม่มี bias_llm
+            audit = self._audit()
+        finally:
+            with get_conn() as conn:
+                conn.execute("DELETE FROM jobs WHERE raw_text = %s", (JD,))
+                conn.commit()
+            JD = original
+        assert audit["status"] == "flagged" and audit["llm_checked"] is False
+        assert "เพศชาย" in audit["jd_criteria"]
+
+    def test_ประกาศสะอาดไม่มี_llm_ผ่าน(self, client):
+        client.post("/api/v1/jobs", json=self.confirm())
+        audit = self._audit()
+        assert audit["status"] == "passed" and audit["jd_criteria"] == []
 
     def test_ทางเดิมยังใช้ได้(self, client):
         """ส่งแค่ข้อความ = ให้ AI อ่านตอนสร้าง เหมือนก่อนมีขั้นยืนยัน."""

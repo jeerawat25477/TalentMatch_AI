@@ -98,7 +98,7 @@ def _run_job(row: dict) -> None:
     # คิวอยู่ข้ามวันได้ สำเนาที่แช่ไว้ตั้งแต่ตอน enqueue อาจเป็นฉบับเก่าถ้า JD ถูกแก้
     with get_conn() as conn:
         data = conn.execute(
-            """SELECT c.raw_resume_text, c.job_id, j.raw_text, j.parsed_criteria
+            """SELECT c.raw_resume_text, c.job_id, j.raw_text, j.parsed_criteria, j.jd_audit
                  FROM candidates c
                  JOIN jobs j ON j.id = c.job_id
                 WHERE c.id = %s""",
@@ -116,6 +116,8 @@ def _run_job(row: dict) -> None:
         # ที่มาถูกฝากไว้ใน payload ตอน enqueue — ทำให้ trace ใน LangSmith แยกได้ว่า
         # ผู้สมัครรายนี้มาจาก HR อัปเอง หรือมาจากปากทางรับอีเมล
         source=payload.get("source") or "upload",
+        # ผลตรวจอคติของตำแหน่ง ทำครั้งเดียวตอนสร้าง — ต่อผู้สมัครจึงไม่เรียก LLM ตรวจซ้ำ
+        jd_audit=data["jd_audit"],
     )
 
 

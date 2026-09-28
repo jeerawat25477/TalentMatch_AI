@@ -9,6 +9,7 @@
 4. ลบผู้สมัครแล้วงานในคิวหายตาม (FK cascade) worker จะได้ไม่ไปหยิบงานของคนที่ไม่มีอยู่
 """
 import pytest
+from psycopg.types.json import Json
 
 from app import job_queue, queue_worker
 from app.database import get_conn
@@ -76,6 +77,38 @@ def _status(queue_id) -> str:
         return conn.execute(
             "SELECT status FROM processing_queue WHERE id = %s", (queue_id,)
         ).fetchone()["status"]
+
+
+class TestJdAuditHandoff:
+    def test_ส่งผลตรวจอคติของตำแหน่งต่อให้กราฟ(self, job_and_candidates, monkeypatch):
+        """ผู้สมัครทุกคนอ่านผลตรวจเดียวของตำแหน่ง — worker ต้องโหลด jobs.jd_audit ส่งต่อ."""
+        monkeypatch.setattr(queue_worker, "_quota_blocked", lambda kind: False)
+        job_id, (first, _) = job_and_candidates
+        audit = {"status": "flagged", "log": "พบ", "jd_criteria": ["เพศชาย"],
+                 "biased_required_skills": [], "biased_preferred_skills": [], "llm_checked": True}
+        with get_conn() as conn:
+            conn.execute("UPDATE jobs SET jd_audit = %s WHERE id = %s", (Json(audit), job_id))
+            conn.commit()
+        seen: list = []
+        monkeypatch.setattr(
+            queue_worker.runner, "process_candidate", lambda **kw: seen.append(kw["jd_audit"])
+        )
+        job_queue.enqueue(first, job_id, "process")
+
+        assert queue_worker.run_once() is True
+        assert seen == [audit]
+
+    def test_ตำแหน่งเก่าที่ยังไม่มีผลตรวจส่ง_none(self, job_and_candidates, monkeypatch):
+        monkeypatch.setattr(queue_worker, "_quota_blocked", lambda kind: False)
+        job_id, (first, _) = job_and_candidates
+        seen: list = []
+        monkeypatch.setattr(
+            queue_worker.runner, "process_candidate", lambda **kw: seen.append(kw["jd_audit"])
+        )
+        job_queue.enqueue(first, job_id, "process")
+
+        assert queue_worker.run_once() is True
+        assert seen == [None]
 
 
 class TestClaimOrder:

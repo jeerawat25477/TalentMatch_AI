@@ -10,7 +10,7 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, EmailStr, Field, computed_field
 
-from app.agents.models import JDExtraction
+from app.agents.models import BiasAudit, JDExtraction
 
 
 # ---------- Jobs ----------
@@ -63,6 +63,20 @@ class CriteriaIn(BaseModel):
     preferred_skills: list[SkillName] = Field(default_factory=list, max_length=50)
 
 
+class JDBiasAudit(BaseModel):
+    """ผลตรวจอคติของประกาศ — ทำครั้งเดียวตอนสร้างตำแหน่ง เก็บที่ jobs.jd_audit.
+
+    สร้างด้วย bias_auditor.build_jd_audit (กฎตายตัว + LLM ถ้ามี) · log คือข้อความสุดท้ายที่ผู้สมัคร
+    ทุกคนในตำแหน่งได้ตรงตัว · llm_checked=false = ตรวจด้วยกฎอย่างเดียว
+    """
+    status: Literal["passed", "flagged"]
+    log: str
+    jd_criteria: list[str] = Field(default_factory=list)
+    biased_required_skills: list[str] = Field(default_factory=list)
+    biased_preferred_skills: list[str] = Field(default_factory=list)
+    llm_checked: bool = False
+
+
 class JobCriteriaConfirm(BaseModel):
     """เกณฑ์ที่ HR ตรวจและยืนยันในขั้น "ยืนยันเกณฑ์" ก่อนสร้างตำแหน่ง.
 
@@ -77,6 +91,10 @@ class JobCriteriaConfirm(BaseModel):
     required_skills: list[SkillName] = Field(default_factory=list, max_length=50)
     preferred_skills: list[SkillName] = Field(default_factory=list, max_length=50)
     extraction: Optional[JDExtraction] = None
+    # ผลตรวจอคติดิบจาก LLM ที่ /jobs/analyze ส่งมา — ส่งกลับมาแบบเดียวกับ extraction
+    # backend รวมกับกฎตายตัวใหม่เองจาก raw_text เสมอ ส่วนที่เป็นกฎจึงหลุดไม่ได้ต่อให้ไม่ส่งมา
+    # None = AI ตรวจไม่สำเร็จ/HR กรอกเกณฑ์เอง → กฎอย่างเดียว
+    bias_llm: Optional[BiasAudit] = None
 
 
 class JobCreate(BaseModel):
@@ -97,6 +115,9 @@ class JobAnalyzeOut(BaseModel):
     # ทักษะแต่ละข้อมาจากบรรทัดไหนในประกาศ (ข้อความจริง) — ข้อที่หาไม่เจอไม่มีคีย์
     sources: dict[str, list[str]]
     extraction: JDExtraction
+    # ผลตรวจอคติของประกาศ (กฎ + LLM) สำหรับโชว์ในขั้นยืนยัน · bias_llm = ของดิบให้ส่งกลับตอนสร้าง
+    bias: JDBiasAudit
+    bias_llm: Optional[BiasAudit] = None
 
 
 class CriteriaImpact(BaseModel):

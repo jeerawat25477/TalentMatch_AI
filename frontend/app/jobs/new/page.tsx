@@ -96,6 +96,11 @@ export default function NewJobPage() {
     }
   }
 
+  function backToText() {
+    setConfirming(false);
+    setError(null);
+  }
+
   async function handleCreate() {
     setBusy(true);
     setError(null);
@@ -107,6 +112,8 @@ export default function NewJobPage() {
         required_skills: lists.required,
         preferred_skills: lists.preferred,
         extraction: draft?.extraction ?? null,
+        // ผลตรวจอคติดิบของ AI — backend รวมกับกฎตายตัวใหม่เอง เก็บเป็นผลตรวจของตำแหน่ง
+        bias_llm: draft?.bias_llm ?? null,
       });
       router.push(`/jobs/${job.id}`);
     } catch (e) {
@@ -234,6 +241,69 @@ export default function NewJobPage() {
             </p>
           </div>
 
+          {/* ตรวจอคติของประกาศครั้งเดียวตอนนี้ — ผู้สมัครทุกคนในตำแหน่งจะได้ผลเดียวกัน
+              ไม่บล็อกการบันทึก HR ตัดสินเอง แต่ควรเห็นก่อนโพสต์ ไม่ใช่หลังมีคนสมัครแล้ว */}
+          {draft?.bias.status === "flagged" && (
+            <div
+              role="alert"
+              className="p-sm rounded-xl border border-tertiary/50 bg-tertiary-container/15 space-y-xs"
+            >
+              <p className="flex items-center gap-xs text-label-md font-semibold text-on-surface">
+                <span
+                  className="material-symbols-outlined text-tertiary text-[20px]"
+                  style={{ fontVariationSettings: "'FILL' 1" }}
+                  aria-hidden
+                >
+                  gpp_maybe
+                </span>
+                ประกาศนี้มีถ้อยคำที่อาจกีดกันผู้สมัคร
+              </p>
+              {draft.bias.jd_criteria.length > 0 ? (
+                <ul className="flex flex-wrap gap-base">
+                  {draft.bias.jd_criteria.map((c) => (
+                    <li
+                      key={c}
+                      className="text-label-sm px-2 py-0.5 rounded-full bg-tertiary/15 text-on-surface"
+                    >
+                      “{c}”
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-label-sm text-on-surface">{draft.bias.log.split("\n")[0]}</p>
+              )}
+              {draft.bias.biased_required_skills.length +
+                draft.bias.biased_preferred_skills.length >
+                0 && (
+                <p className="text-label-sm text-on-surface">
+                  ทักษะที่อาจเป็นเกณฑ์อคติ:{" "}
+                  {[
+                    ...draft.bias.biased_required_skills,
+                    ...draft.bias.biased_preferred_skills,
+                  ].join(", ")}{" "}
+                  — ลบออกจากรายการด้านล่างได้เลย
+                </p>
+              )}
+              <p className="text-label-sm text-on-surface-variant">
+                ถ้อยคำในประกาศไม่ได้ถูกใช้คิดคะแนน แต่ผู้สมัครจะเห็น ควรลบก่อนโพสต์ · บันทึกต่อได้
+                ระบบจะเตือนไว้ในหน้าผู้สมัครทุกคน
+              </p>
+              <button
+                type="button"
+                onClick={backToText}
+                disabled={busy}
+                className="text-label-md text-primary hover:underline"
+              >
+                กลับไปแก้ประกาศ
+              </button>
+            </div>
+          )}
+          {draft && !draft.bias.llm_checked && (
+            <p className="text-label-sm text-on-surface-variant">
+              ตรวจอคติด้วยกฎตายตัวอย่างเดียว — AI ตรวจไม่สำเร็จ
+            </p>
+          )}
+
           {draft?.warnings.map((w) => (
             <div
               key={w}
@@ -302,12 +372,9 @@ export default function NewJobPage() {
             <button
               type="button"
               className="btn-secondary-glass me-auto"
-              onClick={() => {
-                setConfirming(false);
-                setError(null);
-              }}
+              onClick={backToText}
               disabled={busy}
-              title="แก้ข้อความประกาศแล้ววิเคราะห์ใหม่ (ใช้ AI อีก 1 ครั้ง)"
+              title="แก้ข้อความประกาศแล้ววิเคราะห์ใหม่ (ใช้ AI อีก 2 ครั้ง: ร่างเกณฑ์ + ตรวจอคติ)"
             >
               กลับไปแก้ประกาศ
             </button>

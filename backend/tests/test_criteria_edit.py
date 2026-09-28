@@ -22,7 +22,7 @@ from psycopg.types.json import Json
 from app.agents import runner
 from app.agents.graph import build_graph
 from app.agents.models import EmailDraft, InterviewPlan
-from app.agents.nodes import bias_auditor, drafter, jd_analyzer, planner, resume_parser
+from app.agents.nodes import drafter, jd_analyzer, planner, resume_parser
 from app.agents.nodes.matcher import evaluate_skills, match_candidates
 from app.auth import get_current_user
 from app.criteria_edit import (
@@ -503,7 +503,8 @@ class TestGraphUsesNewCriteria:
                             lambda p, m: prompts.append(p) or InterviewPlan(questions=[]))
         monkeypatch.setattr(drafter, "structured_invoke",
                             lambda p, m: EmailDraft(kind="invitation", subject="s", body="b"))
-        for mod in (resume_parser, bias_auditor, jd_analyzer):
+        # bias_auditor ไม่เรียก LLM แล้ว (อ่าน jobs.jd_audit) จึงไม่ต้องกันที่นี่
+        for mod in (resume_parser, jd_analyzer):
             monkeypatch.setattr(mod, "structured_invoke",
                                 lambda *a, **k: (_ for _ in ()).throw(AssertionError("รันจากต้น")))
 

@@ -19,14 +19,14 @@ from app.llm_quota import has_room
 
 
 class TestEstimateCost:
-    def test_งานประเมินผู้สมัครกิน_5_call(self):
-        """resume_parser 2 (โปรไฟล์ + หลักฐานทักษะ) + auditor + planner + drafter.
+    def test_งานประเมินผู้สมัครกิน_4_call(self):
+        """resume_parser 2 (โปรไฟล์ + หลักฐานทักษะ) + planner + drafter.
 
-        วัดจริง 2026-09-10: JD 1 ใบ + ผู้สมัคร 3 คน = 14 call พอดี
-        เลข 3 ที่เอกสารเก่าเขียนไว้เป็นของก่อนเฟส 1 เพิ่ม LLM call ที่สองใน parser
+        วัดจริง 2026-09-10 ได้ 5 (รวม bias_auditor) · 2026-09-28 ตัวตรวจอคติย้ายไปทำครั้งเดียว
+        ตอนสร้างตำแหน่ง (jobs.jd_audit) โหนดอ่านอย่างเดียว จึงเหลือ 4
         """
-        assert estimate_cost("process") == 5
-        assert estimate_cost("reprocess") == 5
+        assert estimate_cost("process") == 4
+        assert estimate_cost("reprocess") == 4
 
     def test_งานตัดสินกิน_2_call(self):
         """interview_planner + email_drafter เท่านั้น — กราฟ resume จากจุด interrupt."""

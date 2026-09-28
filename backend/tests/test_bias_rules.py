@@ -113,3 +113,54 @@ def test_merge_ทิ้งค่าว่างของ_LLM():
 def test_categories_ไม่ซ้ำตามลำดับที่เจอ():
     hits = [RuleHit("เพศ", "a"), RuleHit("อายุ", "b"), RuleHit("เพศ", "c")]
     assert categories(hits) == ["เพศ", "อายุ"]
+
+
+# ── build_jd_audit: รวมผล LLM กับกฎเป็นผลตรวจของตำแหน่ง ──
+
+from app.agents.models import BiasAudit  # noqa: E402
+from app.agents.nodes.bias_auditor import _MAX_JD_CHARS, build_jd_audit  # noqa: E402
+
+_BIASED = "ตำแหน่ง Backend Developer\nคุณสมบัติ: Python, เพศชาย อายุไม่เกิน 30 ปี"
+_PASSED = BiasAudit(is_biased=False, audit_status="passed", audit_log="ไม่พบการใช้ข้อมูลอคติ")
+
+
+def test_audit_กฎเจอแต่_llm_ตอบผ่าน_ต้อง_flagged_และข้อความไม่ขัดกันเอง():
+    a = build_jd_audit(_PASSED, _BIASED)
+    assert a["status"] == "flagged" and a["llm_checked"] is True
+    assert "ไม่พบ" not in a["log"]
+    assert "เพศชาย" in a["log"] and "อายุไม่เกิน 30 ปี" in a["log"]
+
+
+def test_audit_ไม่ซ้ำกับที่_llm_รายงานไว้แล้ว():
+    llm = BiasAudit(
+        is_biased=True, audit_status="flagged", audit_log="ประกาศระบุเพศและอายุ",
+        biased_jd_criteria=["เพศชาย อายุไม่เกิน 30 ปี"],
+    )
+    a = build_jd_audit(llm, _BIASED)
+    assert a["log"].startswith("ประกาศระบุเพศและอายุ")  # LLM flagged เอง ข้อความของมันถูกเก็บ
+    warning = a["log"].splitlines()[-1]
+    assert warning.count("เพศชาย") == 1 and warning.count("อายุไม่เกิน 30") == 1
+
+
+def test_audit_กฎอ่านประกาศเต็มไม่ตัดตามเพดาน_token():
+    jd = "ตำแหน่ง Backend Developer\n" + ("รายละเอียดงาน " * 600) + "\nสถานภาพโสด"
+    assert len(jd) > _MAX_JD_CHARS
+    assert "สถานภาพโสด" in build_jd_audit(_PASSED, jd)["log"]
+
+
+def test_audit_ไม่มี_llm_ประกาศสะอาดผ่าน():
+    a = build_jd_audit(None, "Python Developer\nPython, Docker")
+    assert a["status"] == "passed" and a["llm_checked"] is False and a["jd_criteria"] == []
+
+
+def test_audit_llm_ตอบผ่านประกาศสะอาดคงข้อความเดิม():
+    a = build_jd_audit(_PASSED, "Python Developer\nPython, Docker")
+    assert a["status"] == "passed" and a["log"] == "ไม่พบการใช้ข้อมูลอคติ"
+
+
+def test_audit_เกณฑ์ทักษะที่มีอคติส่งต่อให้ลูป_revise():
+    llm = BiasAudit(
+        is_biased=True, audit_status="flagged", audit_log="x",
+        biased_required_skills=[" มหาวิทยาลัยชั้นนำ ", ""],
+    )
+    assert build_jd_audit(llm, "Python")["biased_required_skills"] == ["มหาวิทยาลัยชั้นนำ"]

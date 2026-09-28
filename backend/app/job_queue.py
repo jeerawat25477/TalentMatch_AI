@@ -32,9 +32,12 @@ PENDING_STATUSES = ("queued", "running", "deferred_quota")
 # ต้นทุน chat call ต่องานหนึ่งชิ้น — **วัดจริงจากการรันทั้งชุด 2026-09-10**
 # (ผู้สมัคร 3 คนกับ JD หนึ่งใบใช้ไป 14 call พอดี: 1 + 4 + 4 + 5)
 #   process/reprocess = resume_parser 2 (โปรไฟล์ + หาหลักฐานทักษะ ตั้งแต่เฟส 1)
-#                       + bias_auditor 1 + email_drafter 1  = 4
-#                       + interview_planner อีก 1 ถ้าคะแนนสูงจน auto-advance = 5
+#                       + email_drafter 1  = 3
+#                       + interview_planner อีก 1 ถ้าคะแนนสูงจน auto-advance = 4
 #     (jd_analyzer ถูกข้ามเพราะส่ง analyzed_jd เข้าไปแล้ว, matcher ไม่ใช้ LLM)
+#     **2026-09-28 ลบ bias_auditor ออกจากต้นทุน 1 call** — ตรวจประกาศครั้งเดียวตอนสร้างตำแหน่ง
+#     (jobs.jd_audit) แล้วโหนดอ่านอย่างเดียว ตัวเลขนี้คือค่าที่วัดได้ 5 ลบ call ที่หายไป
+#     ยังไม่ได้วัดซ้ำกับ Gemini จริงหลังเปลี่ยน
 #   resume_after_decision = interview_planner + email_drafter = 2
 #     (ตัวเลขเดียวกับที่ hr.py::MAX_BULK_DECISION อ้างอิงอยู่)
 # ⚠️ เอกสารเก่า (memory-bank/CLAUDE.md) เขียนว่า 3 — ตัวเลขนั้นมาจากก่อนเฟส 1 เพิ่ม
@@ -42,11 +45,12 @@ PENDING_STATUSES = ("queued", "running", "deferred_quota")
 # เลือกคิดเผื่อฝั่งแพง: ประมาณสูงไป = พักงานเร็วไปนิด (รอบหน้าก็รัน) ส่วนประมาณต่ำไป
 # = เริ่มงานแล้วตายกลางทางเพราะ 429 ซึ่งเสีย call ที่ยิงไปแล้วฟรี ๆ
 COST_BY_KIND: dict[str, int] = {
-    "process": 5,
-    "reprocess": 5,
+    "process": 4,
+    "reprocess": 4,
     "resume_after_decision": 2,
 }
-_DEFAULT_COST = 5
+# ชนิดที่ไม่รู้จัก = คิดแพงสุดของที่รู้จักไว้ก่อน (ไม่เขียนเลขซ้ำ — เคยค้างเป็น 5 ตอนลด process เหลือ 4)
+_DEFAULT_COST = max(COST_BY_KIND.values())
 
 # จำนวนครั้งที่ยอมให้ลองใหม่เมื่อเจอ error **ชั่วคราว** (โควตาหมดไม่นับเป็น attempt)
 MAX_QUEUE_ATTEMPTS = int(os.getenv("QUEUE_MAX_ATTEMPTS", "3"))

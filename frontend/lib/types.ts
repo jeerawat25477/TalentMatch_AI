@@ -834,6 +834,24 @@ export interface JobAnalyzeResult {
   sources: Record<string, string[]>;
   /** ป้ายดิบที่ AI ติด — ส่งกลับไปตอนสร้างเพื่อเก็บไว้ ไม่ต้องอ่านค่าข้างใน */
   extraction: unknown;
+  /** ผลตรวจอคติของประกาศ (กฎตายตัว + AI) — โชว์ในขั้นยืนยันก่อนบันทึก */
+  bias: JDBiasAudit;
+  /** ผลดิบของ AI — ส่งกลับไปตอนสร้างเหมือน extraction · null = AI ตรวจไม่สำเร็จ */
+  bias_llm: unknown | null;
+}
+
+/**
+ * มิเรอร์ JDBiasAudit ใน backend/app/schemas.py — ตรวจครั้งเดียวต่อตำแหน่ง ผู้สมัครทุกคนได้ผลเดียวกัน
+ * jd_criteria = ถ้อยคำในประกาศที่อาจกีดกัน (ยกมาจากประกาศจริง ค้นเจอได้)
+ */
+export interface JDBiasAudit {
+  status: "passed" | "flagged";
+  log: string;
+  jd_criteria: string[];
+  biased_required_skills: string[];
+  biased_preferred_skills: string[];
+  /** false = ตรวจด้วยกฎตายตัวอย่างเดียว (AI ตรวจไม่สำเร็จ) */
+  llm_checked: boolean;
 }
 
 /** เกณฑ์ที่ HR ยืนยันแล้ว ส่งไปพร้อมการสร้างตำแหน่ง (backend ไม่เรียก AI ซ้ำ) */
@@ -845,4 +863,6 @@ export interface JobCriteriaConfirm {
   preferred_skills: string[];
   /** null = AI อ่านไม่สำเร็จ HR กรอกเกณฑ์เองทั้งหมด */
   extraction: unknown | null;
+  /** ผลตรวจอคติดิบจาก AI — backend รวมกับกฎตายตัวใหม่เองเสมอ · null = กฎอย่างเดียว */
+  bias_llm?: unknown | null;
 }

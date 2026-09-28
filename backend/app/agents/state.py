@@ -23,6 +23,10 @@ class HRSystemState(TypedDict):
     bias_revision_count: Dict[str, int]  # {candidate_id: จำนวนรอบ revise ที่ใช้ไป}
     bias_revision_pending: Dict[str, bool]  # {candidate_id: auditor ขอให้ matcher revise รอบถัดไป}
     bias_exclusions: Dict[str, Any]  # {candidate_id: {"required_skills": [], "preferred_skills": [], "reason": str}}
+    # ผลตรวจอคติของ "ตำแหน่ง" (jobs.jd_audit) ที่ทำครั้งเดียวตอนสร้างตำแหน่ง — auditor อ่านอย่างเดียว
+    # ไม่เรียก LLM ต่อผู้สมัคร · อ่านด้วย .get เสมอ: checkpoint ที่บันทึกก่อนมีฟิลด์นี้ไม่มีคีย์นี้
+    # รูป: {status, log, jd_criteria, biased_required_skills, biased_preferred_skills, llm_checked}
+    jd_audit: Optional[Dict[str, Any]]
 
     # RAG: ผู้สมัครเก่าที่โปรไฟล์คล้ายกัน (retrieval agent เติม, เปิด/ปิดด้วย RAG_ENABLED)
     similar_candidates: Dict[str, Any]  # {candidate_id: [{id, full_name, job_title, fit_score, distance}, ...]}

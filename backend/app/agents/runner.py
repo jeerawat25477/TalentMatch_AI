@@ -190,13 +190,18 @@ def process_candidate(
     analyzed_jd: dict | None,
     resume_text: str,
     source: str = "upload",
+    jd_audit: dict | None = None,
 ) -> None:
-    """รันกราฟสำหรับผู้สมัครหนึ่งคน (thread_id = candidate_id)."""
+    """รันกราฟสำหรับผู้สมัครหนึ่งคน (thread_id = candidate_id).
+
+    `jd_audit` = ผลตรวจอคติของตำแหน่ง (jobs.jd_audit) ส่งเข้า state ให้ bias_auditor อ่าน
+    None = ตำแหน่งเก่าที่ยังไม่มีผลตรวจ โหนดจะใช้กฎตายตัวอย่างเดียว (ไม่เรียก LLM)
+    """
     reserve_candidates([candidate_id])  # เผื่อถูกเรียกเดี่ยว ๆ (เช่น reprocess) ที่ยังไม่ได้จอง
     try:
         with _gate:  # จำกัด concurrency กันยิง LLM ทะลุเพดาน RPM
             _process_candidate_locked(
-                job_id, candidate_id, raw_jd, analyzed_jd, resume_text, source
+                job_id, candidate_id, raw_jd, analyzed_jd, resume_text, source, jd_audit
             )
     finally:
         release_candidate(candidate_id)
@@ -209,6 +214,7 @@ def _process_candidate_locked(
     analyzed_jd: dict | None,
     resume_text: str,
     source: str = "upload",
+    jd_audit: dict | None = None,
 ) -> None:
     graph = get_graph()
     config = _config(candidate_id, source)
@@ -238,6 +244,7 @@ def _process_candidate_locked(
         "bias_revision_count": {},
         "bias_revision_pending": {},
         "bias_exclusions": {},
+        "jd_audit": jd_audit,
     }
     state = graph.invoke(initial, config)
     _save_screening(job_id, candidate_id, state, resume_text)

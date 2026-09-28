@@ -26,6 +26,11 @@ ALTER TABLE jobs ADD COLUMN IF NOT EXISTS criteria_edited_at TIMESTAMP WITH TIME
 -- parsed_criteria คือผลที่โค้ดจัดฝั่งจากป้ายเหล่านี้ · เก็บไว้ให้ทางแก้ข้อ 3 (กลุ่ม "ข้อใดข้อหนึ่ง")
 -- ใช้ป้าย one_of ได้โดยไม่ต้องให้ AI อ่านประกาศใหม่ · NULL = ตำแหน่งที่สร้างก่อนมีคอลัมน์นี้
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS jd_extraction JSONB;
+-- ผลตรวจอคติของประกาศ ทำครั้งเดียวตอนสร้างตำแหน่ง (กฎตายตัว + LLM หนึ่ง call) แล้วผู้สมัคร
+-- ทุกคนอ่านผลเดียวกัน — เดิม bias_auditor เรียก LLM ตรวจประกาศเดิมซ้ำทุกคน
+-- รูป: {status, log, jd_criteria, biased_required_skills, biased_preferred_skills, llm_checked}
+-- NULL = ตำแหน่งที่สร้างก่อนมีคอลัมน์นี้ โหนดจะใช้กฎตายตัวอย่างเดียว (scripts/backfill_jd_audit.py)
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS jd_audit JSONB;
 -- CHECK แยกออกมาเพราะ ADD COLUMN IF NOT EXISTS ไม่พา constraint ไปด้วยตอนคอลัมน์มีอยู่แล้ว
 DO $$
 BEGIN
