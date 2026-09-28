@@ -25,6 +25,7 @@ import type {
   InterviewSlot,
   JobOffer,
   JobOfferUpsert,
+  BiasAckIn,
   Job,
   JobAnalyzeResult,
   JobCriteriaConfirm,
@@ -133,6 +134,14 @@ export const createJob = (rawText: string, criteria?: JobCriteriaConfirm) =>
 
 // เปิด/ปิดรับสมัคร — ทางเลือกแทนการลบสำหรับงานที่รับพนักงานได้แล้ว
 // ตรวจร่าง JD ก่อนโพสต์ — พรีวิวล้วน ๆ ไม่สร้างงานจริง (429 ถ้ากดถี่เกิน, 503 ถ้า AI ล่ม)
+/** HR ยืนยัน (หรือถอน) ถ้อยคำในผลตรวจอคติว่าจำเป็นกับงานนี้ — แทนรายการทั้งชุด */
+export const updateBiasAcks = (jobId: string, acks: BiasAckIn[]) =>
+  request<Job>(`/api/v1/jobs/${jobId}/bias-acknowledgements`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ acks }),
+  });
+
 export const reviewJD = (rawText: string) =>
   request<JDReview>("/api/v1/jobs/review-jd", {
     method: "POST",

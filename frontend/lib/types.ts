@@ -25,6 +25,39 @@ export interface Job {
   criteria_edited_at?: string | null;
   /** คำเตือนของเกณฑ์ปัจจุบัน (backend คำนวณ — กติกาเดียวกับหน้าจอแก้เกณฑ์) */
   criteria_warnings?: string[];
+  /** ผลตรวจอคติของประกาศ + ถ้อยคำที่ HR ยืนยันแล้ว · null = ตำแหน่งยังไม่มีผลตรวจ */
+  bias?: JobBiasView | null;
+}
+
+/** คำขอยืนยันว่าถ้อยคำหนึ่ง "จำเป็นกับงานนี้" — เหตุผลอย่างน้อย BIAS_ACK_MIN_REASON ตัวอักษร */
+export interface BiasAckIn {
+  phrase: string;
+  reason: string;
+}
+
+/** มิเรอร์ bias_ack.MIN_REASON_CHARS — backend ตรวจซ้ำเสมอ (422) ค่านี้ใช้แค่ปิดปุ่มล่วงหน้า */
+export const BIAS_ACK_MIN_REASON = 10;
+
+/** การยืนยันที่บันทึกแล้ว — by/at มาจาก backend (ชื่อจาก token ที่ล็อกอิน) */
+export interface BiasAck {
+  phrase: string;
+  reason: string;
+  by: string;
+  at: string;
+}
+
+/** มิเรอร์ JobBiasView ใน backend/app/schemas.py (สร้างด้วย bias_ack.bias_view) */
+export interface JobBiasView {
+  status: "passed" | "flagged";
+  /** บรรทัดแรกของผลตรวจ */
+  summary: string;
+  /** ถ้อยคำที่ยังเตือนอยู่ */
+  pending: string[];
+  /** ถ้อยคำที่ HR ยืนยันว่าจำเป็นแล้ว */
+  acknowledged: BiasAck[];
+  /** เกณฑ์ทักษะที่อาจมีอคติ — การยืนยันถ้อยคำไม่ครอบคลุม ต้องลบออกจากเกณฑ์เอง */
+  biased_skills: string[];
+  llm_checked: boolean;
 }
 
 // ---------- HR แก้เกณฑ์ทักษะ ----------
@@ -366,6 +399,8 @@ export interface CandidateDetail extends CandidateSummary {
   parsed_resume: ParsedResume | null;
   gap_analysis: GapAnalysis | null;
   audit_log: string | null;
+  /** ผลตรวจอคติของตำแหน่ง อ่านสด — หน้าเว็บใช้อันนี้ก่อน ถอยไป audit_log เมื่อเป็น null */
+  job_bias?: JobBiasView | null;
   interview_plan: InterviewPlan | null;
   email_draft: EmailDraft | null;
   email_sent_at: string | null;
@@ -865,4 +900,6 @@ export interface JobCriteriaConfirm {
   extraction: unknown | null;
   /** ผลตรวจอคติดิบจาก AI — backend รวมกับกฎตายตัวใหม่เองเสมอ · null = กฎอย่างเดียว */
   bias_llm?: unknown | null;
+  /** ถ้อยคำที่ HR ยืนยันว่าจำเป็นตั้งแต่ขั้นยืนยันเกณฑ์ */
+  bias_acks?: BiasAckIn[];
 }

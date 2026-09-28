@@ -8,6 +8,7 @@ import Breadcrumb from "@/components/breadcrumb";
 import JobTabs from "@/components/job-tabs";
 import CandidateCard from "@/components/candidate-card";
 import ConfirmDialog from "@/components/confirm-dialog";
+import { JobBiasCard } from "@/components/bias-ack";
 import CriteriaEditorDialog from "@/components/criteria-editor-dialog";
 import FileUpload from "@/components/file-upload";
 import PipelineFunnel from "@/components/pipeline-funnel";
@@ -243,6 +244,16 @@ export default function JobDashboard() {
           }}
           onClose={() => setEditingCriteria(false)}
           onReanalyzed={() => mutateJob()}
+        />
+      )}
+
+      {/* ถ้อยคำในประกาศที่อาจมีอคติ — HR ยืนยันว่าจำเป็นได้ คำเตือนในหน้าผู้สมัครเปลี่ยนตามทันที
+          key ผูกกับการยืนยันที่บันทึกแล้ว: บันทึกเสร็จการ์ดเริ่มจากค่าใหม่ ไม่ค้างค่าที่พิมพ์ไว้ */}
+      {job?.bias && (
+        <JobBiasCard
+          key={JSON.stringify(job.bias.acknowledged)}
+          job={job}
+          onSaved={(j) => mutateJob(j, false)}
         />
       )}
 

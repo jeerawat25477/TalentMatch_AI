@@ -18,6 +18,35 @@ from app.agents.models import BiasAudit, JDExtraction
 JobStatus = Literal["open", "closed"]
 
 
+class BiasAckIn(BaseModel):
+    """HR ยืนยันว่าถ้อยคำหนึ่งในผลตรวจอคติ "จำเป็นกับงานนี้" — ตรวจกติกาที่ app/bias_ack.py."""
+    phrase: str = Field(..., min_length=1, max_length=200)
+    reason: str = Field(..., max_length=1000)
+
+
+class BiasAck(BaseModel):
+    """การยืนยันที่เก็บแล้ว — by มาจาก token ที่ล็อกอิน ไม่ใช่ค่าที่หน้าเว็บส่งมา."""
+    phrase: str
+    reason: str
+    by: str
+    at: datetime
+
+
+class BiasAcksUpdate(BaseModel):
+    """แทนรายการยืนยันทั้งชุดของตำแหน่ง (เพิ่ม/ถอน) — PUT /jobs/{id}/bias-acknowledgements."""
+    acks: list[BiasAckIn] = Field(default_factory=list, max_length=50)
+
+
+class JobBiasView(BaseModel):
+    """ผลตรวจอคติของตำแหน่ง แยกเป็นยังเตือนอยู่ / HR ยืนยันแล้ว — สร้างด้วย bias_ack.bias_view."""
+    status: Literal["passed", "flagged"]
+    summary: str
+    pending: list[str]
+    acknowledged: list[BiasAck]
+    biased_skills: list[str]
+    llm_checked: bool
+
+
 class JobStatusUpdate(BaseModel):
     status: JobStatus = Field(..., description="'open' รับสมัครอยู่ | 'closed' ปิดรับ")
 
@@ -34,6 +63,18 @@ class JobOut(BaseModel):
     ai_criteria: Optional[dict[str, Any]] = None
     # None = parsed_criteria ยังเป็นของ AI ล้วน
     criteria_edited_at: Optional[datetime] = None
+    # ของดิบจาก DB — หน้าเว็บอ่านผ่าน `bias` ข้างล่างแทน จึงไม่ส่งออกซ้ำ
+    jd_audit: Optional[dict[str, Any]] = Field(None, exclude=True)
+    bias_acknowledgements: list[dict[str, Any]] = Field(default_factory=list, exclude=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def bias(self) -> Optional[JobBiasView]:
+        """ผลตรวจอคติของประกาศ + ถ้อยคำที่ HR ยืนยันแล้ว · None = ตำแหน่งยังไม่มีผลตรวจ."""
+        from app.bias_ack import bias_view
+
+        view = bias_view(self.jd_audit, self.bias_acknowledgements)
+        return JobBiasView(**view) if view else None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -95,6 +136,8 @@ class JobCriteriaConfirm(BaseModel):
     # backend รวมกับกฎตายตัวใหม่เองจาก raw_text เสมอ ส่วนที่เป็นกฎจึงหลุดไม่ได้ต่อให้ไม่ส่งมา
     # None = AI ตรวจไม่สำเร็จ/HR กรอกเกณฑ์เอง → กฎอย่างเดียว
     bias_llm: Optional[BiasAudit] = None
+    # ถ้อยคำที่ HR ยืนยันว่าจำเป็นตั้งแต่ขั้นยืนยันเกณฑ์ — ตรวจกับผลตรวจที่ server คำนวณเองเสมอ
+    bias_acks: list[BiasAckIn] = Field(default_factory=list, max_length=50)
 
 
 class JobCreate(BaseModel):
@@ -301,7 +344,10 @@ class CandidateDetail(CandidateSummary):
     has_resume_file: bool = False
     parsed_resume: Optional[dict[str, Any]] = None
     gap_analysis: Optional[dict[str, Any]] = None
+    # บันทึกของตอนคัดกรอง (ไม่ถูกแก้ย้อนหลัง) — หน้าเว็บใช้ job_bias ก่อน ถอยมาที่นี่เมื่อไม่มี
     audit_log: Optional[str] = None
+    # ผลตรวจอคติของ "ตำแหน่ง" อ่านสด ๆ ตอนเปิดหน้า — HR ยืนยันถ้อยคำทีหลัง ผู้สมัครเก่าก็เห็นทันที
+    job_bias: Optional[JobBiasView] = None
     interview_plan: Optional[dict[str, Any]] = None
     email_draft: Optional[dict[str, Any]] = None
     email_sent_at: Optional[datetime] = None

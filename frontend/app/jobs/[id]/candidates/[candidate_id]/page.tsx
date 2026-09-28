@@ -19,6 +19,7 @@ import {
 import InterviewOutcomeDialog from "@/components/interview-outcome-dialog";
 import RadarChart from "@/components/radar-chart";
 import ScoreBreakdown from "@/components/score-breakdown";
+import { CandidateBiasBox } from "@/components/bias-ack";
 import ScoreHistogram from "@/components/score-histogram";
 import ResumeSource from "@/components/resume-source";
 import SkillGap from "@/components/skill-gap";
@@ -405,8 +406,11 @@ export default function CandidateDeepDive() {
             <div
               className={`grid gap-md ${c.bias_revision ? "lg:grid-cols-2" : ""}`}
             >
-              {/* Bias Auditor */}
-              {c.audit_log && (
+              {/* ผลตรวจอคติ — อ่านจากตำแหน่งสด ๆ (HR ยืนยันถ้อยคำทีหลังก็เห็นทันที)
+                  ถอยไปใช้ audit_log ของผลประเมินเฉพาะตำแหน่งที่ยังไม่มีผลตรวจ */}
+              {c.job_bias ? (
+                <CandidateBiasBox bias={c.job_bias} />
+              ) : c.audit_log && (
                 <div className="p-sm rounded-xl border border-secondary/20 bg-secondary-container/10 flex gap-xs items-start">
                   <span
                     className="material-symbols-outlined text-secondary"

@@ -263,6 +263,30 @@ class TestCreateWithConfirmedCriteria:
         assert audit["status"] == "flagged" and audit["llm_checked"] is False
         assert "เพศชาย" in audit["jd_criteria"]
 
+    def test_ยืนยันถ้อยคำตั้งแต่ขั้นยืนยันเกณฑ์(self, client):
+        global JD
+        original = JD
+        JD = original + "\nเพศหญิง"
+        reason = "งานตรวจค้นตัวผู้โดยสารหญิง กฎหมายกำหนด"
+        try:
+            res = client.post("/api/v1/jobs", json=self.confirm(bias_acks=[
+                {"phrase": "เพศหญิง", "reason": reason},
+                {"phrase": "แต่งขึ้นเอง", "reason": reason},  # ไม่อยู่ในผลตรวจ → ทิ้ง
+            ]))
+            short = client.post("/api/v1/jobs", json=self.confirm(bias_acks=[
+                {"phrase": "เพศหญิง", "reason": "ok"},
+            ]))
+        finally:
+            with get_conn() as conn:
+                conn.execute("DELETE FROM jobs WHERE raw_text = %s", (JD,))
+                conn.commit()
+            JD = original
+        bias = res.json()["bias"]
+        assert res.status_code == 201 and bias["status"] == "passed"
+        assert [a["phrase"] for a in bias["acknowledged"]] == ["เพศหญิง"]
+        assert bias["acknowledged"][0]["by"] == "admin-test"  # จาก token ไม่ใช่จากหน้าเว็บ
+        assert short.status_code == 422  # เหตุผลสั้นเกิน ไม่สร้างตำแหน่ง
+
     def test_ประกาศสะอาดไม่มี_llm_ผ่าน(self, client):
         client.post("/api/v1/jobs", json=self.confirm())
         audit = self._audit()

@@ -4,6 +4,8 @@ from collections import Counter
 import os
 import time
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 from psycopg.types.json import Json
 
@@ -16,12 +18,14 @@ from app.agents.nodes.jd_reviewer import review_jd
 from app.agents.runner import active_candidates
 from app.agents.models import JDReview
 from app.auth import get_current_user
+from app.bias_ack import AckError, validate_acks
 from app.rate_limit import hit_and_check, retry_after_sec
 from app.database import get_checkpointer, get_conn
 from app.criteria_edit import criteria_warnings, normalize_criteria, rescore_job
 from app.job_queue import PENDING_STATUSES
 from app.llm_quota import has_room, used_today
 from app.schemas import (
+    BiasAcksUpdate,
     CriteriaIn,
     CriteriaPreviewOut,
     CriteriaSaveOut,
@@ -43,7 +47,7 @@ from app.schemas import (
 # คอลัมน์ที่ทุก endpoint คืนเป็น JobOut — รวมไว้ที่เดียวกันเผื่อเพิ่มฟิลด์ทีหลัง
 _JOB_COLS = (
     "id, title, raw_text, parsed_criteria, status, closed_at, created_at, "
-    "ai_criteria, criteria_edited_at"
+    "ai_criteria, criteria_edited_at, jd_audit, bias_acknowledgements"
 )
 
 log = logging.getLogger(__name__)
@@ -99,6 +103,20 @@ def _confirmed(raw_text: str, c: JobCriteriaConfirm, fallback_title: str) -> tup
     return parsed, c.extraction.model_dump(), (ai if edited else None)
 
 
+def _acks_or_422(requested: list[dict], jd_audit: dict | None, user: str, previous: list) -> list:
+    """ตรวจคำขอยืนยันกับผลตรวจของตำแหน่ง — ผิดกติกา (เหตุผลสั้นเกิน) เป็น 422 ข้อความอ่านรู้เรื่อง."""
+    try:
+        return validate_acks(
+            requested,
+            list((jd_audit or {}).get("jd_criteria") or []),
+            user,
+            datetime.now(timezone.utc),
+            previous,
+        )
+    except AckError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 def _job_audit(raw_text: str, analyzed: dict | None, llm=None) -> dict:
     """ผลตรวจอคติที่จะเก็บใน jobs.jd_audit — ฟังก์ชันบริสุทธิ์ ไม่เรียก LLM.
 
@@ -115,7 +133,7 @@ def _job_audit(raw_text: str, analyzed: dict | None, llm=None) -> dict:
 
 
 @router.post("", response_model=JobOut, status_code=201)
-def create_job(payload: JobCreate) -> JobOut:
+def create_job(payload: JobCreate, user: str = Depends(get_current_user)) -> JobOut:
     """สร้างตำแหน่งงาน — สองทาง.
 
     - มี `criteria` (ผ่านขั้นยืนยันเกณฑ์ในหน้าสร้างตำแหน่ง): ใช้เกณฑ์ที่ HR ยืนยัน **ไม่เรียก AI ซ้ำ**
@@ -129,13 +147,17 @@ def create_job(payload: JobCreate) -> JobOut:
             payload.raw_text, payload.criteria, fallback_title
         )
         jd_audit = _job_audit(payload.raw_text, analyzed, payload.criteria.bias_llm)
+        acks = _acks_or_422(
+            [a.model_dump() for a in payload.criteria.bias_acks], jd_audit, user, previous=[]
+        )
         with get_conn() as conn:
             row = conn.execute(
                 """
                 INSERT INTO jobs (title, raw_text, parsed_criteria, jd_extraction,
-                                  ai_criteria, criteria_edited_at, jd_audit)
+                                  ai_criteria, criteria_edited_at, jd_audit,
+                                  bias_acknowledgements)
                 VALUES (%s, %s, %s, %s, %s,
-                        CASE WHEN %s THEN timezone('utc'::text, now()) END, %s)
+                        CASE WHEN %s THEN timezone('utc'::text, now()) END, %s, %s)
                 RETURNING """
                 + _JOB_COLS,
                 (
@@ -146,6 +168,7 @@ def create_job(payload: JobCreate) -> JobOut:
                     Json(ai_criteria) if ai_criteria else None,
                     ai_criteria is not None or extraction is None,
                     Json(jd_audit),
+                    Json(acks),
                 ),
             ).fetchone()
             conn.commit()
@@ -606,6 +629,35 @@ def update_job_status(job_id: str, payload: JobStatusUpdate) -> JobOut:
         conn.commit()
     if row is None:
         raise HTTPException(status_code=404, detail="ไม่พบตำแหน่งงานนี้")
+    return JobOut(**row)
+
+
+@router.put("/{job_id}/bias-acknowledgements", response_model=JobOut)
+def update_bias_acknowledgements(
+    job_id: str, payload: BiasAcksUpdate, user: str = Depends(get_current_user)
+) -> JobOut:
+    """HR ยืนยัน (หรือถอนการยืนยัน) ว่าถ้อยคำที่ตัวตรวจอคติเตือน "จำเป็นกับงานนี้จริง".
+
+    แทนรายการทั้งชุด — ส่งรายการที่ต้องการคงไว้ทั้งหมด ข้อที่ไม่ส่งมาคือถอน · ข้อเดิมที่เหตุผลไม่เปลี่ยน
+    คงชื่อคนยืนยันและเวลาเดิม · **ไม่แตะคะแนน ไม่เดินกราฟใหม่** เปลี่ยนแค่สิ่งที่ HR เห็นในหน้าผู้สมัคร
+    (หน้าผู้สมัครอ่านผลตรวจจากตำแหน่งสด ๆ ผลประเมินเดิมในฐานข้อมูลไม่ถูกแก้)
+    """
+    with get_conn() as conn:
+        job = conn.execute(
+            "SELECT jd_audit, bias_acknowledgements FROM jobs WHERE id = %s FOR UPDATE", (job_id,)
+        ).fetchone()
+        if job is None:
+            raise HTTPException(status_code=404, detail="ไม่พบตำแหน่งงานนี้")
+        acks = _acks_or_422(
+            [a.model_dump() for a in payload.acks], job["jd_audit"], user,
+            previous=job["bias_acknowledgements"] or [],
+        )
+        row = conn.execute(
+            f"UPDATE jobs SET bias_acknowledgements = %s WHERE id = %s RETURNING {_JOB_COLS}",
+            (Json(acks), job_id),
+        ).fetchone()
+        conn.commit()
+    log.info("%s ยืนยันถ้อยคำอคติของตำแหน่ง %s: %s", user, job_id, [a["phrase"] for a in acks])
     return JobOut(**row)
 
 

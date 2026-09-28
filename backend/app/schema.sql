@@ -31,6 +31,10 @@ ALTER TABLE jobs ADD COLUMN IF NOT EXISTS jd_extraction JSONB;
 -- รูป: {status, log, jd_criteria, biased_required_skills, biased_preferred_skills, llm_checked}
 -- NULL = ตำแหน่งที่สร้างก่อนมีคอลัมน์นี้ โหนดจะใช้กฎตายตัวอย่างเดียว (scripts/backfill_jd_audit.py)
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS jd_audit JSONB;
+-- ถ้อยคำในผลตรวจที่ HR ยืนยันว่า "จำเป็นกับงานนี้จริง" (เช่น เพศหญิงสำหรับงานตรวจค้นตัว)
+-- [{phrase, reason, by, at}] — แยกจาก jd_audit โดยตั้งใจ: อันนั้นคือผลของเครื่อง อันนี้คือการตัดสินใจ
+-- ของคน ใครยืนยัน เมื่อไร เพราะอะไร ต้องย้อนตรวจได้ · ไม่มีผลกับคะแนนใด ๆ (เพศ/สัญชาติไม่เคยอยู่ในคะแนน)
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS bias_acknowledgements JSONB NOT NULL DEFAULT '[]'::jsonb;
 -- CHECK แยกออกมาเพราะ ADD COLUMN IF NOT EXISTS ไม่พา constraint ไปด้วยตอนคอลัมน์มีอยู่แล้ว
 DO $$
 BEGIN

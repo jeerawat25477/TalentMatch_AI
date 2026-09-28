@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import AiInsight from "@/components/ai-insight";
 import Breadcrumb from "@/components/breadcrumb";
+import { BiasAckEditor, toAckIn, type AckMap } from "@/components/bias-ack";
 import JDReviewCard from "@/components/jd-review-card";
 import SkillListsEditor from "@/components/skill-lists-editor";
 import type { SkillLists } from "@/components/skill-lists-editor";
@@ -44,6 +45,8 @@ export default function NewJobPage() {
   const [title, setTitle] = useState("");
   const [years, setYears] = useState(0);
   const [education, setEducation] = useState("");
+  // ถ้อยคำในผลตรวจอคติที่ HR ยืนยันว่าจำเป็น — ส่งไปพร้อมตอนสร้าง
+  const [acks, setAcks] = useState<AckMap>({});
 
   // state ของการ "ตรวจ JD" แยกจากการวิเคราะห์เด็ดขาด — คนละปุ่ม คนละผลลัพธ์
   const [reviewing, setReviewing] = useState(false);
@@ -80,6 +83,7 @@ export default function NewJobPage() {
     setTitle(d?.job_title || rawText.trim().split("\n")[0].slice(0, 255));
     setYears(d?.min_experience_years ?? 0);
     setEducation(d?.education ?? "");
+    setAcks({});
     setConfirming(true);
   }
 
@@ -114,6 +118,7 @@ export default function NewJobPage() {
         extraction: draft?.extraction ?? null,
         // ผลตรวจอคติดิบของ AI — backend รวมกับกฎตายตัวใหม่เอง เก็บเป็นผลตรวจของตำแหน่ง
         bias_llm: draft?.bias_llm ?? null,
+        bias_acks: toAckIn(acks),
       });
       router.push(`/jobs/${job.id}`);
     } catch (e) {
@@ -259,16 +264,14 @@ export default function NewJobPage() {
                 ประกาศนี้มีถ้อยคำที่อาจกีดกันผู้สมัคร
               </p>
               {draft.bias.jd_criteria.length > 0 ? (
-                <ul className="flex flex-wrap gap-base">
-                  {draft.bias.jd_criteria.map((c) => (
-                    <li
-                      key={c}
-                      className="text-label-sm px-2 py-0.5 rounded-full bg-tertiary/15 text-on-surface"
-                    >
-                      “{c}”
-                    </li>
-                  ))}
-                </ul>
+                // งานบางแบบต้องการจริง (เช่นเพศหญิงสำหรับงานตรวจค้นตัว) — ยืนยันพร้อมเหตุผลได้
+                // ถ้อยคำที่ยืนยันแล้วจะไม่ขึ้น ⚠ ในหน้าผู้สมัคร แต่บันทึกว่าใครยืนยันเพราะอะไร
+                <BiasAckEditor
+                  phrases={draft.bias.jd_criteria}
+                  value={acks}
+                  onChange={setAcks}
+                  disabled={busy}
+                />
               ) : (
                 <p className="text-label-sm text-on-surface">{draft.bias.log.split("\n")[0]}</p>
               )}
@@ -285,8 +288,8 @@ export default function NewJobPage() {
                 </p>
               )}
               <p className="text-label-sm text-on-surface-variant">
-                ถ้อยคำในประกาศไม่ได้ถูกใช้คิดคะแนน แต่ผู้สมัครจะเห็น ควรลบก่อนโพสต์ · บันทึกต่อได้
-                ระบบจะเตือนไว้ในหน้าผู้สมัครทุกคน
+                ถ้อยคำในประกาศไม่ได้ถูกใช้คิดคะแนน แต่ผู้สมัครจะเห็น ควรลบก่อนโพสต์ ถ้างานต้องการจริง
+                กด “จำเป็นกับงานนี้” พร้อมเหตุผล · ข้อที่ไม่ยืนยันจะเตือนไว้ในหน้าผู้สมัครทุกคน
               </p>
               <button
                 type="button"
