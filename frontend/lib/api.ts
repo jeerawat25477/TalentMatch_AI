@@ -155,7 +155,7 @@ export const createJob = (rawText: string, criteria?: JobCriteriaConfirm) =>
   });
 
 // เปิด/ปิดรับสมัคร — ทางเลือกแทนการลบสำหรับงานที่รับพนักงานได้แล้ว
-// ตรวจร่าง JD ก่อนโพสต์ — พรีวิวล้วน ๆ ไม่สร้างงานจริง (429 ถ้ากดถี่เกิน, 503 ถ้า AI ล่ม)
+// ตรวจว่าประกาศใช้คัดกรองได้ดีแค่ไหน — พรีวิวล้วน ๆ ไม่สร้างงานจริง (429 ถ้ากดถี่เกิน, 503 ถ้า AI ล่ม)
 /** HR ยืนยัน (หรือถอน) ถ้อยคำในผลตรวจอคติว่าจำเป็นกับงานนี้ — แทนรายการทั้งชุด */
 export const updateBiasAcks = (jobId: string, acks: BiasAckIn[]) =>
   request<Job>(`/api/v1/jobs/${jobId}/bias-acknowledgements`, {

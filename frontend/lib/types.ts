@@ -108,14 +108,14 @@ export interface JobDeleteResult {
   deleted_threads: number;
 }
 
-// ---------- ตรวจ JD ก่อนโพสต์ (JD Reviewer) ----------
+// ---------- ตรวจประกาศก่อนวิเคราะห์ — คัดกรองได้ดีแค่ไหน (JD Reviewer) ----------
 // คนละจังหวะกับ JobRequirement: ตัวนั้นคือเกณฑ์ที่สกัดไว้ให้คะแนนผู้สมัครหลังสร้างงานแล้ว
 // ส่วนนี้คือคำแนะนำต่อตัวประกาศเอง ตั้งแต่ก่อนกดสร้าง — เป็นพรีวิว ไม่ได้บันทึกลง DB
 export type ScopeAssessment = "too_broad" | "balanced" | "too_narrow";
 
-export interface JDBiasFlag {
+/** ถ้อยคำในประกาศที่ทำให้คัดกรองจากเรซูเม่ได้ไม่ดี — ยกจากประกาศตรงตัว */
+export interface JDScreeningIssue {
   phrase: string;
-  reason: string;
   suggestion: string;
 }
 
@@ -124,12 +124,18 @@ export interface JDMustHaveReview {
   reason: string;
 }
 
+/**
+ * มิเรอร์ JDReview ใน backend/app/agents/models.py — ตรวจว่า "คัดกรองได้ดีแค่ไหน" ไม่ใช่ "พร้อมโพสต์ไหม"
+ * ไม่มีส่วนตรวจอคติ (ตัวตรวจตอนกดวิเคราะห์ทำอยู่แล้ว) · posting_tips สำคัญน้อยสุด ไม่มีผลกับคะแนน
+ */
 export interface JDReview {
   scope_assessment: ScopeAssessment;
   scope_comment: string;
-  bias_flags: JDBiasFlag[];
+  unmeasurable: JDScreeningIssue[];
+  vague_skills: JDScreeningIssue[];
+  structure_issues: string[];
   must_have_review: JDMustHaveReview[];
-  missing_info: string[];
+  posting_tips: string[];
   overall_comment: string;
 }
 

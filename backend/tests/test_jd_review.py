@@ -1,4 +1,4 @@
-"""JD Reviewer — agent ที่ตรวจประกาศ "ก่อนโพสต์" (คนละจังหวะกับ jd_analyzer).
+"""JD Reviewer — ตรวจว่าประกาศใช้คัดกรองเรซูเม่ได้ดีแค่ไหน ก่อนกดวิเคราะห์ (คนละจังหวะกับ jd_analyzer).
 
 สิ่งที่เทสชุดนี้กัน:
 1. endpoint นี้ต้อง **ไม่เขียนอะไรลง DB** — เป็นพรีวิวล้วน ๆ
@@ -11,7 +11,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.agents.models import JDBiasFlag, JDMustHaveReview, JDReview
+from app.agents.models import JDMustHaveReview, JDReview, JDScreeningIssue
+from app.agents.nodes.matcher import PREFERRED_WEIGHT, REQUIRED_WEIGHT
 from app.agents.nodes import jd_reviewer
 from app.auth import get_current_user
 from app.database import get_conn
@@ -21,20 +22,19 @@ from app.routers import jobs
 URL = "/api/v1/jobs/review-jd"
 
 SAMPLE_JD = """ตำแหน่ง: Backend Developer
-รับเฉพาะเพศชาย อายุไม่เกิน 30 ปี จบจากมหาวิทยาลัยชั้นนำ
-ต้องมี: Python, Go, Rust, Kubernetes, การตลาด, งานบัญชี"""
+ต้องมี: Python, Go, Rust, Kubernetes, การตลาด, งานบัญชี, ขยัน อดทน, เก่งคอมพิวเตอร์"""
 
 FAKE_RESULT = JDReview(
     scope_assessment="too_broad",
     scope_comment="รวมหลายบทบาทไว้ในตำแหน่งเดียว",
-    bias_flags=[
-        JDBiasFlag(phrase="รับเฉพาะเพศชาย", reason="กีดกันทางเพศ", suggestion="ตัดออก")
-    ],
+    unmeasurable=[JDScreeningIssue(phrase="ขยัน อดทน", suggestion="ถามตอนสัมภาษณ์")],
+    vague_skills=[JDScreeningIssue(phrase="เก่งคอมพิวเตอร์", suggestion="ระบุเป็น Excel, Word")],
+    structure_issues=["ไม่แยกหัวข้อต้องมีกับอยากได้"],
     must_have_review=[
         JDMustHaveReview(skill="งานบัญชี", reason="ไม่เกี่ยวกับตำแหน่ง Backend")
     ],
-    missing_info=["ช่วงเงินเดือน", "สถานที่ทำงาน"],
-    overall_comment="ควรตัดเกณฑ์ที่ไม่เกี่ยวข้องออกก่อนโพสต์",
+    posting_tips=["ช่วงเงินเดือน"],
+    overall_comment="ควรตัดเกณฑ์ที่ไม่เกี่ยวข้องออกก่อนวิเคราะห์",
 )
 
 
@@ -76,7 +76,25 @@ class TestReviewJdFunction:
 
     def test_ส่งข้อความประกาศเข้า_prompt_จริง(self, fake_llm):
         jd_reviewer.review_jd(SAMPLE_JD)
-        assert "รับเฉพาะเพศชาย" in fake_llm[0]
+        assert "ขยัน อดทน, เก่งคอมพิวเตอร์" in fake_llm[0]
+
+    def test_prompt_อธิบายวิธีให้คะแนนด้วยน้ำหนักจริงของ_matcher(self, fake_llm):
+        """คำแนะนำต้องอิงกลไกของระบบนี้ — น้ำหนักมาจาก matcher.py ไม่เขียนเลขซ้ำ."""
+        jd_reviewer.review_jd(SAMPLE_JD)
+        assert f"ต้องมี {REQUIRED_WEIGHT}% + อยากได้ {PREFERRED_WEIGHT}%" in fake_llm[0]
+        assert "ข้อบังคับ" in fake_llm[0]
+
+    def test_ตรวจเพื่อคัดกรอง_ไม่ใช่เพื่อโพสต์(self, fake_llm):
+        """เดิมตั้งบทเป็นที่ปรึกษาก่อนโพสต์ แล้วแนะนำสถานที่ทำงาน/ไฮบริดซึ่งไม่มีผลกับคะแนน."""
+        jd_reviewer.review_jd(SAMPLE_JD)
+        assert "คัดกรอง" in fake_llm[0]
+        assert "ความสำคัญต่ำสุด" in fake_llm[0]  # posting_tips อยู่ท้ายสุด
+
+    def test_ไม่ตรวจอคติซ้ำกับตัวตรวจตอนวิเคราะห์(self, fake_llm):
+        jd_reviewer.review_jd(SAMPLE_JD)
+        assert "ไม่ต้องตรวจเรื่องอคติ" in fake_llm[0]
+        assert "bias_flags" not in fake_llm[0]
+        assert "bias_flags" not in JDReview.model_fields
 
     def test_ตัดประกาศที่ยาวเกินเพดาน(self, fake_llm):
         # ใช้ "X" เป็นตัวเติมเพราะเทมเพลต prompt เป็นภาษาไทยล้วน จะได้นับเฉพาะส่วนที่เป็น JD
@@ -112,9 +130,12 @@ class TestEndpoint:
         assert r.status_code == 200
         body = r.json()
         assert body["scope_assessment"] == "too_broad"
-        assert body["bias_flags"][0]["phrase"] == "รับเฉพาะเพศชาย"
+        assert body["unmeasurable"][0]["phrase"] == "ขยัน อดทน"
+        assert body["vague_skills"][0]["phrase"] == "เก่งคอมพิวเตอร์"
+        assert body["structure_issues"] == ["ไม่แยกหัวข้อต้องมีกับอยากได้"]
         assert body["must_have_review"][0]["skill"] == "งานบัญชี"
-        assert body["missing_info"] == ["ช่วงเงินเดือน", "สถานที่ทำงาน"]
+        assert body["posting_tips"] == ["ช่วงเงินเดือน"]
+        assert "bias_flags" not in body and "missing_info" not in body
         assert body["overall_comment"]
 
     def test_ไม่เขียนอะไรลง_db(self, client, fake_llm):

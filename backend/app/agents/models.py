@@ -73,11 +73,10 @@ class SkillEvidence(BaseModel):
     )
 
 
-class JDBiasFlag(BaseModel):
-    """ถ้อยคำหนึ่งจุดในประกาศที่อาจกีดกันผู้สมัครโดยไม่จำเป็น."""
+class JDScreeningIssue(BaseModel):
+    """ถ้อยคำหนึ่งจุดในประกาศที่ทำให้คัดกรองจากเรซูเม่ได้ไม่ดี พร้อมวิธีแก้."""
     phrase: str = Field(..., description="ข้อความที่ยกมาจากประกาศตรง ๆ")
-    reason: str = Field(..., description="ทำไมถ้อยคำนี้ถึงเป็นปัญหา")
-    suggestion: str = Field(..., description="ควรแก้เป็นอะไรแทน")
+    suggestion: str = Field(..., description="ควรเขียนใหม่เป็นอะไร หรือย้ายไปถามตอนสัมภาษณ์")
 
 
 class JDMustHaveReview(BaseModel):
@@ -93,26 +92,37 @@ class JDMustHaveReview(BaseModel):
 
 
 class JDReview(BaseModel):
-    """ผลจาก JD Reviewer — คำแนะนำก่อนโพสต์ประกาศ (ไม่ใช่โหนดในกราฟหลัก).
+    """ผลจาก JD Reviewer — ประกาศนี้ใช้ **คัดกรองเรซูเม่** ได้ดีแค่ไหน (ไม่ใช่โหนดในกราฟหลัก).
 
-    คนละจังหวะกับ JobRequirement: ตัวนั้น *สกัด* เกณฑ์ไปใช้ให้คะแนนผู้สมัคร
-    ส่วนตัวนี้ *วิจารณ์ตัวประกาศเอง* ตั้งแต่ก่อนมีผู้สมัครสักคน
+    เดิมถามว่า "พร้อมโพสต์ไหม" แล้วแนะนำให้เพิ่มสถานที่ทำงาน/รูปแบบไฮบริด ซึ่งไม่มีผลกับคะแนน
+    ผู้สมัครเลย ในระบบนี้ประกาศถูกใช้สกัดเกณฑ์คัดกรอง จึงตรวจสิ่งที่ทำให้คัดกรองพลาด
+    ส่วนเรื่องอคติตัดออก — ตัวตรวจตอนกด "วิเคราะห์" (bias_auditor.audit_jd + กฎตายตัว) ทำอยู่แล้ว
+    และแม่นกว่า ถ้ามีสองที่ HR จะเห็นผลสองชุดที่พูดไม่ตรงกัน
     """
     scope_assessment: Literal["too_broad", "balanced", "too_narrow"] = "balanced"
     scope_comment: str = Field(
         "", description="อธิบายสั้น ๆ ว่าทำไมถึงประเมินขอบเขตแบบนั้น"
     )
-    bias_flags: list[JDBiasFlag] = Field(
-        default_factory=list, description="ถ้อยคำที่อาจกีดกันผู้สมัครโดยไม่จำเป็น"
+    unmeasurable: list[JDScreeningIssue] = Field(
+        default_factory=list,
+        description="เกณฑ์ที่วัดจากเรซูเม่ไม่ได้ เช่น ขยัน อดทน มีใจรักบริการ",
+    )
+    vague_skills: list[JDScreeningIssue] = Field(
+        default_factory=list,
+        description="ทักษะที่กว้างเกินจนจับคู่กับเรซูเม่ไม่ได้ เช่น เก่งคอมพิวเตอร์",
+    )
+    structure_issues: list[str] = Field(
+        default_factory=list,
+        description="โครงสร้างที่ทำให้ระบบแยกต้องมี/อยากได้ หรือตัวเลือก 'อย่างใดอย่างหนึ่ง' ผิด",
     )
     must_have_review: list[JDMustHaveReview] = Field(
         default_factory=list, description="ทักษะที่ระบุว่าต้องมีแต่ควรทบทวน"
     )
-    missing_info: list[str] = Field(
+    posting_tips: list[str] = Field(
         default_factory=list,
         description=(
-            "ข้อมูลที่ประกาศรับสมัครควรมีแต่ยังขาด เช่น ช่วงเงินเดือน สถานที่ทำงาน "
-            "รูปแบบการทำงาน ขอบเขตความรับผิดชอบ"
+            "เฉพาะกรณีจะนำประกาศไปโพสต์ภายนอก (JobsDB ฯลฯ) — ข้อมูลที่ผู้สมัครอยากรู้แต่ยังขาด "
+            "เช่น ช่วงเงินเดือน สถานที่ทำงาน · ไม่มีผลกับการคัดกรอง"
         ),
     )
     overall_comment: str = Field("", description="สรุปภาพรวมให้ HR อ่านเป็นย่อหน้าเดียว")

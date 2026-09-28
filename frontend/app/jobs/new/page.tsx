@@ -68,7 +68,7 @@ export default function NewJobPage() {
     try {
       setReview(await reviewJD(rawText));
     } catch (e) {
-      setReviewError(e instanceof Error ? e.message : "ตรวจ JD ไม่สำเร็จ");
+      setReviewError(e instanceof Error ? e.message : "ตรวจประกาศไม่สำเร็จ");
     } finally {
       setReviewing(false);
     }
@@ -206,7 +206,7 @@ export default function NewJobPage() {
               ) : (
                 <span className="material-symbols-outlined text-[18px]">rate_review</span>
               )}
-              {reviewing ? "กำลังตรวจ JD…" : "ตรวจ JD ก่อนโพสต์"}
+              {reviewing ? "กำลังตรวจประกาศ…" : "ตรวจประกาศก่อนวิเคราะห์"}
             </button>
             <button
               onClick={handleAnalyze}
