@@ -161,3 +161,74 @@ def test_jd_level_bias_is_reported_even_when_nothing_can_be_recomputed(monkeypat
     assert state["bias_revision_pending"] == {"cand-1": False}
     assert state["bias_revision_count"] == {}
     assert route_candidates(state) in {"advance", "reject"}
+
+
+# ── ด่านกฎตายตัว (bias_rules.py) ต่อเข้ากับ auditor ──
+
+
+def _passed(*args, **kwargs):
+    return BiasAudit(is_biased=False, audit_status="passed", audit_log="ไม่พบการใช้ข้อมูลอคติ")
+
+
+def test_rules_flag_what_the_llm_missed_without_contradicting_itself(monkeypatch):
+    """LLM ตอบ passed แต่ประกาศเขียน "เพศชาย" ไว้ตรง ๆ → ต้อง flagged และข้อความต้องไม่ขัดกันเอง."""
+    monkeypatch.setattr(bias_auditor, "structured_invoke", _passed)
+    state = _state()
+    state.update(match_candidates(state))
+    state.update(bias_auditor.audit_bias(state))
+
+    ev = state["evaluations"][0]
+    assert ev["is_biased"] is True
+    assert ev["audit_status"] == "flagged"
+    assert "ไม่พบ" not in ev["audit_log"]
+    assert "เพศชาย" in ev["audit_log"] and "อายุไม่เกิน 30 ปี" in ev["audit_log"]
+    # กฎไม่เพิ่มเกณฑ์ทักษะให้ถอด → ห้ามวนกลับ matcher (เสีย call ฟรี ๆ)
+    assert state["bias_revision_pending"] == {"cand-1": False}
+    assert route_candidates(state) in {"advance", "reject"}
+
+
+def test_rules_do_not_duplicate_what_the_llm_already_reported(monkeypatch):
+    def fake_invoke(*args, **kwargs):
+        return BiasAudit(
+            is_biased=True,
+            audit_status="flagged",
+            audit_log="ประกาศระบุเพศและอายุ",
+            biased_jd_criteria=["เพศชาย อายุไม่เกิน 30 ปี"],
+        )
+
+    monkeypatch.setattr(bias_auditor, "structured_invoke", fake_invoke)
+    state = _state()
+    state.update(match_candidates(state))
+    state.update(bias_auditor.audit_bias(state))
+
+    log = state["evaluations"][0]["audit_log"]
+    # ข้อความของ LLM ถูกเก็บไว้ ไม่ถูกแทน เพราะมัน flagged เองอยู่แล้ว
+    assert log.startswith("ประกาศระบุเพศและอายุ")
+    warning = log.splitlines()[-1]
+    assert warning.count("เพศชาย") == 1
+    assert warning.count("อายุไม่เกิน 30") == 1
+
+
+def test_clean_jd_with_passed_llm_is_unchanged(monkeypatch):
+    monkeypatch.setattr(bias_auditor, "structured_invoke", _passed)
+    state = _state()
+    state["raw_jd"] = "ตำแหน่ง Backend Developer\nคุณสมบัติ: Python, Docker"
+    state.update(match_candidates(state))
+    state.update(bias_auditor.audit_bias(state))
+
+    ev = state["evaluations"][0]
+    assert ev["is_biased"] is False
+    assert ev["audit_status"] == "passed"
+    assert ev["audit_log"] == "ไม่พบการใช้ข้อมูลอคติ"
+
+
+def test_rules_read_the_full_jd_not_the_truncated_prompt_copy(monkeypatch):
+    """กฎไม่เสีย token จึงอ่านประกาศเต็ม — อคติที่อยู่ท้ายประกาศยาว ๆ ต้องไม่หลุด."""
+    monkeypatch.setattr(bias_auditor, "structured_invoke", _passed)
+    state = _state()
+    state["raw_jd"] = "ตำแหน่ง Backend Developer\n" + ("รายละเอียดงาน " * 600) + "\nสถานภาพโสด"
+    assert len(state["raw_jd"]) > bias_auditor._MAX_JD_CHARS
+    state.update(match_candidates(state))
+    state.update(bias_auditor.audit_bias(state))
+
+    assert "สถานภาพโสด" in state["evaluations"][0]["audit_log"]

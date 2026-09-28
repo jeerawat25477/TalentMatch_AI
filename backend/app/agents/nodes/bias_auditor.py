@@ -1,4 +1,5 @@
 """Node 4: Bias Auditor — ตรวจอคติในผลประเมิน (ใช้ Pro เพื่อคุณภาพ)."""
+from app.agents.bias_rules import categories, find_biased_phrases, merge_criteria
 from app.agents.llm import structured_invoke
 from app.agents.models import BiasAudit
 from app.agents.state import HRSystemState
@@ -7,7 +8,9 @@ MAX_BIAS_REVISIONS = 1
 _MAX_JD_CHARS = 4000  # ตัด JD ที่ยาวผิดปกติกันเปลือง token (JD ปกติสั้นกว่านี้มาก)
 
 PROMPT = """จงตรวจสอบว่าการประเมินผู้สมัครคนนี้ และตัวประกาศรับสมัครงานเอง มีการใช้ข้อมูลอคติ
-เกี่ยวกับ เพศ, อายุ, เชื้อชาติ, ศาสนา หรือสถาบันการศึกษาหรือไม่
+เกี่ยวกับเรื่องต่อไปนี้หรือไม่: เพศ, อายุ, เชื้อชาติ/สัญชาติ/ภูมิลำเนา, ศาสนา, สถาบันการศึกษา,
+สถานภาพสมรส (โสด/มีบุตร/ภาระครอบครัว), รูปลักษณ์ (ส่วนสูง/น้ำหนัก/หน้าตา/สีผิว),
+ความพิการหรือสภาพร่างกายที่ไม่เกี่ยวกับงาน
 
 ประกาศรับสมัครงาน (ต้นฉบับ):
 {raw_jd}
@@ -20,13 +23,19 @@ JD education: {education} | ประสบการณ์ขั้นต่ำ:
 
 - is_biased: true ถ้าพบการใช้ปัจจัยอคติ
 - audit_status: "flagged" ถ้าพบ, ไม่งั้น "passed"
-- audit_log: สรุปสั้น ๆ ว่าตรวจพบอะไร/แก้ไขอะไร
+- audit_log: สรุปสั้น ๆ ว่าตรวจพบอะไร (ดูกติกาการเขียนข้างล่าง)
 - biased_required_skills / biased_preferred_skills: เฉพาะรายการที่อยู่ใน required_skills /
   preferred_skills ข้างบน "ตรงตัวอักษร" และเป็นเกณฑ์อคติ — matcher จะถอดออกแล้วคำนวณคะแนนใหม่
   ถ้าไม่มีรายการไหนเข้าข่าย ให้คืน list ว่าง (ห้ามเดาชื่อที่ไม่ได้อยู่ในลิสต์)
 - biased_jd_criteria: เกณฑ์อคติที่พบใน "ประกาศต้นฉบับ" หรือช่อง education/ประสบการณ์ ซึ่งไม่ใช่
   ทักษะ (เช่น "เพศชาย", "อายุไม่เกิน 30", "จบจากมหาวิทยาลัยชั้นนำ") — ถอดออกจากคะแนนไม่ได้
-  เพราะไม่ได้ถูกใช้คิดคะแนนอยู่แล้ว แต่ต้องเตือน HR ให้ไปแก้ประกาศ"""
+  เพราะไม่ได้ถูกใช้คิดคะแนนอยู่แล้ว แต่ต้องเตือน HR ให้ไปแก้ประกาศ
+  ยกข้อความจากประกาศจริงเท่านั้น ห้ามแต่งหรือสรุปความเอง
+
+กติกาการเขียน audit_log:
+- เกณฑ์อคติที่อยู่ในประกาศแต่ "ไม่อยู่" ใน required_skills / preferred_skills ให้เขียนว่า
+  "ไม่ได้ถูกใช้คิดคะแนน" **ห้ามเขียนว่า "ถอดออกแล้ว"** เพราะมันไม่เคยถูกใส่เข้าไปตั้งแต่แรก
+- ถ้าไม่พบอะไร ให้บอกสั้น ๆ ว่าไม่พบ ห้ามปั้นปัญหาขึ้นมา"""
 
 
 def audit_bias(state: HRSystemState) -> dict:
@@ -58,13 +67,27 @@ def audit_bias(state: HRSystemState) -> dict:
     evaluation["audit_status"] = audit.audit_status
     evaluation["audit_log"] = audit.audit_log
 
+    # ด่านกฎตายตัว (bias_rules.py) — จับคำชัด ๆ อย่าง "เพศชาย" ได้แน่นอนทุกรอบโดยไม่เสีย call
+    # ใช้ประกาศเต็ม ไม่ตัดที่ _MAX_JD_CHARS เพราะกฎไม่กิน token
+    # ถ้ากฎเจอแต่ LLM ตอบ passed ต้องแทน audit_log ด้วย ไม่งั้นหน้าเว็บจะได้ข้อความขัดกันเอง
+    # "ไม่พบอคติ" แล้วตามด้วยบรรทัด ⚠ · การบังคับ flagged ไม่ทำให้วนกลับ matcher เพราะกฎ
+    # ไม่เพิ่มเกณฑ์ทักษะให้ถอด และ route_candidates ดูแค่ bias_revision_pending
+    rule_hits = find_biased_phrases(state.get("raw_jd") or "")
+    if rule_hits and audit.audit_status != "flagged":
+        evaluation["is_biased"] = True
+        evaluation["audit_status"] = "flagged"
+        evaluation["audit_log"] = (
+            f"พบถ้อยคำที่อาจมีอคติในประกาศรับสมัครงาน ({', '.join(categories(rule_hits))}) "
+            "— ไม่ได้ถูกใช้คิดคะแนน แต่ควรแก้ประกาศ"
+        )
+
     # เกณฑ์อคติที่อยู่ใน JD แต่ไม่ใช่ทักษะ (เพศ/อายุ/สถาบัน) ถอดออกจากคะแนนไม่ได้ เพราะมันไม่เคย
     # ถูกใช้คิดคะแนนอยู่แล้ว — สิ่งที่ทำได้คือเตือน HR ให้ไปแก้ประกาศ จึงต่อท้าย audit_log
     # (ปลอดภัยที่จะต่อตรงนี้: คำนวณใหม่ทุกรอบจากผล audit ของรอบนั้น ไม่ใช่ข้อความสะสม)
-    jd_criteria = [c.strip() for c in audit.biased_jd_criteria if c and c.strip()]
+    jd_criteria = merge_criteria(audit.biased_jd_criteria, rule_hits)
     if jd_criteria:
         evaluation["audit_log"] = (
-            f"{audit.audit_log}\n"
+            f"{evaluation['audit_log']}\n"
             f"⚠ เกณฑ์ใน JD ที่อาจมีอคติ (ไม่ได้ถูกใช้คิดคะแนน — ควรแก้ประกาศ): "
             f"{', '.join(jd_criteria)}"
         ).strip()
