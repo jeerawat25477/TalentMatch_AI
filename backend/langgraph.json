@@ -1,0 +1,6 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "talentmatch": "./app/agents/studio.py:graph"
+  }
+}

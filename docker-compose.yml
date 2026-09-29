@@ -82,5 +82,31 @@ services:
       - ./frontend:/app
       - /app/node_modules   # กัน mount ทับ node_modules ในอิมเมจ
 
+  # LangGraph Studio (dev เท่านั้น) — ดูกราฟทำงานสด ๆ · ไม่เปิดกับ `docker compose up` ปกติ
+  # เปิด: docker compose --profile studio up -d studio  แล้วเข้า
+  # https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024
+  # กด Run = เรียก Gemini จริง ~4 call · ผลไม่ลงหน้าเว็บ HR และไม่ส่งอีเมล
+  studio:
+    profiles: ["studio"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.studio
+    container_name: talentmatch_studio
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env
+    environment:
+      # retrieve_similar อ่านเวกเตอร์ผู้สมัครเก่าจาก DB เดียวกัน (อ่านอย่างเดียว)
+      DATABASE_URL: postgresql://talentmatch:talentmatch@db:5432/talentmatch
+      RAG_ENABLED: "true"
+      RAG_TOP_K: "3"
+    ports:
+      # ผูก 127.0.0.1 เท่านั้น — Studio API ไม่มี auth ห้ามเปิดให้เครื่องอื่นในวงแลนเข้า
+      - "127.0.0.1:2024:2024"
+    volumes:
+      - ./backend:/app
+
 volumes:
   pgdata:

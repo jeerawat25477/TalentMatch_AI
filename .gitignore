@@ -43,3 +43,6 @@ Thumbs.db
 !.claude/skills/graph-node/
 !.claude/skills/scoring-change/
 PRESENTATION.md
+
+# LangGraph Studio (langgraph dev) — state ในเครื่อง อาจมีเนื้อหาเรซูเม่
+.langgraph_api/

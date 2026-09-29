@@ -61,8 +61,23 @@ Start-Process $edge -ArgumentList @("--headless","--disable-gpu","--no-sandbox",
 > ภาพจึงเป็นการ crop จาก viewport ที่กว้างกว่า (ดูเหมือนเนื้อหาล้นขอบ ทั้งที่ไม่ได้ล้น)
 > ถ้าต้องทดสอบ mobile จริงต้องใช้ CDP `Emulation.setDeviceMetricsOverride`
 
+## LangGraph Studio (ดูกราฟทำงานสด — dev เท่านั้น)
+- เปิด: `docker compose --profile studio up -d studio` (ไม่ขึ้นกับ `up` ปกติ) · ปิด: `docker compose stop studio`
+- เข้า **https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024** ใน Chrome ที่ล็อกอิน LangSmith แล้ว
+- กราฟมาจาก `backend/app/agents/studio.py` = `build_graph()` ตัวจริง + interrupt เดิม แต่ไม่มี PostgresSaver
+  (Studio เก็บ state ในหน่วยความจำของมันเอง) · `tests/test_studio_graph.py` ล็อกว่าตรงกับกราฟจริง
+- ข้อมูลตั้งต้นของผู้สมัครที่มีอยู่: `docker compose exec backend python scripts/studio_input.py <candidate_id>`
+  แล้ววาง JSON ในช่อง Input → Submit · สร้างด้วย `runner.initial_state` ตัวเดียวกับตอนรันจริง
+- ⚠️ **กด Submit = เรียก Gemini จริง** (~4 call; jd_analyzer ข้ามเพราะส่ง analyzed_jd ไปแล้ว) นับโควตาปกติ ·
+  ผล **ไม่ลงหน้าเว็บ HR** ไม่ส่งอีเมล (บันทึกผลอยู่ใน runner ไม่ใช่ในกราฟ) · กราฟพักก่อน interview_planner ต้องกด Continue
+- พอร์ตผูก `127.0.0.1:2024` เท่านั้น — Studio API ไม่มี auth
+- เปิดไม่ขึ้น ("Failed to fetch"): browser pane ของ Claude บล็อกหน้าเว็บภายนอกไม่ให้เรียก localhost (ERR_BLOCKED_BY_CLIENT)
+  → ใช้ Chrome จริง · ถ้า Chrome ก็ไม่ได้ ลอง `langgraph dev --tunnel` (เปิดทางผ่านอินเทอร์เน็ตชั่วคราว)
+  · starlette 1.7 ตอบ preflight ที่มี `Access-Control-Request-Private-Network` เป็น 400 (preflight ปกติได้ 200)
+
 ## MailHog (SMTP ปลอมสำหรับ dev — http://localhost:8025)
 - `docker compose up -d mailhog` (ขึ้นอัตโนมัติกับ `up`) · backend ต่อผ่าน `mailhog:1025` ภายใน
+- ⚠️ ตั้งแต่ 2026-09-29 compose ไม่บังคับ SMTP แล้ว — ใช้ MailHog ต่อเมื่อ `.env` ตั้ง `SMTP_HOST=mailhog` (ตอนนี้ `.env` ของเครื่อง dev ชี้ Gmail = ส่งจริง)
 - กดส่งอีเมลในหน้า deep dive แล้วมาดูที่ UI นี้ — ไม่ส่งออกอินเทอร์เน็ตจริง เหมาะทดสอบโดยไม่ต้องมี Gmail creds
 - ดูอีเมลผ่าน API: `GET http://localhost:8025/api/v2/messages`
 

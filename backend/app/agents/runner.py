@@ -183,6 +183,35 @@ def _resume_point(has_checkpoint: bool, next_nodes: tuple) -> str:
     return "resume_screening"
 
 
+def initial_state(
+    candidate_id: str,
+    raw_jd: str,
+    analyzed_jd: dict | None,
+    resume_text: str,
+    jd_audit: dict | None = None,
+) -> dict:
+    """state ตั้งต้นของผู้สมัครหนึ่งคน — ที่เดียว ใช้ทั้งตอนรันจริงและ scripts/studio_input.py
+    (Studio ต้องได้ข้อมูลรูปเดียวกับของจริง ไม่งั้นสิ่งที่เห็นใน Studio จะไม่ใช่สิ่งที่ระบบทำ)."""
+    return {
+        "raw_jd": raw_jd,
+        "analyzed_jd": analyzed_jd,
+        "raw_resumes": [
+            {"candidate_id": str(candidate_id), "filename": "", "content": resume_text}
+        ],
+        "parsed_resumes": [],
+        "evaluations": [],
+        "hr_decision": {},
+        "hr_notes": {},
+        "interview_plans": {},
+        "email_drafts": {},
+        "similar_candidates": {},
+        "bias_revision_count": {},
+        "bias_revision_pending": {},
+        "bias_exclusions": {},
+        "jd_audit": jd_audit,
+    }
+
+
 def process_candidate(
     job_id: str,
     candidate_id: str,
@@ -228,24 +257,7 @@ def _process_candidate_locked(
         _continue_candidate(graph, config, job_id, candidate_id, resume_text, point)
         return
 
-    initial = {
-        "raw_jd": raw_jd,
-        "analyzed_jd": analyzed_jd,
-        "raw_resumes": [
-            {"candidate_id": str(candidate_id), "filename": "", "content": resume_text}
-        ],
-        "parsed_resumes": [],
-        "evaluations": [],
-        "hr_decision": {},
-        "hr_notes": {},
-        "interview_plans": {},
-        "email_drafts": {},
-        "similar_candidates": {},
-        "bias_revision_count": {},
-        "bias_revision_pending": {},
-        "bias_exclusions": {},
-        "jd_audit": jd_audit,
-    }
+    initial = initial_state(candidate_id, raw_jd, analyzed_jd, resume_text, jd_audit)
     state = graph.invoke(initial, config)
     _save_screening(job_id, candidate_id, state, resume_text)
     _after_screening(graph, config, candidate_id, state)

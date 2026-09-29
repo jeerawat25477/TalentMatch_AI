@@ -1,0 +1,18 @@
+# LangGraph Studio (dev เท่านั้น) — image แยกจาก backend หลัก เพื่อไม่ให้ langgraph-cli
+# และ dependency ของมันเข้าไปอยู่ใน image ที่ใช้รันจริง
+# เปิด: docker compose --profile studio up studio   → ดูวิธีใน memory-bank
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --upgrade pip && pip install -r requirements.txt "langgraph-cli[inmem]"
+
+EXPOSE 2024
+
+# --host 0.0.0.0 ให้เข้าจากนอกคอนเทนเนอร์ได้ (compose ผูกพอร์ตไว้ที่ 127.0.0.1 เท่านั้น)
+CMD ["langgraph", "dev", "--host", "0.0.0.0", "--port", "2024", "--no-browser"]
