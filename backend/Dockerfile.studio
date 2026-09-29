@@ -12,6 +12,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt "langgraph-cli[inmem]"
 
+# ให้ Chrome เรียก localhost จากหน้า Studio ได้ — เหตุผลอยู่ในไฟล์ (ไม่แตะ image backend หลัก)
+COPY studio_sitecustomize.py /usr/local/lib/python3.12/site-packages/sitecustomize.py
+
 EXPOSE 2024
 
 # --host 0.0.0.0 ให้เข้าจากนอกคอนเทนเนอร์ได้ (compose ผูกพอร์ตไว้ที่ 127.0.0.1 เท่านั้น)

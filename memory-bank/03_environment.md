@@ -73,7 +73,8 @@ Start-Process $edge -ArgumentList @("--headless","--disable-gpu","--no-sandbox",
 - พอร์ตผูก `127.0.0.1:2024` เท่านั้น — Studio API ไม่มี auth
 - เปิดไม่ขึ้น ("Failed to fetch"): browser pane ของ Claude บล็อกหน้าเว็บภายนอกไม่ให้เรียก localhost (ERR_BLOCKED_BY_CLIENT)
   → ใช้ Chrome จริง · ถ้า Chrome ก็ไม่ได้ ลอง `langgraph dev --tunnel` (เปิดทางผ่านอินเทอร์เน็ตชั่วคราว)
-  · starlette 1.7 ตอบ preflight ที่มี `Access-Control-Request-Private-Network` เป็น 400 (preflight ปกติได้ 200)
+  · starlette ≥1.x ตอบ preflight ที่มี `Access-Control-Request-Private-Network` เป็น 400 → Chrome ขึ้น "Failed to fetch"
+    แก้แล้วด้วย `backend/studio_sitecustomize.py` (อยู่ใน image studio เท่านั้น) · Chrome อาจถามสิทธิ์ "เข้าถึงเครือข่ายภายใน" ให้กดอนุญาต
 
 ## MailHog (SMTP ปลอมสำหรับ dev — http://localhost:8025)
 - `docker compose up -d mailhog` (ขึ้นอัตโนมัติกับ `up`) · backend ต่อผ่าน `mailhog:1025` ภายใน
