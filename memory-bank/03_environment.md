@@ -71,6 +71,9 @@ Start-Process $edge -ArgumentList @("--headless","--disable-gpu","--no-sandbox",
 - ⚠️ **กด Submit = เรียก Gemini จริง** (~4 call; jd_analyzer ข้ามเพราะส่ง analyzed_jd ไปแล้ว) นับโควตาปกติ ·
   ผล **ไม่ลงหน้าเว็บ HR** ไม่ส่งอีเมล (บันทึกผลอยู่ใน runner ไม่ใช่ในกราฟ) · กราฟพักก่อน interview_planner ต้องกด Continue
 - พอร์ตผูก `127.0.0.1:2024` เท่านั้น — Studio API ไม่มี auth
+- ⚠️ **Chrome ต้องอนุญาต 2 อย่าง** ที่ `chrome://settings/content/siteDetails?site=https://smith.langchain.com`:
+  **Local network = Allow** และ **Apps on device = Allow** (ตัวหลังคือ loopback/127.0.0.1 — ดีฟอลต์ "Automatically blocked"
+  Console ขึ้น `Permission was denied for this request to access the loopback address space`) · ใช้เสร็จเปลี่ยนกลับเป็น Block
 - เปิดไม่ขึ้น ("Failed to fetch"): browser pane ของ Claude บล็อกหน้าเว็บภายนอกไม่ให้เรียก localhost (ERR_BLOCKED_BY_CLIENT)
   → ใช้ Chrome จริง · ถ้า Chrome ก็ไม่ได้ ลอง `langgraph dev --tunnel` (เปิดทางผ่านอินเทอร์เน็ตชั่วคราว)
   · starlette ≥1.x ตอบ preflight ที่มี `Access-Control-Request-Private-Network` เป็น 400 → Chrome ขึ้น "Failed to fetch"
