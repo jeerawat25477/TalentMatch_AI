@@ -43,11 +43,8 @@ services:
     environment:
       # connection string ให้ PostgresSaver / app ใช้ต่อ Postgres ในคอมโพสนี้
       DATABASE_URL: postgresql://talentmatch:talentmatch@db:5432/talentmatch
-      # SMTP ดีฟอลต์ชี้ไป MailHog (SMTP ปลอมสำหรับ dev) — โปรดักชัน override ใน .env
-      SMTP_HOST: mailhog
-      SMTP_PORT: "1025"
-      SMTP_STARTTLS: "false"
-      SMTP_FROM: recruit@talentmatch.local
+      # SMTP_* ไม่ตั้งที่นี่ — ค่าใน environment: ทับ env_file เสมอ ถ้าตั้งไว้ .env จะใส่ SMTP จริงไม่ได้ผล
+      # ตั้งใน backend/.env แทน: ทดสอบ = SMTP_HOST=mailhog / ส่งจริง = SMTP ของผู้ให้บริการ
       # Auth (dev) — โปรดักชัน override JWT_SECRET/ADMIN_PASSWORD ด้วยค่าจริงที่แข็งแรงใน .env
       JWT_SECRET: dev-only-secret-change-in-prod-0123456789abcdef
       JWT_EXPIRE_HOURS: "12"
