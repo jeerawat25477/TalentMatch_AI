@@ -52,6 +52,17 @@ class TestImplication:
         # รู้ SQL ไม่ได้แปลว่าใช้ PostgreSQL เป็น
         assert matches("PostgreSQL", {"SQL"}) is False
 
+    def test_git_hosting_implies_git(self):
+        # เจอจริง 2026-09-30: เรซูเม่เขียน "GitHub" แต่ required "Git" ถูกนับว่าขาด
+        # ใช้ GitHub/GitLab/Bitbucket = push/pull/commit ด้วย Git อยู่แล้ว
+        for host in ("GitHub", "GitLab", "Bitbucket"):
+            assert matches("Git", {host}) is True, host
+
+    def test_git_does_not_imply_a_hosting_service(self):
+        # ทางเดียว: รู้ Git ไม่ได้แปลว่าเคยใช้ GitHub (อาจใช้ GitLab ภายในบริษัท)
+        assert matches("GitHub", {"Git"}) is False
+        assert matches("GitLab", {"GitHub"}) is False
+
 
 class TestAliases:
     def test_spelling_variants(self):

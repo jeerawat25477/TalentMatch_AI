@@ -108,6 +108,10 @@ IMPLIES: dict[str, set[str]] = {
     "next js": {"react"},
     "typescript": {"javascript"},
     "kubernetes": {"docker"},
+    # ใช้บริการฝาก repo ได้ = ใช้ Git เป็น (ทางเดียว: รู้ Git ไม่ได้แปลว่าเคยใช้ GitHub)
+    "github": {"git"},
+    "gitlab": {"git"},
+    "bitbucket": {"git"},
     "power bi": {"dax", "power query", "data visualization"},
     "pytorch": {"deep learning", "machine learning"},
     "tensorflow": {"deep learning", "machine learning"},
