@@ -56,6 +56,7 @@ import type {
   CandidateDetail,
   CandidateSearchHit,
   Decision,
+  SamePerson,
   Job,
   ScoreDistribution,
 } from "@/lib/types";
@@ -155,9 +156,9 @@ export default function CandidateDeepDive() {
     setSearching(true);
     setSearchError(null);
     try {
-      const found = await searchCandidates(query.trim(), 10);
-      // endpoint สาธารณะไม่ได้ส่ง exclude_candidate_id (ต่างจาก retrieve_similar node)
-      // จึงเจอตัวเองเป็นอันดับ 1 เสมอ ต้องกรองออกเอง
+      // relative_to: backend ไม่คืนตัวเอง และติดป้ายแถวที่เป็นคนเดียวกัน
+      // กรองซ้ำฝั่งนี้ไว้ด้วย เผื่อ backend รุ่นเก่าที่ยังไม่รู้จักพารามิเตอร์นี้
+      const found = await searchCandidates(query.trim(), 10, candidate_id);
       setHits(found.filter((h) => h.id !== candidate_id));
     } catch (e) {
       setSearchError(e instanceof Error ? e.message : "ค้นหาไม่สำเร็จ");
@@ -935,7 +936,11 @@ export default function CandidateDeepDive() {
                       {s.job_title ?? "—"}
                     </p>
                   </div>
-                  <SimilarityMeta fitScore={s.fit_score} distance={s.distance} />
+                  <SimilarityMeta
+                    fitScore={s.fit_score}
+                    distance={s.distance}
+                    samePerson={s.same_person}
+                  />
                 </li>
               ))}
             </ul>
@@ -1020,7 +1025,11 @@ export default function CandidateDeepDive() {
                         {h.job_title ?? "—"}
                       </p>
                     </div>
-                    <SimilarityMeta fitScore={h.fit_score} distance={h.distance} />
+                    <SimilarityMeta
+                      fitScore={h.fit_score}
+                      distance={h.distance}
+                      samePerson={h.same_person}
+                    />
                   </>
                 );
                 const cls =
@@ -1442,17 +1451,37 @@ function InfoRow({
 
 /** ป้ายตัวเลขของแถวผู้สมัครคล้ายกัน — ติดคำกำกับทั้งสองค่า
  *  (เดิมแสดง "70%" ลอย ๆ ไม่รู้ว่าเป็นคะแนนหรือความคล้าย)
- *  ใช้สูตรเดียวกันทั้งรายการที่บันทึกไว้และผลค้นสด ตัวเลขจะได้อ่านเทียบกันได้ */
+ *  ใช้สูตรเดียวกันทั้งรายการที่บันทึกไว้และผลค้นสด ตัวเลขจะได้อ่านเทียบกันได้
+ *  แถวที่เป็นคนเดียวกันโชว์ป้ายแทน % — % เทียบรายการทักษะกับเรซูเม่ทั้งฉบับ ไฟล์เดียวกัน
+ *  ยังได้แค่ ~78% ถ้าโชว์คู่กับคำว่า "คนเดียวกัน" จะดูขัดกันเอง */
+const SAME_PERSON_LABEL: Record<SamePerson, { text: string; hint: string }> = {
+  same_file: { text: "คนเดียวกัน · เคยสมัคร", hint: "เรซูเม่ไฟล์เดียวกัน" },
+  same_email: {
+    text: "น่าจะคนเดียวกัน · อีเมลตรงกัน",
+    hint: "คนละไฟล์ แต่อีเมลในเรซูเม่ตรงกัน",
+  },
+};
+
 function SimilarityMeta({
   fitScore,
   distance,
+  samePerson,
 }: {
   fitScore: number | null;
   distance: number | null;
+  samePerson?: SamePerson | null;
 }) {
+  const same = samePerson ? SAME_PERSON_LABEL[samePerson] : null;
   return (
     <div className="flex items-center gap-sm flex-none text-right">
-      {distance != null && (
+      {same ? (
+        <span
+          title={same.hint}
+          className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-primary-fixed text-on-primary-fixed-variant"
+        >
+          {same.text}
+        </span>
+      ) : distance != null && (
         <span className="text-label-md text-on-surface">
           คล้าย {Math.round((1 - distance) * 100)}%
         </span>

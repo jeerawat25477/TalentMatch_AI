@@ -412,6 +412,8 @@ class CandidateSearchHit(BaseModel):
     job_title: Optional[str] = None
     fit_score: Optional[int] = None
     distance: float = Field(..., description="cosine distance — ยิ่งน้อยยิ่งใกล้เคียง")
+    # คนเดียวกับผู้สมัครที่ค้นจาก (ส่ง relative_to มา) — ดู candidates.py::same_person
+    same_person: Optional[Literal["same_file", "same_email"]] = None
 
 
 class ResumeUploadAccepted(BaseModel):

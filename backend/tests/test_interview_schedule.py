@@ -218,7 +218,11 @@ class TestListInterviews:
     @pytest.fixture
     def scheduled_job(self):
         """ตำแหน่งที่มีนัดหลายแบบ — ไว้เช็คลำดับ ช่วงเวลา และกลุ่มที่ต้องถูกตัดออก."""
-        base = datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc)
+        # อิงเวลาปัจจุบัน ไม่ใช่วันตายตัว — เดิมเขียน 2026-10-01 แล้วเทสต์ "นัดในอนาคตยังไม่ค้าง"
+        # พังเองเมื่อถึงวันนั้น (เจอ 2026-10-06) ตัดเศษเวลาให้ลำดับ/ช่วงวันยังคาดเดาได้
+        base = (datetime.now(timezone.utc) + timedelta(days=30)).replace(
+            hour=3, minute=0, second=0, microsecond=0
+        )
         people = [
             # (ชื่อ, ขั้น, นัดเมื่อ, รับเข้าแล้ว)
             ("นัดวันที่สาม", "scheduled", base + timedelta(days=2), False),
@@ -283,7 +287,7 @@ class TestListInterviews:
         assert [r["full_name"] for r in rows] == ["นัดวันแรก"]
 
     def test_นัดในอนาคตยังไม่ค้าง(self, client, scheduled_job):
-        """fixture ตั้งนัดไว้ปี 2026-10 ซึ่งอยู่ข้างหน้า — ต้องไม่ขึ้นป้ายค้าง."""
+        """fixture ตั้งนัดไว้ 30 วันข้างหน้า — ต้องไม่ขึ้นป้ายค้าง."""
         job_id, _ = scheduled_job
         assert all(r["overdue"] is False for r in self._of_job(client, job_id))
 

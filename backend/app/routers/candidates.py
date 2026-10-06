@@ -386,20 +386,71 @@ def resume_candidate(candidate_id: str) -> dict:
     return {"candidate_id": candidate_id, "message": "เข้าคิวทำต่อจากจุดที่ค้างแล้ว"}
 
 
+def same_person(current: dict, other: dict) -> str | None:
+    """สองแถวนี้เป็นคนเดียวกันไหม — ฟังก์ชันบริสุทธิ์ ทดสอบได้ไม่ต้องมี DB.
+
+    รับ dict ที่มี `sha` (resume_sha256), `text_md5` (md5 ของข้อความเรซูเม่), `email`
+    - "same_file"  = ไฟล์เดียวกัน: sha ตรง หรือข้อความตรงทุกตัวอักษร (แถวเก่าก่อนมี sha เป็น NULL)
+    - "same_email" = คนละไฟล์แต่อีเมลในเรซูเม่ตรง (เช่น เรซูเม่ไทย/อังกฤษของคนเดียวกัน)
+      อีเมลมาจาก PDF ที่ใครจะพิมพ์อะไรก็ได้ หน้าเว็บจึงเขียนว่า "น่าจะ" — เป็นข้อมูลประกอบเท่านั้น
+
+    ทำไมต้องมี: % ความคล้ายเทียบ "รายการทักษะ" กับ "เรซูเม่ทั้งฉบับ" ไฟล์เดียวกันเป๊ะยังได้แค่ ~78%
+    HR จึงดูจากตัวเลขไม่ออกว่าแถวนั้นคือคนเดิมที่เคยสมัครมาแล้ว
+    """
+    if current.get("sha") and current.get("sha") == other.get("sha"):
+        return "same_file"
+    if current.get("text_md5") and current.get("text_md5") == other.get("text_md5"):
+        return "same_file"
+    a = (current.get("email") or "").strip().lower()
+    if a and a == (other.get("email") or "").strip().lower():
+        return "same_email"
+    return None
+
+
+def _mark_same_person(current_id: str, hits: list[dict]) -> list[dict]:
+    """เติม `same_person` ให้ทุกแถวใน hits เทียบกับ current_id — query เดียว ไม่เรียก AI.
+
+    คำนวณตอนเปิดหน้า ไม่ได้เก็บตอนวิเคราะห์ ผู้สมัครเดิมทุกคนจึงได้ป้ายโดยไม่ต้องรันใหม่
+    """
+    if not hits:
+        return hits
+    ids = [str(current_id)] + [str(h["id"]) for h in hits if h.get("id")]
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT id::text AS id, resume_sha256 AS sha,
+                      md5(NULLIF(raw_resume_text, '')) AS text_md5, email
+                 FROM candidates WHERE id::text = ANY(%s)""",
+            (ids,),
+        ).fetchall()
+    by_id = {r["id"]: r for r in rows}
+    current = by_id.get(str(current_id)) or {}
+    return [
+        {**h, "same_person": same_person(current, by_id.get(str(h.get("id"))) or {})}
+        for h in hits
+    ]
+
+
 @router.get("/candidates/search", response_model=list[CandidateSearchHit])
-def search_candidates(q: str, limit: int = 10) -> list[CandidateSearchHit]:
+def search_candidates(
+    q: str, limit: int = 10, relative_to: UUID | None = None
+) -> list[CandidateSearchHit]:
     """ค้นหาผู้สมัครเก่าด้วยความหมายของข้อความ (ไม่ใช่การจับคำ).
+
+    `relative_to` = ค้นจากหน้าผู้สมัครคนไหน — ไม่คืนตัวเขาเอง และติดป้ายแถวที่เป็นคนเดียวกัน
 
     ⚠️ ต้องประกาศ **ก่อน** /candidates/{candidate_id} ไม่งั้น FastAPI จะจับคู่เส้นทางนี้
     เป็น candidate_id = "search" แล้วตอบ 404
     """
     if not q.strip():
         raise HTTPException(status_code=400, detail="ต้องระบุคำค้นหา")
+    exclude = str(relative_to) if relative_to else None
     try:
-        hits = vector_search(q, limit=max(1, min(limit, 50)))
+        hits = vector_search(q, limit=max(1, min(limit, 50)), exclude_candidate_id=exclude)
     except Exception as exc:  # noqa: BLE001 — โควตา embedding หมด/คีย์ผิด ไม่ควรเป็น 500 เปล่า ๆ
         log.exception("ค้นหาเชิงความหมายล้มเหลว: %s", exc)
         raise HTTPException(status_code=503, detail="ระบบค้นหาไม่พร้อมใช้งานชั่วคราว") from exc
+    if exclude:
+        hits = _mark_same_person(exclude, hits)
     return [CandidateSearchHit(**h) for h in hits]
 
 
@@ -523,6 +574,8 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
     # โดยไม่ต้องแก้ audit_log ในผลประเมินซึ่งเป็นบันทึกของตอนคัดกรอง
     job_bias = bias_view(row.pop("jd_audit"), row.pop("bias_acknowledgements"))
     rescored_at = row.pop("rescored_at")
+    if row["similar_candidates"]:
+        row["similar_candidates"] = _mark_same_person(candidate_id, row["similar_candidates"])
     active = active_candidates()
     return CandidateDetail(
         **row,

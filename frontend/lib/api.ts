@@ -211,9 +211,11 @@ export const getCandidate = (candidateId: string) =>
   request<CandidateDetail>(`/api/v1/candidates/${candidateId}`);
 
 // ค้นหาผู้สมัครเก่าด้วยความหมาย (pgvector) — ไม่ใช่การจับคำ
-export const searchCandidates = (q: string, limit = 10) =>
+// relativeTo = ค้นจากหน้าผู้สมัครคนไหน: ไม่คืนตัวเขาเอง และติดป้ายแถวที่เป็นคนเดียวกัน
+export const searchCandidates = (q: string, limit = 10, relativeTo?: string) =>
   request<CandidateSearchHit[]>(
-    `/api/v1/candidates/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+    `/api/v1/candidates/search?q=${encodeURIComponent(q)}&limit=${limit}` +
+      (relativeTo ? `&relative_to=${encodeURIComponent(relativeTo)}` : ""),
   );
 
 // ส่งอีเมลจริงถึงผู้สมัคร (HR ยืนยันผู้รับ/หัวข้อ/เนื้อความเอง)

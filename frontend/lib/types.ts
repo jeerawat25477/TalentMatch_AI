@@ -235,7 +235,13 @@ export interface CandidateSearchHit {
   fit_score: number | null;
   /** cosine distance — ยิ่งน้อยยิ่งใกล้เคียง */
   distance: number;
+  /** มีค่าเฉพาะเมื่อค้นแบบ relative_to — ดู SamePerson */
+  same_person?: SamePerson | null;
 }
+
+/** แถวนี้เป็นคนเดียวกับผู้สมัครที่เปิดดูอยู่ไหม (backend: candidates.py::same_person)
+ *  same_file = ไฟล์เดียวกัน · same_email = คนละไฟล์แต่อีเมลในเรซูเม่ตรง (จึงเป็นแค่ "น่าจะ") */
+export type SamePerson = "same_file" | "same_email";
 
 export interface GapAnalysis {
   matched_required: string[];
@@ -402,6 +408,7 @@ export interface SimilarCandidate {
   job_title: string | null;
   fit_score: number | null;
   distance: number | null;
+  same_person?: SamePerson | null;
 }
 
 export interface CandidateDetail extends CandidateSummary {
