@@ -9,9 +9,10 @@ import { BANDS, scoreBand } from "@/lib/types";
 import type { PersonApplication, PersonSearchHit } from "@/lib/types";
 import Spinner from "@/components/spinner";
 
+// ตัวอย่างที่ทดสอบกับข้อมูลจริงแล้วเจอคนที่ถูกเป็นอันดับ 1 (2026-10-06, memory-bank/02_progress.md)
 const EXAMPLES = [
-  "นักออกแบบกราฟิกและงานดีไซน์เว็บ",
-  "วิศวกรหลังบ้านที่ทำฐานข้อมูลและ API",
+  "อยากได้คนออกแบบกราฟิก",
+  "คนที่ยิงแอดเฟซบุ๊กเป็น",
   "คนที่เคยทำงานกับ LLM",
 ];
 
@@ -53,7 +54,11 @@ export default function SearchPage() {
       <header>
         <h1 className="text-headline-lg text-on-surface">ค้นหาผู้สมัคร</h1>
         <p className="text-label-md text-on-surface-variant mt-1">
-          ค้นด้วยความหมาย ไม่ใช่การจับคำ — พิมพ์บรรยายคนที่ต้องการเป็นภาษาพูดได้เลย
+          พิมพ์บอกว่าอยากได้คนแบบไหน เช่น ทักษะหรืองานที่เคยทำ ระบบจะเรียงเรซูเม่ที่ใกล้เคียงที่สุดมาให้
+        </p>
+        {/* ระบบคืนคนที่ใกล้ที่สุดเสมอ แม้ไม่มีใครตรง (ค้น "นักบัญชี" ยังได้คนมา 58%) — บอกไว้ไม่ให้เกินจริง */}
+        <p className="text-label-sm text-outline mt-0.5">
+          ระบบแสดงคนที่ใกล้ที่สุดเสมอ แม้ไม่มีใครตรงจริง — เปิดดูเรซูเม่ก่อนตัดสินใจ
         </p>
       </header>
 
@@ -68,7 +73,7 @@ export default function SearchPage() {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="เช่น คนที่ถนัดงานข้อมูลและทำ dashboard ได้"
+            placeholder="เช่น คนที่ทำเว็บด้วย React ได้"
             className="input-glass flex-1"
             aria-label="คำค้นหา"
           />
@@ -102,7 +107,7 @@ export default function SearchPage() {
 
       {hits && hits.length === 0 && (
         <p className="text-outline text-label-md">
-          ไม่พบผู้สมัคร — คลังเวกเตอร์อาจยังว่าง ลองอัปโหลด resume ก่อน
+          ยังไม่มีเรซูเม่ให้ค้น — อัปโหลดเรซูเม่ในหน้าตำแหน่งงานก่อน
         </p>
       )}
 
