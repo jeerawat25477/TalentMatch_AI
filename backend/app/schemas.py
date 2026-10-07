@@ -416,6 +416,26 @@ class CandidateSearchHit(BaseModel):
     same_person: Optional[Literal["same_file", "same_email"]] = None
 
 
+class PersonApplication(BaseModel):
+    """ใบสมัครหนึ่งใบของคนในผลค้นหาแบบรวมคน."""
+    candidate_id: UUID
+    job_id: UUID
+    job_title: Optional[str] = None
+    fit_score: Optional[int] = None
+    applied_at: datetime
+
+
+class PersonSearchHit(BaseModel):
+    """ผลค้นหาแบบรวมคนเดียวกันเป็นแถวเดียว (ดู candidates.py::group_people)."""
+    full_name: str
+    email: Optional[str] = None
+    distance: float = Field(..., description="ค่าที่ใกล้ที่สุดในบรรดาไฟล์ของคนนี้")
+    # รวมด้วยอะไร: same_file = หลายใบสมัครจากไฟล์เดียว · same_email = หลายไฟล์ อีเมลตรงกัน
+    merged_by: Optional[Literal["same_file", "same_email"]] = None
+    file_count: int
+    applications: list[PersonApplication]  # เรียงจากล่าสุด
+
+
 class ResumeUploadAccepted(BaseModel):
     job_id: UUID
     accepted: int = Field(..., description="จำนวนไฟล์ที่รับเข้าและสร้างแถวผู้สมัครแล้ว")

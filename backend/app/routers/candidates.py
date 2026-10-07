@@ -29,6 +29,7 @@ from app.schemas import (
     CandidateDetail,
     CandidateSearchHit,
     CandidateSummary,
+    PersonSearchHit,
     ResumeUploadAccepted,
 )
 from app.vectors import search as vector_search
@@ -428,6 +429,102 @@ def _mark_same_person(current_id: str, hits: list[dict]) -> list[dict]:
         {**h, "same_person": same_person(current, by_id.get(str(h.get("id"))) or {})}
         for h in hits
     ]
+
+
+def group_people(rows: list[dict]) -> list[dict]:
+    """รวมใบสมัครของคนเดียวกันเป็นหนึ่งคน — ฟังก์ชันบริสุทธิ์ ทดสอบได้ไม่ต้องมี DB.
+
+    แต่ละแถว = ใบสมัครหนึ่งใบ (id, job_id, job_title, fit_score, created_at, full_name, email,
+    sha, text_md5, has_parsed, distance ซึ่งเป็น None ได้) · ใช้หลัก same_person เดียวกับป้าย
+    และต่อกันเป็นทอด: A ไฟล์ตรง B, B อีเมลตรง C → คนเดียวกันทั้งสาม
+    คืนเรียงตาม distance ที่ดีที่สุดของแต่ละคน ใบสมัครในแต่ละคนเรียงจากล่าสุด
+    """
+    parent = list(range(len(rows)))
+
+    def root(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(len(rows)):
+        for j in range(i + 1, len(rows)):
+            if same_person(rows[i], rows[j]):
+                parent[root(i)] = root(j)
+
+    groups: dict[int, list[dict]] = {}
+    for i, r in enumerate(rows):
+        groups.setdefault(root(i), []).append(r)
+
+    people = []
+    for apps in groups.values():
+        apps = sorted(apps, key=lambda r: r["created_at"], reverse=True)
+        distances = [r["distance"] for r in apps if r.get("distance") is not None]
+        if not distances:
+            continue
+        # ชื่อ/อีเมลจากใบล่าสุดที่ AI อ่านชื่อได้แล้ว (แถวที่ยังไม่วิเคราะห์ใช้ชื่อไฟล์แทนชื่อคน)
+        face = next((r for r in apps if r.get("has_parsed")), apps[0])
+        files = {r.get("sha") or r.get("text_md5") or r["id"] for r in apps}
+        merged_by = "same_email" if len(files) > 1 else ("same_file" if len(apps) > 1 else None)
+        people.append({
+            "full_name": face.get("full_name") or "—",
+            "email": face.get("email"),
+            "distance": min(distances),
+            "merged_by": merged_by,
+            "file_count": len(files),
+            "applications": [
+                {"candidate_id": r["id"], "job_id": r["job_id"], "job_title": r.get("job_title"),
+                 "fit_score": r.get("fit_score"), "applied_at": r["created_at"]}
+                for r in apps
+            ],
+        })
+    return sorted(people, key=lambda p: p["distance"])
+
+
+@router.get("/candidates/search/people", response_model=list[PersonSearchHit])
+def search_people(q: str, limit: int = 10) -> list[PersonSearchHit]:
+    """ค้นหาเชิงความหมายแบบรวมคนเดียวกันเป็นแถวเดียว — ใช้ในหน้า "ค้นหาผู้สมัคร".
+
+    ค้นเวกเตอร์เผื่อไว้ 30 ไฟล์ (คนเดียวมีหลายไฟล์จะกินที่) แล้วดึงใบสมัครทั้งหมดของคนเหล่านั้น
+    เพราะใบสมัครที่ใช้ไฟล์ซ้ำถูกยุบไปตั้งแต่ขั้นค้นเวกเตอร์ (DISTINCT ON เนื้อหา)
+    """
+    if not q.strip():
+        raise HTTPException(status_code=400, detail="ต้องระบุคำค้นหา")
+    try:
+        hits = vector_search(q, limit=30)
+    except Exception as exc:  # noqa: BLE001 — แบบเดียวกับ /candidates/search
+        log.exception("ค้นหาเชิงความหมายล้มเหลว: %s", exc)
+        raise HTTPException(status_code=503, detail="ระบบค้นหาไม่พร้อมใช้งานชั่วคราว") from exc
+    if not hits:
+        return []
+    hit_dist = {str(h["id"]): h["distance"] for h in hits}
+    with get_conn() as conn:
+        rows = conn.execute(
+            """WITH seed AS (
+                   SELECT resume_sha256 AS sha, md5(NULLIF(raw_resume_text, '')) AS tm,
+                          NULLIF(lower(trim(email)), '') AS em
+                     FROM candidates WHERE id::text = ANY(%s)
+               )
+               SELECT c.id::text AS id, c.job_id::text AS job_id, j.title AS job_title,
+                      e.fit_score, c.created_at, c.full_name, c.email,
+                      c.resume_sha256 AS sha, md5(NULLIF(c.raw_resume_text, '')) AS text_md5,
+                      (c.parsed_resume IS NOT NULL) AS has_parsed
+                 FROM candidates c
+                 JOIN jobs j ON j.id = c.job_id
+                 LEFT JOIN evaluations e ON e.candidate_id = c.id
+                WHERE c.resume_sha256 IN (SELECT sha FROM seed WHERE sha IS NOT NULL)
+                   OR md5(NULLIF(c.raw_resume_text, '')) IN (SELECT tm FROM seed WHERE tm IS NOT NULL)
+                   OR NULLIF(lower(trim(c.email)), '') IN (SELECT em FROM seed WHERE em IS NOT NULL)""",
+            (list(hit_dist),),
+        ).fetchall()
+    # ใบสมัครที่ไฟล์ซ้ำกับแถวที่ค้นเจอ ได้ระยะเดียวกัน (เวกเตอร์มาจากข้อความเดียวกัน)
+    rows = [dict(r) for r in rows]
+    dist_by_text = {
+        r["text_md5"]: hit_dist[r["id"]] for r in rows if r["id"] in hit_dist and r["text_md5"]
+    }
+    for r in rows:
+        r["distance"] = hit_dist.get(r["id"], dist_by_text.get(r["text_md5"]))
+    return [PersonSearchHit(**p) for p in group_people(rows)[: max(1, min(limit, 50))]]
 
 
 @router.get("/candidates/search", response_model=list[CandidateSearchHit])

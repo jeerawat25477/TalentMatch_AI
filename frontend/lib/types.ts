@@ -239,6 +239,27 @@ export interface CandidateSearchHit {
   same_person?: SamePerson | null;
 }
 
+/** ผลค้นหาแบบรวมคนเดียวกันเป็นแถวเดียว (backend: candidates.py::group_people) */
+export interface PersonApplication {
+  candidate_id: string;
+  job_id: string;
+  job_title: string | null;
+  fit_score: number | null;
+  applied_at: string;
+}
+
+export interface PersonSearchHit {
+  full_name: string;
+  email: string | null;
+  /** ค่าที่ใกล้ที่สุดในบรรดาไฟล์ของคนนี้ (cosine distance) */
+  distance: number;
+  /** null = ใบสมัครเดียว · same_file = หลายใบจากไฟล์เดียว · same_email = หลายไฟล์ อีเมลตรงกัน */
+  merged_by: SamePerson | null;
+  file_count: number;
+  /** เรียงจากล่าสุด */
+  applications: PersonApplication[];
+}
+
 /** แถวนี้เป็นคนเดียวกับผู้สมัครที่เปิดดูอยู่ไหม (backend: candidates.py::same_person)
  *  same_file = ไฟล์เดียวกัน · same_email = คนละไฟล์แต่อีเมลในเรซูเม่ตรง (จึงเป็นแค่ "น่าจะ") */
 export type SamePerson = "same_file" | "same_email";

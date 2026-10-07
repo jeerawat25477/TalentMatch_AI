@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import ScoreRing from "@/components/score-ring";
-import { searchCandidates } from "@/lib/api";
+import { searchPeople } from "@/lib/api";
 import { initials } from "@/lib/types";
-import type { CandidateSearchHit } from "@/lib/types";
+import type { PersonSearchHit } from "@/lib/types";
 import Spinner from "@/components/spinner";
 
 const EXAMPLES = [
@@ -16,7 +16,7 @@ const EXAMPLES = [
 
 export default function SearchPage() {
   const [q, setQ] = useState("");
-  const [hits, setHits] = useState<CandidateSearchHit[] | null>(null);
+  const [hits, setHits] = useState<PersonSearchHit[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,7 +28,7 @@ export default function SearchPage() {
     // เก็บคำค้นไว้บน URL เพื่อให้ refresh/แชร์ลิงก์แล้วได้ผลเดิม
     window.history.replaceState(null, "", `/search?q=${encodeURIComponent(query)}`);
     try {
-      setHits(await searchCandidates(query));
+      setHits(await searchPeople(query));
     } catch (e) {
       setError(e instanceof Error ? e.message : "ค้นหาไม่สำเร็จ");
       setHits(null);
@@ -107,7 +107,7 @@ export default function SearchPage() {
       {hits && hits.length > 0 && (
         <div className="space-y-sm">
           {hits.map((h, i) => (
-            <ResultRow key={h.id} hit={h} index={i} />
+            <ResultRow key={h.applications[0]?.candidate_id ?? i} hit={h} index={i} />
           ))}
         </div>
       )}
@@ -117,50 +117,83 @@ export default function SearchPage() {
 
 const AVATAR_COLORS = ["#0058be", "#2170e4", "#006c49", "#825100", "#427e9e", "#5a4fcf"];
 
-function ResultRow({ hit, index }: { hit: CandidateSearchHit; index: number }) {
+/** ใบสมัครที่โชว์เป็นชิปได้ก่อนพับเป็น "อีก N ใบ" — คนที่สมัครซ้ำบ่อย (เช่นตอนทดสอบระบบ) มีได้ 15 ใบ */
+const MAX_CHIPS = 4;
+
+/** หนึ่งแถว = หนึ่งคน (รวมใบสมัครจากไฟล์เดียวกันหรืออีเมลเดียวกันแล้ว)
+ *  ใบเดียว: หน้าตาเดิม (วงกลมคะแนน + เคยสมัคร) · หลายใบ: ชิปทีละใบสมัคร เพราะคะแนนต่างตำแหน่ง
+ *  เอามาโชว์ในวงกลมเดียวไม่ได้ว่าเป็นของตำแหน่งไหน */
+function ResultRow({ hit, index }: { hit: PersonSearchHit; index: number }) {
   // distance เป็น cosine (0 = เหมือนกันสนิท) — แปลงเป็น "ความใกล้เคียง" ให้อ่านง่าย
   const similarity = Math.round((1 - hit.distance) * 100);
+  const apps = hit.applications;
+  const latest = apps[0];
+  const single = apps.length === 1;
+  const titles = new Set(apps.map((a) => a.job_title ?? "—")).size;
+  const hidden = apps.length - MAX_CHIPS;
 
   return (
-    <div className="glass-card rounded-2xl px-md py-sm flex items-center gap-md flex-wrap">
-      <div
-        className="w-12 h-12 flex-none rounded-xl flex items-center justify-center text-body-md font-semibold text-white"
-        style={{ background: AVATAR_COLORS[index % AVATAR_COLORS.length] }}
-      >
-        {initials(hit.full_name)}
-      </div>
+    <div className="glass-card rounded-2xl px-md py-sm space-y-xs">
+      <div className="flex items-center gap-md flex-wrap">
+        <div
+          className="w-12 h-12 flex-none rounded-xl flex items-center justify-center text-body-md font-semibold text-white"
+          style={{ background: AVATAR_COLORS[index % AVATAR_COLORS.length] }}
+        >
+          {initials(hit.full_name)}
+        </div>
 
-      <div className="flex-[2] min-w-[180px]">
-        <div className="text-body-md font-semibold text-on-surface mb-0.5">
-          {hit.full_name}
-        </div>
-        <div className="text-label-md text-on-surface-variant">
-          {hit.email ?? "—"}
-        </div>
-        {hit.job_title && (
-          <div className="text-label-sm text-outline mt-0.5">
-            เคยสมัคร: {hit.job_title}
+        <div className="flex-[2] min-w-[180px]">
+          <div className="text-body-md font-semibold text-on-surface mb-0.5">
+            {hit.full_name}
           </div>
-        )}
-      </div>
+          <div className="text-label-md text-on-surface-variant">{hit.email ?? "—"}</div>
+          <div className="text-label-sm text-outline mt-0.5">
+            {single ? (
+              <>เคยสมัคร: {latest.job_title ?? "—"}</>
+            ) : (
+              <>
+                สมัคร {apps.length} ครั้ง · {titles} ตำแหน่ง
+                {hit.merged_by === "same_email" && (
+                  <> · รวมจาก {hit.file_count} ไฟล์ (อีเมลตรงกัน)</>
+                )}
+              </>
+            )}
+          </div>
+        </div>
 
-      <div className="flex-none text-center">
-        <div className="text-body-md font-semibold text-primary">{similarity}%</div>
-        <div className="text-label-sm text-outline">ความใกล้เคียง</div>
-      </div>
+        <div className="flex-none text-center">
+          <div className="text-body-md font-semibold text-primary">{similarity}%</div>
+          <div className="text-label-sm text-outline">ความใกล้เคียง</div>
+        </div>
 
-      <ScoreRing score={hit.fit_score} />
+        {single && <ScoreRing score={latest.fit_score} />}
 
-      {hit.job_id && (
         <div className="flex-none">
           <Link
-            href={`/jobs/${hit.job_id}/candidates/${hit.id}`}
+            href={`/jobs/${latest.job_id}/candidates/${latest.candidate_id}`}
             aria-label={`ดูรายละเอียดของ ${hit.full_name}`}
             className="btn-tonal"
           >
             ดูรายละเอียด
             <span className="material-symbols-outlined text-[18px]">chevron_right</span>
           </Link>
+        </div>
+      </div>
+
+      {!single && (
+        <div className="flex flex-wrap gap-xs pl-0 md:pl-[64px]">
+          {apps.slice(0, MAX_CHIPS).map((a) => (
+            <Link
+              key={a.candidate_id}
+              href={`/jobs/${a.job_id}/candidates/${a.candidate_id}`}
+              className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-glass/60 border border-outline/40 text-on-surface-variant hover:bg-glass transition-colors"
+            >
+              {a.job_title ?? "—"} · {a.fit_score ?? "–"}
+            </Link>
+          ))}
+          {hidden > 0 && (
+            <span className="text-[11px] px-2.5 py-1 text-outline">อีก {hidden} ใบ</span>
+          )}
         </div>
       )}
     </div>

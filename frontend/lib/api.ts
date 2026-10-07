@@ -10,6 +10,7 @@ import type {
   BulkDecisionResult,
   CandidateDetail,
   CandidateSearchHit,
+  PersonSearchHit,
   CandidateSummary,
   Decision,
   EmailIntakeActivityItem,
@@ -216,6 +217,12 @@ export const searchCandidates = (q: string, limit = 10, relativeTo?: string) =>
   request<CandidateSearchHit[]>(
     `/api/v1/candidates/search?q=${encodeURIComponent(q)}&limit=${limit}` +
       (relativeTo ? `&relative_to=${encodeURIComponent(relativeTo)}` : ""),
+  );
+
+// หน้า "ค้นหาผู้สมัคร" — แบบเดียวกับข้างบน แต่รวมคนเดียวกัน (ไฟล์หรืออีเมลตรง) เป็นแถวเดียว
+export const searchPeople = (q: string, limit = 10) =>
+  request<PersonSearchHit[]>(
+    `/api/v1/candidates/search/people?q=${encodeURIComponent(q)}&limit=${limit}`,
   );
 
 // ส่งอีเมลจริงถึงผู้สมัคร (HR ยืนยันผู้รับ/หัวข้อ/เนื้อความเอง)
