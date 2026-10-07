@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ScoreRing from "@/components/score-ring";
 import { searchPeople } from "@/lib/api";
-import { initials } from "@/lib/types";
-import type { PersonSearchHit } from "@/lib/types";
+import { BANDS, initials, scoreBand } from "@/lib/types";
+import type { PersonApplication, PersonSearchHit } from "@/lib/types";
 import Spinner from "@/components/spinner";
 
 const EXAMPLES = [
@@ -107,7 +107,7 @@ export default function SearchPage() {
       {hits && hits.length > 0 && (
         <div className="space-y-sm">
           {hits.map((h, i) => (
-            <ResultRow key={h.applications[0]?.candidate_id ?? i} hit={h} index={i} />
+            <ResultRow key={h.applications[0]?.candidate_id ?? i} hit={h} />
           ))}
         </div>
       )}
@@ -115,62 +115,99 @@ export default function SearchPage() {
   );
 }
 
-const AVATAR_COLORS = ["#0058be", "#2170e4", "#006c49", "#825100", "#427e9e", "#5a4fcf"];
-
-/** ใบสมัครที่โชว์เป็นชิปได้ก่อนพับเป็น "อีก N ใบ" — คนที่สมัครซ้ำบ่อย (เช่นตอนทดสอบระบบ) มีได้ 15 ใบ */
+/** ตำแหน่งที่โชว์ก่อนพับเป็น "+ อีก N ตำแหน่ง" */
 const MAX_CHIPS = 4;
 
+/** ใบสมัครของคนหนึ่งคน รวมตามชื่อตำแหน่ง — ตำแหน่งชื่อซ้ำ (สร้างซ้ำตอนทดสอบ) ขึ้นเป็นชิปเดียว ×N
+ *  ตัวแทนของกลุ่ม = ใบที่คะแนนสูงสุด (เท่ากันเอาใบล่าสุด เพราะ apps เรียงล่าสุดก่อนแล้ว) */
+interface TitleGroup {
+  title: string;
+  count: number;
+  best: PersonApplication;
+}
+
+function groupByTitle(apps: PersonApplication[]): TitleGroup[] {
+  const map = new Map<string, TitleGroup>();
+  for (const a of apps) {
+    const title = a.job_title ?? "—";
+    const g = map.get(title);
+    if (!g) {
+      map.set(title, { title, count: 1, best: a });
+    } else {
+      g.count += 1;
+      if ((a.fit_score ?? -1) > (g.best.fit_score ?? -1)) g.best = a;
+    }
+  }
+  // คะแนนสูงก่อน — HR อยากเห็นตำแหน่งที่คนนี้เหมาะที่สุดก่อน
+  return [...map.values()].sort((x, y) => (y.best.fit_score ?? -1) - (x.best.fit_score ?? -1));
+}
+
 /** หนึ่งแถว = หนึ่งคน (รวมใบสมัครจากไฟล์เดียวกันหรืออีเมลเดียวกันแล้ว)
- *  ใบเดียว: หน้าตาเดิม (วงกลมคะแนน + เคยสมัคร) · หลายใบ: ชิปทีละใบสมัคร เพราะคะแนนต่างตำแหน่ง
- *  เอามาโชว์ในวงกลมเดียวไม่ได้ว่าเป็นของตำแหน่งไหน */
-function ResultRow({ hit, index }: { hit: PersonSearchHit; index: number }) {
+ *  ใบเดียว: วงกลมคะแนน + "เคยสมัคร" · หลายใบ: วงกลมคะแนนสูงสุด + ชิปรายตำแหน่งพร้อมจุดสีแบนด์ */
+function ResultRow({ hit }: { hit: PersonSearchHit }) {
   // distance เป็น cosine (0 = เหมือนกันสนิท) — แปลงเป็น "ความใกล้เคียง" ให้อ่านง่าย
-  const similarity = Math.round((1 - hit.distance) * 100);
+  const similarity = Math.max(0, Math.min(100, Math.round((1 - hit.distance) * 100)));
   const apps = hit.applications;
-  const latest = apps[0];
   const single = apps.length === 1;
-  const titles = new Set(apps.map((a) => a.job_title ?? "—")).size;
-  const hidden = apps.length - MAX_CHIPS;
+  const groups = useMemo(() => groupByTitle(apps), [apps]);
+  const [expanded, setExpanded] = useState(false);
+  const top = single ? apps[0] : groups[0].best;
+  const shown = expanded ? groups : groups.slice(0, MAX_CHIPS);
+  const hidden = groups.length - MAX_CHIPS;
 
   return (
-    <div className="glass-card rounded-2xl px-md py-sm space-y-xs">
+    <div className="glass-card rounded-2xl px-md py-sm">
       <div className="flex items-center gap-md flex-wrap">
-        <div
-          className="w-12 h-12 flex-none rounded-xl flex items-center justify-center text-body-md font-semibold text-white"
-          style={{ background: AVATAR_COLORS[index % AVATAR_COLORS.length] }}
-        >
+        <div className="w-12 h-12 flex-none rounded-xl flex items-center justify-center text-body-md font-semibold bg-primary-container text-on-primary-container">
           {initials(hit.full_name)}
         </div>
 
-        <div className="flex-[2] min-w-[180px]">
-          <div className="text-body-md font-semibold text-on-surface mb-0.5">
-            {hit.full_name}
-          </div>
+        <div className="flex-[2] min-w-[180px] space-y-0.5">
+          <div className="text-body-md font-semibold text-on-surface">{hit.full_name}</div>
           <div className="text-label-md text-on-surface-variant">{hit.email ?? "—"}</div>
-          <div className="text-label-sm text-outline mt-0.5">
-            {single ? (
-              <>เคยสมัคร: {latest.job_title ?? "—"}</>
-            ) : (
-              <>
-                สมัคร {apps.length} ครั้ง · {titles} ตำแหน่ง
-                {hit.merged_by === "same_email" && (
-                  <> · รวมจาก {hit.file_count} ไฟล์ (อีเมลตรงกัน)</>
-                )}
-              </>
+          <div className="flex items-center gap-xs flex-wrap text-label-sm text-outline">
+            <span className="inline-flex items-center gap-1">
+              <span className="material-symbols-outlined text-[16px]">description</span>
+              {single ? (
+                <>เคยสมัคร: {apps[0].job_title ?? "—"}</>
+              ) : (
+                <>
+                  สมัคร {apps.length} ครั้ง · {groups.length} ตำแหน่ง
+                </>
+              )}
+            </span>
+            {hit.merged_by === "same_email" && (
+              <span
+                title="คนละไฟล์ แต่อีเมลในเรซูเม่ตรงกัน จึงรวมเป็นคนเดียวกัน"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed-variant font-semibold"
+              >
+                <span className="material-symbols-outlined text-[14px]">link</span>
+                รวม {hit.file_count} ไฟล์ · อีเมลตรงกัน
+              </span>
             )}
           </div>
         </div>
 
-        <div className="flex-none text-center">
+        <div className="flex-none w-[88px] text-center" title="ความหมายของคำค้นใกล้กับเรซูเม่แค่ไหน">
           <div className="text-body-md font-semibold text-primary">{similarity}%</div>
+          <div className="h-1 rounded-full bg-outline-variant/40 overflow-hidden my-1">
+            <div className="h-full rounded-full bg-primary" style={{ width: `${similarity}%` }} />
+          </div>
           <div className="text-label-sm text-outline">ความใกล้เคียง</div>
         </div>
 
-        {single && <ScoreRing score={latest.fit_score} />}
+        {single ? (
+          <ScoreRing score={top.fit_score} />
+        ) : (
+          <div className="flex flex-col items-center gap-base min-w-[84px]">
+            <ScoreRing score={top.fit_score} showLabel={false} />
+            <div className="text-[10px] font-semibold text-outline">คะแนนสูงสุด</div>
+          </div>
+        )}
 
         <div className="flex-none">
           <Link
-            href={`/jobs/${latest.job_id}/candidates/${latest.candidate_id}`}
+            href={`/jobs/${top.job_id}/candidates/${top.candidate_id}`}
             aria-label={`ดูรายละเอียดของ ${hit.full_name}`}
             className="btn-tonal"
           >
@@ -181,18 +218,33 @@ function ResultRow({ hit, index }: { hit: PersonSearchHit; index: number }) {
       </div>
 
       {!single && (
-        <div className="flex flex-wrap gap-xs pl-0 md:pl-[64px]">
-          {apps.slice(0, MAX_CHIPS).map((a) => (
-            <Link
-              key={a.candidate_id}
-              href={`/jobs/${a.job_id}/candidates/${a.candidate_id}`}
-              className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-glass/60 border border-outline/40 text-on-surface-variant hover:bg-glass transition-colors"
-            >
-              {a.job_title ?? "—"} · {a.fit_score ?? "–"}
-            </Link>
-          ))}
+        <div className="mt-sm pt-sm border-t border-outline-variant/40 flex flex-wrap items-center gap-xs md:pl-[64px]">
+          {shown.map((g) => {
+            const band = BANDS[scoreBand(g.best.fit_score)];
+            return (
+              <Link
+                key={g.title}
+                href={`/jobs/${g.best.job_id}/candidates/${g.best.candidate_id}`}
+                title={g.count > 1 ? `สมัคร ${g.count} ครั้ง — เปิดใบที่คะแนนสูงสุด` : undefined}
+                className="inline-flex items-center gap-1.5 text-[12px] font-semibold pl-2.5 pr-2 py-1 rounded-full bg-glass/60 border border-outline/30 text-on-surface-variant hover:bg-glass hover:text-on-surface transition-colors"
+              >
+                {g.title}
+                {g.count > 1 && <span className="text-outline font-normal">×{g.count}</span>}
+                <span className="inline-flex items-center gap-1 pl-1.5 ml-0.5 border-l border-outline/30">
+                  <span className="w-2 h-2 rounded-full" style={{ background: band.color }} />
+                  <span style={{ color: band.color }}>{g.best.fit_score ?? "–"}</span>
+                </span>
+              </Link>
+            );
+          })}
           {hidden > 0 && (
-            <span className="text-[11px] px-2.5 py-1 text-outline">อีก {hidden} ใบ</span>
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="text-[12px] font-semibold px-2.5 py-1 rounded-full text-primary hover:bg-primary-fixed/60 transition-colors"
+            >
+              {expanded ? "ย่อ" : `+ อีก ${hidden} ตำแหน่ง`}
+            </button>
           )}
         </div>
       )}
