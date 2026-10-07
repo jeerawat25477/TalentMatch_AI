@@ -51,3 +51,41 @@ def test_message_tells_what_to_do():
     assert "จำเป็นกับงานนี้" in ackable
     remove_only = biased_skill_message([{"skill": "X", "side": "required", "phrase": None}])
     assert "ลบออก" in remove_only and "จำเป็นกับงานนี้" not in remove_only
+
+
+# ---------- ถอนการยืนยัน + ป้าย "นับเป็นทักษะในคะแนน" ----------
+from app.bias_ack import bias_view, scored_phrases, withdraw_blocked  # noqa: E402
+
+ACK = {"phrase": PHRASE, "reason": "ประสานงานต่างประเทศทุกวัน", "by": "a", "at": "2026-10-07T00:00:00+00:00"}
+
+
+def test_scored_phrases_only_when_skill_in_criteria():
+    assert scored_phrases(["Native English speaker"], [], [PHRASE, "เพศหญิง"]) == {PHRASE}
+    assert scored_phrases(["English"], [], [PHRASE]) == set()
+
+
+def test_withdraw_blocked_while_skill_still_scored():
+    blocked = withdraw_blocked(["Native English speaker"], [], [PHRASE], [ACK], [])
+    assert [b["skill"] for b in blocked] == ["Native English speaker"]
+
+
+def test_withdraw_allowed_after_skill_removed():
+    assert withdraw_blocked(["Python"], [], [PHRASE], [ACK], []) == []
+
+
+def test_preexisting_problem_does_not_block_other_acks():
+    # ตำแหน่งเก่ามีทักษะอคติค้างอยู่ก่อนแล้ว — ยืนยันถ้อยคำอื่นต้องยังทำได้ (ไม่ใช่สิ่งที่การถอนครั้งนี้ทำ)
+    other = {"phrase": "เพศหญิง", "reason": "ตรวจค้นผู้โดยสารหญิง", "by": "a", "at": ACK["at"]}
+    assert withdraw_blocked(["Native English speaker"], [], [PHRASE, "เพศหญิง"], [], [other]) == []
+
+
+def test_view_marks_scored_ack():
+    view = bias_view({"jd_criteria": [PHRASE, "เพศหญิง"]}, [ACK],
+                     {"required_skills": ["Native English speaker"], "preferred_skills": []})
+    assert view["acknowledged"][0]["scored"] is True
+    assert view["pending"] == ["เพศหญิง"]
+
+
+def test_view_without_criteria_marks_nothing():
+    view = bias_view({"jd_criteria": [PHRASE]}, [ACK])
+    assert view["acknowledged"][0]["scored"] is False

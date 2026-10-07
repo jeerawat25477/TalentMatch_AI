@@ -569,3 +569,14 @@ class TestBiasedSkillOnEdit:
         jid, _ = job
         self._flag(jid, acks=[{"phrase": self.PHRASE, "reason": "งานแปลเอกสาร", "by": "a", "at": "2026-10-07T00:00:00+00:00"}])
         assert client.put(f"/api/v1/jobs/{jid}/criteria", json=self.BIASED).status_code == 200
+
+    def test_withdraw_refused_while_skill_in_criteria(self, client, job):
+        jid, _ = job
+        ack = {"phrase": self.PHRASE, "reason": "งานแปลเอกสาร", "by": "a", "at": "2026-10-07T00:00:00+00:00"}
+        self._flag(jid, acks=[ack])
+        assert client.put(f"/api/v1/jobs/{jid}/criteria", json=self.BIASED).status_code == 200
+        r = client.put(f"/api/v1/jobs/{jid}/bias-acknowledgements", json={"acks": []})
+        assert r.status_code == 409 and r.json()["detail"]["code"] == "biased_skill"
+        # ลบทักษะออกก่อน แล้วถอนได้
+        assert client.put(f"/api/v1/jobs/{jid}/criteria", json=FIXED).status_code == 200
+        assert client.put(f"/api/v1/jobs/{jid}/bias-acknowledgements", json={"acks": []}).status_code == 200

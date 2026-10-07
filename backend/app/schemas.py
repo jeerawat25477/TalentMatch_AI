@@ -30,6 +30,8 @@ class BiasAck(BaseModel):
     reason: str
     by: str
     at: datetime
+    # คำนวณตอนแสดง ไม่ได้เก็บ: ถ้อยคำนี้เป็นทักษะในเกณฑ์คะแนนด้วย (ยืนยันแล้วจึงถูกนับคะแนน)
+    scored: bool = False
 
 
 class BiasAcksUpdate(BaseModel):
@@ -73,7 +75,7 @@ class JobOut(BaseModel):
         """ผลตรวจอคติของประกาศ + ถ้อยคำที่ HR ยืนยันแล้ว · None = ตำแหน่งยังไม่มีผลตรวจ."""
         from app.bias_ack import bias_view
 
-        view = bias_view(self.jd_audit, self.bias_acknowledgements)
+        view = bias_view(self.jd_audit, self.bias_acknowledgements, self.parsed_criteria)
         return JobBiasView(**view) if view else None
 
     @computed_field  # type: ignore[prop-decorator]

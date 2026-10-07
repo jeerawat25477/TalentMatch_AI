@@ -7,7 +7,9 @@
 - **ทีละถ้อยคำ** — "เพศหญิง" จำเป็นไม่ได้แปลว่า "อายุไม่เกิน 30" ในประกาศเดียวกันจำเป็นด้วย
 - **มีเหตุผล** อย่างน้อย MIN_REASON_CHARS ตัวอักษร กันการกดผ่านด้วย "ok"
 - **รู้ว่าใคร เมื่อไร** — ชื่อมาจาก token ที่ล็อกอิน ไม่ใช่ค่าที่หน้าเว็บส่งมา
-- **ไม่แตะคะแนน** — ถ้อยคำพวกนี้ไม่เคยอยู่ในคะแนนอยู่แล้ว การยืนยันเปลี่ยนแค่สิ่งที่ HR เห็น
+- **ไม่แตะคะแนน** — ถ้อยคำพวกนี้ไม่อยู่ในคะแนนอยู่แล้ว การยืนยันเปลี่ยนแค่สิ่งที่ HR เห็น
+  ยกเว้นถ้อยคำที่ HR ใส่เป็นทักษะในเกณฑ์ด้วย: ต้องยืนยันก่อนถึงบันทึกเกณฑ์ได้ (biased_skills)
+  และถอนไม่ได้ตราบที่ทักษะนั้นยังอยู่ในเกณฑ์ — การ์ดโชว์ป้าย "นับเป็นทักษะในคะแนน" (scored)
 
 ฟังก์ชันบริสุทธิ์ทั้งไฟล์ ทดสอบได้โดยไม่ต่อ DB
 """
@@ -65,7 +67,11 @@ def validate_acks(
     return out
 
 
-def bias_view(jd_audit: dict[str, Any] | None, acks: list[dict[str, Any]] | None) -> dict[str, Any] | None:
+def bias_view(
+    jd_audit: dict[str, Any] | None,
+    acks: list[dict[str, Any]] | None,
+    skill_criteria: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     """ผลตรวจของตำแหน่งแยกเป็น "ยังเตือนอยู่" กับ "HR ยืนยันแล้ว" — ใช้ทั้งหน้าตำแหน่งและหน้าผู้สมัคร.
 
     None = ตำแหน่งยังไม่มีผลตรวจ (หน้าผู้สมัครถอยไปใช้ audit_log ของผลประเมินเดิม)
@@ -77,7 +83,12 @@ def bias_view(jd_audit: dict[str, Any] | None, acks: list[dict[str, Any]] | None
     criteria = list(jd_audit.get("jd_criteria") or [])
     by_phrase = {a["phrase"]: a for a in (acks or []) if a.get("phrase") in criteria}
     pending = [c for c in criteria if c not in by_phrase]
-    acknowledged = [by_phrase[c] for c in criteria if c in by_phrase]
+    scored = scored_phrases(
+        (skill_criteria or {}).get("required_skills") or [],
+        (skill_criteria or {}).get("preferred_skills") or [],
+        criteria,
+    )
+    acknowledged = [{**by_phrase[c], "scored": c in scored} for c in criteria if c in by_phrase]
     skills = list(jd_audit.get("biased_required_skills") or []) + list(
         jd_audit.get("biased_preferred_skills") or []
     )
@@ -157,6 +168,30 @@ def biased_skills(
                 continue
             out.append({"skill": skill, "side": side, "phrase": phrase})
     return out
+
+
+def scored_phrases(required: list[str], preferred: list[str], jd_criteria: list[str] | None) -> set[str]:
+    """ถ้อยคำที่ถูกเตือนซึ่งตอนนี้เป็นทักษะในเกณฑ์คะแนนด้วย (ไม่สนว่ายืนยันหรือยัง)."""
+    options = [o for s in (*(required or []), *(preferred or [])) for o in (alternatives(s) or [s])]
+    return {c for c in (jd_criteria or []) if c and any(_same_phrase(o, c) for o in options)}
+
+
+def withdraw_blocked(
+    required: list[str],
+    preferred: list[str],
+    jd_criteria: list[str] | None,
+    previous: list[dict[str, Any]] | None,
+    new: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """ทักษะที่จะ "หลุดการยืนยัน" ถ้ารับการยืนยันชุดใหม่ — ถอนถ้อยคำที่ยังเป็นทักษะในเกณฑ์ไม่ได้
+    เพราะทักษะนั้นจะถูกนับคะแนนต่อโดยไม่มีใครยืนยัน (ช่องโหว่เดิมกลับมาทางประตูหลัง)
+    คืนเฉพาะที่เพิ่งเกิดจากการถอนครั้งนี้ ของที่ค้างอยู่ก่อนแล้ว (ตำแหน่งเก่า) ไม่ขวางการยืนยันข้ออื่น
+    """
+    before = {(f["skill"], f["phrase"]) for f in biased_skills(required, preferred, jd_criteria, previous)}
+    return [
+        f for f in biased_skills(required, preferred, jd_criteria, new)
+        if (f["skill"], f["phrase"]) not in before
+    ]
 
 
 def biased_skill_message(found: list[dict[str, Any]]) -> str:

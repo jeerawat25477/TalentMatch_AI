@@ -658,7 +658,7 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
                        AS offer,
                    hs.stage AS stage_row, hs.moved_at AS stage_moved_at,
                    hs.scheduled_at, hs.location,
-                   j.jd_audit, j.bias_acknowledgements
+                   j.jd_audit, j.bias_acknowledgements, j.parsed_criteria AS job_criteria
             FROM candidates c
             JOIN jobs j ON j.id = c.job_id
             LEFT JOIN evaluations e ON e.candidate_id = c.id
@@ -682,7 +682,9 @@ def get_candidate(candidate_id: str) -> CandidateDetail:
     stage_row = row.pop("stage_row")
     # ผลตรวจอคติของตำแหน่ง อ่านสดทุกครั้ง — HR ยืนยันถ้อยคำทีหลัง ผู้สมัครเก่าก็เห็นทันที
     # โดยไม่ต้องแก้ audit_log ในผลประเมินซึ่งเป็นบันทึกของตอนคัดกรอง
-    job_bias = bias_view(row.pop("jd_audit"), row.pop("bias_acknowledgements"))
+    job_bias = bias_view(
+        row.pop("jd_audit"), row.pop("bias_acknowledgements"), row.pop("job_criteria")
+    )
     rescored_at = row.pop("rescored_at")
     if row["similar_candidates"]:
         row["similar_candidates"] = _mark_same_person(candidate_id, row["similar_candidates"])

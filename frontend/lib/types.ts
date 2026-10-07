@@ -50,6 +50,8 @@ export interface BiasAck {
   reason: string;
   by: string;
   at: string;
+  /** ถ้อยคำนี้เป็นทักษะในเกณฑ์คะแนนด้วย — ยืนยันแล้วจึงถูกนับคะแนน และถอนไม่ได้จนกว่าจะลบทักษะ */
+  scored?: boolean;
 }
 
 /** มิเรอร์ JobBiasView ใน backend/app/schemas.py (สร้างด้วย bias_ack.bias_view) */

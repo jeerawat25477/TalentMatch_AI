@@ -2,14 +2,15 @@
 
 import { useState } from "react";
 import Spinner from "@/components/spinner";
-import { updateBiasAcks } from "@/lib/api";
+import { biasedSkillErrorOf, updateBiasAcks } from "@/lib/api";
 import { BIAS_ACK_MIN_REASON, type BiasAck, type BiasAckIn, type Job, type JobBiasView } from "@/lib/types";
 
 /**
  * HR ยืนยันว่าถ้อยคำที่ตัวตรวจอคติเตือน "จำเป็นกับงานนี้จริง" (เช่น เพศหญิงสำหรับงานตรวจค้นตัว)
  *
- * ยืนยันทีละถ้อยคำ ต้องมีเหตุผล และบันทึกว่าใคร/เมื่อไร (ฝั่ง backend) · ไม่มีผลกับคะแนน —
+ * ยืนยันทีละถ้อยคำ ต้องมีเหตุผล และบันทึกว่าใคร/เมื่อไร (ฝั่ง backend) · ปกติไม่มีผลกับคะแนน —
  * เปลี่ยนแค่สิ่งที่ HR เห็นในหน้าผู้สมัคร ไม่ให้คำเตือนเรื่องที่ตัดสินแล้วขึ้นซ้ำทุกคนจนคนเลิกอ่าน
+ * ยกเว้นถ้อยคำที่ HR ใส่เป็นทักษะในเกณฑ์ด้วย (scored): ยืนยันแล้วจึงนับคะแนน และถอนไม่ได้จนกว่าจะลบทักษะ
  */
 
 /** phrase → เหตุผล (มีคีย์ = ยืนยันแล้ว) */
@@ -72,6 +73,14 @@ export function BiasAckEditor({
                     </span>
                     HR ยืนยันว่าจำเป็น
                   </span>
+                  {m?.scored && (
+                    <span
+                      title="ถ้อยคำนี้ใส่ไว้เป็นทักษะในเกณฑ์ด้วย — ถอนได้หลังลบทักษะออกจากเกณฑ์"
+                      className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed-variant"
+                    >
+                      นับเป็นทักษะในคะแนน
+                    </span>
+                  )}
                   <button
                     type="button"
                     onClick={() => withdraw(p)}
@@ -120,7 +129,7 @@ export function BiasAckEditor({
                 />
                 <div className="flex items-center justify-end gap-xs">
                   <span className="text-label-sm text-outline me-auto">
-                    อย่างน้อย {BIAS_ACK_MIN_REASON} ตัวอักษร · ไม่มีผลกับคะแนน
+                    อย่างน้อย {BIAS_ACK_MIN_REASON} ตัวอักษร
                   </span>
                   <button
                     type="button"
@@ -167,7 +176,8 @@ export function JobBiasCard({ job, onSaved }: { job: Job; onSaved: (j: Job) => v
     try {
       onSaved(await updateBiasAcks(job.id, toAckIn(value)));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ");
+      // 409 ถอนถ้อยคำที่ยังเป็นทักษะในเกณฑ์ — แสดงข้อความของ backend ตรง ๆ ไม่มี "409:" นำหน้า
+      setError(biasedSkillErrorOf(e)?.message ?? (e instanceof Error ? e.message : "บันทึกไม่สำเร็จ"));
     } finally {
       setBusy(false);
     }
@@ -184,7 +194,7 @@ export function JobBiasCard({ job, onSaved }: { job: Job; onSaved: (j: Job) => v
         </h3>
         <p className="text-label-sm text-on-surface-variant">
           ถ้างานนี้ต้องการจริง กด “จำเป็นกับงานนี้” พร้อมเหตุผล — คำเตือนในหน้าผู้สมัครจะเปลี่ยนเป็นบันทึกการยืนยันแทน
-          ไม่มีผลกับคะแนน
+          · ถ้อยคำในประกาศไม่ได้ใช้คิดคะแนน ยกเว้นข้อที่ใส่เป็นทักษะในเกณฑ์ด้วย
         </p>
       </div>
 
@@ -274,7 +284,8 @@ export function CandidateBiasBox({ bias }: { bias: JobBiasView }) {
         <ul className="border-t border-outline-variant/30 pt-xs space-y-1">
           {bias.acknowledged.map((a) => (
             <li key={a.phrase} className="text-label-sm text-on-surface-variant">
-              <span className="text-on-surface font-semibold">“{a.phrase}”</span> — HR ยืนยันว่าจำเป็น:{" "}
+              <span className="text-on-surface font-semibold">“{a.phrase}”</span> — HR ยืนยันว่าจำเป็น
+              {a.scored && " (นับเป็นทักษะในคะแนน)"}:{" "}
               {a.reason} <span className="text-outline">({a.by}, {fmtDate(a.at)})</span>
             </li>
           ))}

@@ -18,7 +18,7 @@ from app.agents.nodes.jd_reviewer import review_jd
 from app.agents.runner import active_candidates
 from app.agents.models import JDReview
 from app.auth import get_current_user
-from app.bias_ack import AckError, biased_skill_message, biased_skills, validate_acks
+from app.bias_ack import AckError, biased_skill_message, biased_skills, validate_acks, withdraw_blocked
 from app.rate_limit import hit_and_check, retry_after_sec
 from app.database import get_checkpointer, get_conn
 from app.criteria_edit import criteria_warnings, normalize_criteria, rescore_job
@@ -675,7 +675,8 @@ def update_bias_acknowledgements(
     """
     with get_conn() as conn:
         job = conn.execute(
-            "SELECT jd_audit, bias_acknowledgements FROM jobs WHERE id = %s FOR UPDATE", (job_id,)
+            "SELECT jd_audit, bias_acknowledgements, parsed_criteria FROM jobs WHERE id = %s FOR UPDATE",
+            (job_id,),
         ).fetchone()
         if job is None:
             raise HTTPException(status_code=404, detail="ไม่พบตำแหน่งงานนี้")
@@ -683,6 +684,22 @@ def update_bias_acknowledgements(
             [a.model_dump() for a in payload.acks], job["jd_audit"], user,
             previous=job["bias_acknowledgements"] or [],
         )
+        crit = job["parsed_criteria"] or {}
+        blocked = withdraw_blocked(
+            crit.get("required_skills") or [], crit.get("preferred_skills") or [],
+            (job["jd_audit"] or {}).get("jd_criteria"), job["bias_acknowledgements"], acks,
+        )
+        if blocked:
+            names = ", ".join(f'"{b["skill"]}"' for b in blocked)
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "biased_skill",
+                    "message": f"ถอนไม่ได้: {names} ยังเป็นทักษะในเกณฑ์คะแนน — "
+                               "ลบออกจากเกณฑ์ก่อน (ปุ่มแก้เกณฑ์) แล้วค่อยถอน",
+                    "skills": blocked,
+                },
+            )
         row = conn.execute(
             f"UPDATE jobs SET bias_acknowledgements = %s WHERE id = %s RETURNING {_JOB_COLS}",
             (Json(acks), job_id),
