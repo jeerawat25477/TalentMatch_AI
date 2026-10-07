@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import ScoreRing from "@/components/score-ring";
 import CandidateAvatar, { useScreeningPhotos } from "@/components/candidate-avatar";
 import { searchPeople } from "@/lib/api";
 import { BANDS, scoreBand } from "@/lib/types";
@@ -150,7 +149,8 @@ function groupByTitle(apps: PersonApplication[]): TitleGroup[] {
 }
 
 /** หนึ่งแถว = หนึ่งคน (รวมใบสมัครจากไฟล์เดียวกันหรืออีเมลเดียวกันแล้ว)
- *  ใบเดียว: วงกลมคะแนน + "เคยสมัคร" · หลายใบ: วงกลมคะแนนสูงสุด + ชิปรายตำแหน่งพร้อมจุดสีแบนด์ */
+ *  ตัวเลขเด่นฝั่งขวามีตัวเดียวคือ % ใกล้กับคำค้น — เคยมีวงกลม "คะแนนสูงสุด" วางคู่กัน แล้ว HR อ่าน
+ *  "100" เป็นความตรงกับคำค้น ทั้งที่เป็นคะแนนของตำแหน่งเก่า คะแนนจึงอยู่ในชิปที่มีชื่อตำแหน่งกำกับเท่านั้น */
 function ResultRow({ hit, showPhoto }: { hit: PersonSearchHit; showPhoto: boolean }) {
   // distance เป็น cosine (0 = เหมือนกันสนิท) — แปลงเป็น "ความใกล้เคียง" ให้อ่านง่าย
   const similarity = Math.max(0, Math.min(100, Math.round((1 - hit.distance) * 100)));
@@ -180,13 +180,7 @@ function ResultRow({ hit, showPhoto }: { hit: PersonSearchHit; showPhoto: boolea
           <div className="flex items-center gap-xs flex-wrap text-label-sm text-outline">
             <span className="inline-flex items-center gap-1">
               <span className="material-symbols-outlined text-[16px]">description</span>
-              {single ? (
-                <>เคยสมัคร: {apps[0].job_title ?? "—"}</>
-              ) : (
-                <>
-                  สมัคร {apps.length} ครั้ง · {groups.length} ตำแหน่ง
-                </>
-              )}
+              {single ? "สมัคร 1 ครั้ง" : <>สมัคร {apps.length} ครั้ง · {groups.length} ตำแหน่ง</>}
             </span>
             {hit.merged_by === "same_email" && (
               <span
@@ -205,17 +199,8 @@ function ResultRow({ hit, showPhoto }: { hit: PersonSearchHit; showPhoto: boolea
           <div className="h-1 rounded-full bg-outline-variant/40 overflow-hidden my-1">
             <div className="h-full rounded-full bg-primary" style={{ width: `${similarity}%` }} />
           </div>
-          <div className="text-label-sm text-outline">ความใกล้เคียง</div>
+          <div className="text-label-sm text-outline">ใกล้กับคำค้น</div>
         </div>
-
-        {single ? (
-          <ScoreRing score={top.fit_score} />
-        ) : (
-          <div className="flex flex-col items-center gap-base min-w-[84px]">
-            <ScoreRing score={top.fit_score} showLabel={false} />
-            <div className="text-[10px] font-semibold text-outline">คะแนนสูงสุด</div>
-          </div>
-        )}
 
         <div className="flex-none">
           <Link
@@ -229,37 +214,36 @@ function ResultRow({ hit, showPhoto }: { hit: PersonSearchHit; showPhoto: boolea
         </div>
       </div>
 
-      {!single && (
-        <div className="mt-sm pt-sm border-t border-outline-variant/40 flex flex-wrap items-center gap-xs md:pl-[64px]">
-          {shown.map((g) => {
-            const band = BANDS[scoreBand(g.best.fit_score)];
-            return (
-              <Link
-                key={g.title}
-                href={`/jobs/${g.best.job_id}/candidates/${g.best.candidate_id}`}
-                title={g.count > 1 ? `สมัคร ${g.count} ครั้ง — เปิดใบที่คะแนนสูงสุด` : undefined}
-                className="inline-flex items-center gap-1.5 text-[12px] font-semibold pl-2.5 pr-2 py-1 rounded-full bg-glass/60 border border-outline/30 text-on-surface-variant hover:bg-glass hover:text-on-surface transition-colors"
-              >
-                {g.title}
-                {g.count > 1 && <span className="text-outline font-normal">×{g.count}</span>}
-                <span className="inline-flex items-center gap-1 pl-1.5 ml-0.5 border-l border-outline/30">
-                  <span className="w-2 h-2 rounded-full" style={{ background: band.color }} />
-                  <span style={{ color: band.color }}>{g.best.fit_score ?? "–"}</span>
-                </span>
-              </Link>
-            );
-          })}
-          {hidden > 0 && (
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className="text-[12px] font-semibold px-2.5 py-1 rounded-full text-primary hover:bg-primary-fixed/60 transition-colors"
+      <div className="mt-sm pt-sm border-t border-outline-variant/40 flex flex-wrap items-center gap-xs md:pl-[64px]">
+        <span className="text-label-sm text-outline mr-0.5">คะแนนในตำแหน่งที่เคยสมัคร:</span>
+        {shown.map((g) => {
+          const band = BANDS[scoreBand(g.best.fit_score)];
+          return (
+            <Link
+              key={g.title}
+              href={`/jobs/${g.best.job_id}/candidates/${g.best.candidate_id}`}
+              title={g.count > 1 ? `สมัคร ${g.count} ครั้ง — เปิดใบที่คะแนนสูงสุด` : undefined}
+              className="inline-flex items-center gap-1.5 text-[12px] font-semibold pl-2.5 pr-2 py-1 rounded-full bg-glass/60 border border-outline/30 text-on-surface-variant hover:bg-glass hover:text-on-surface transition-colors"
             >
-              {expanded ? "ย่อ" : `+ อีก ${hidden} ตำแหน่ง`}
-            </button>
-          )}
-        </div>
-      )}
+              {g.title}
+              {g.count > 1 && <span className="text-outline font-normal">×{g.count}</span>}
+              <span className="inline-flex items-center gap-1 pl-1.5 ml-0.5 border-l border-outline/30">
+                <span className="w-2 h-2 rounded-full" style={{ background: band.color }} />
+                <span style={{ color: band.color }}>{g.best.fit_score ?? "–"}</span>
+              </span>
+            </Link>
+          );
+        })}
+        {hidden > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="text-[12px] font-semibold px-2.5 py-1 rounded-full text-primary hover:bg-primary-fixed/60 transition-colors"
+          >
+            {expanded ? "ย่อ" : `+ อีก ${hidden} ตำแหน่ง`}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
