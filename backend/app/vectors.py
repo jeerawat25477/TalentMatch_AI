@@ -95,7 +95,15 @@ def search(
     """
     if not (query or "").strip():
         return []
-    vector = str(embed(query))
+    return search_vector(embed(query), limit, exclude_candidate_id)
+
+
+def search_vector(
+    vector: list[float], limit: int = 10, exclude_candidate_id: str | None = None
+) -> list[dict]:
+    """เหมือน search แต่รับเวกเตอร์ที่ embed ไว้แล้ว — scripts/eval_search.py ใช้เวกเตอร์คำค้นที่แคชไว้
+    วัดซ้ำได้โดยไม่เรียก embedding ใหม่ (ผลเท่ากับ search ทุกประการ เพราะ search เรียกตัวนี้)."""
+    vector = str(vector)
     exclude = str(exclude_candidate_id) if exclude_candidate_id else None
     with get_conn() as conn:
         # คนเดียวกันมีหลายแถวได้ (candidates ผูกกับ job — สมัคร 5 ตำแหน่ง = 5 แถว)

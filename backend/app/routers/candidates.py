@@ -465,6 +465,7 @@ def group_people(rows: list[dict]) -> list[dict]:
         # ชื่อ/อีเมลจากใบล่าสุดที่ AI อ่านชื่อได้แล้ว (แถวที่ยังไม่วิเคราะห์ใช้ชื่อไฟล์แทนชื่อคน)
         face = next((r for r in apps if r.get("has_parsed")), apps[0])
         files = {r.get("sha") or r.get("text_md5") or r["id"] for r in apps}
+        emails = sorted({(r.get("email") or "").strip().lower() for r in apps} - {""})
         merged_by = "same_email" if len(files) > 1 else ("same_file" if len(apps) > 1 else None)
         people.append({
             "full_name": face.get("full_name") or "—",
@@ -472,6 +473,7 @@ def group_people(rows: list[dict]) -> list[dict]:
             "distance": min(distances),
             "merged_by": merged_by,
             "file_count": len(files),
+            "emails": emails,  # ทุกอีเมลของคนนี้ — scripts/eval_search.py ใช้ระบุตัวคน (schema ไม่ส่งออก)
             "applications": [
                 {"candidate_id": r["id"], "job_id": r["job_id"], "job_title": r.get("job_title"),
                  "fit_score": r.get("fit_score"), "applied_at": r["created_at"]}
@@ -491,10 +493,21 @@ def search_people(q: str, limit: int = 10) -> list[PersonSearchHit]:
     if not q.strip():
         raise HTTPException(status_code=400, detail="ต้องระบุคำค้นหา")
     try:
-        hits = vector_search(q, limit=30)
+        hits = vector_search(q, limit=PEOPLE_SEARCH_FILES)
     except Exception as exc:  # noqa: BLE001 — แบบเดียวกับ /candidates/search
         log.exception("ค้นหาเชิงความหมายล้มเหลว: %s", exc)
         raise HTTPException(status_code=503, detail="ระบบค้นหาไม่พร้อมใช้งานชั่วคราว") from exc
+    people = people_from_hits(hits)[: max(1, min(limit, 50))]
+    return [PersonSearchHit(**p) for p in people]
+
+
+# ค้นเวกเตอร์เผื่อไว้กี่ไฟล์ก่อนรวมเป็นคน — คนเดียวมีหลายไฟล์จะกินที่
+PEOPLE_SEARCH_FILES = 30
+
+
+def people_from_hits(hits: list[dict]) -> list[dict]:
+    """ไฟล์ที่ค้นเจอ → ใบสมัครทั้งหมดของคนเหล่านั้น → รวมเป็นคน (เรียงตามความใกล้)
+    แยกจาก endpoint ให้ scripts/eval_search.py วัดด้วยโค้ดเดียวกับหน้าเว็บจริง."""
     if not hits:
         return []
     hit_dist = {str(h["id"]): h["distance"] for h in hits}
@@ -524,7 +537,7 @@ def search_people(q: str, limit: int = 10) -> list[PersonSearchHit]:
     }
     for r in rows:
         r["distance"] = hit_dist.get(r["id"], dist_by_text.get(r["text_md5"]))
-    return [PersonSearchHit(**p) for p in group_people(rows)[: max(1, min(limit, 50))]]
+    return group_people(rows)
 
 
 @router.get("/candidates/search", response_model=list[CandidateSearchHit])
