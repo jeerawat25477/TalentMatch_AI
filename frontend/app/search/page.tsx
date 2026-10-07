@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import ScoreRing from "@/components/score-ring";
+import CandidateAvatar, { useScreeningPhotos } from "@/components/candidate-avatar";
 import { searchPeople } from "@/lib/api";
-import { BANDS, initials, scoreBand } from "@/lib/types";
+import { BANDS, scoreBand } from "@/lib/types";
 import type { PersonApplication, PersonSearchHit } from "@/lib/types";
 import Spinner from "@/components/spinner";
 
@@ -15,6 +16,7 @@ const EXAMPLES = [
 ];
 
 export default function SearchPage() {
+  const showPhoto = useScreeningPhotos();
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<PersonSearchHit[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -107,7 +109,7 @@ export default function SearchPage() {
       {hits && hits.length > 0 && (
         <div className="space-y-sm">
           {hits.map((h, i) => (
-            <ResultRow key={h.applications[0]?.candidate_id ?? i} hit={h} />
+            <ResultRow key={h.applications[0]?.candidate_id ?? i} hit={h} showPhoto={showPhoto} />
           ))}
         </div>
       )}
@@ -144,7 +146,7 @@ function groupByTitle(apps: PersonApplication[]): TitleGroup[] {
 
 /** หนึ่งแถว = หนึ่งคน (รวมใบสมัครจากไฟล์เดียวกันหรืออีเมลเดียวกันแล้ว)
  *  ใบเดียว: วงกลมคะแนน + "เคยสมัคร" · หลายใบ: วงกลมคะแนนสูงสุด + ชิปรายตำแหน่งพร้อมจุดสีแบนด์ */
-function ResultRow({ hit }: { hit: PersonSearchHit }) {
+function ResultRow({ hit, showPhoto }: { hit: PersonSearchHit; showPhoto: boolean }) {
   // distance เป็น cosine (0 = เหมือนกันสนิท) — แปลงเป็น "ความใกล้เคียง" ให้อ่านง่าย
   const similarity = Math.max(0, Math.min(100, Math.round((1 - hit.distance) * 100)));
   const apps = hit.applications;
@@ -158,9 +160,14 @@ function ResultRow({ hit }: { hit: PersonSearchHit }) {
   return (
     <div className="glass-card rounded-2xl px-md py-sm">
       <div className="flex items-center gap-md flex-wrap">
-        <div className="w-12 h-12 flex-none rounded-xl flex items-center justify-center text-body-md font-semibold bg-primary-container text-on-primary-container">
-          {initials(hit.full_name)}
-        </div>
+        {/* รูปจากใบสมัครล่าสุด — ใบเก่าก่อนเริ่มเก็บรูปไม่มีรูป (404 → ตัวอักษรย่อ)
+            ทำตามสวิตช์ "แสดงรูปผู้สมัครหน้าคัดกรอง" เพราะหน้านี้ HR ใช้เลือกคนเหมือนกัน */}
+        <CandidateAvatar
+          candidateId={apps[0].candidate_id}
+          name={hit.full_name}
+          show={showPhoto}
+          className="w-12 h-12 flex-none rounded-xl flex items-center justify-center text-body-md font-semibold bg-primary-container text-on-primary-container"
+        />
 
         <div className="flex-[2] min-w-[180px] space-y-0.5">
           <div className="text-body-md font-semibold text-on-surface">{hit.full_name}</div>
