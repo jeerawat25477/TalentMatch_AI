@@ -532,3 +532,40 @@ class TestGraphUsesNewCriteria:
         assert values["analyzed_jd"]["required_skills"] == FIXED["required_skills"]
         assert values["evaluations"][0]["fit_score"] == 100
         assert values["evaluations"][0]["audit_status"] == "passed"  # ฟิลด์อื่นคงเดิม
+
+
+class TestBiasedSkillOnEdit:
+    """แก้เกณฑ์ทีหลังในหน้าตำแหน่ง ก็ต้องโดนเช็คทักษะอคติเหมือนตอนสร้าง (ไม่ใช้ AI)."""
+
+    PHRASE = "เป็นเจ้าของภาษาอังกฤษ (Native English speaker)"
+    BIASED = {"required_skills": ["Python", "Native English speaker"], "preferred_skills": []}
+
+    def _flag(self, jid, acks=None):
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE jobs SET jd_audit = %s, bias_acknowledgements = %s WHERE id = %s",
+                (Json({"status": "flagged", "log": "x", "jd_criteria": [self.PHRASE]}),
+                 Json(acks or []), jid),
+            )
+            conn.commit()
+
+    def test_save_refused_and_nothing_written(self, client, job):
+        jid, ids = job
+        self._flag(jid)
+        before = _eval(ids[0])["fit_score"]
+        r = client.put(f"/api/v1/jobs/{jid}/criteria", json=self.BIASED)
+        assert r.status_code == 409 and r.json()["detail"]["code"] == "biased_skill"
+        assert _job(jid)["parsed_criteria"]["required_skills"] == AI_CRITERIA["required_skills"]
+        assert _eval(ids[0])["fit_score"] == before
+
+    def test_preview_warns_but_does_not_block(self, client, job):
+        jid, _ = job
+        self._flag(jid)
+        r = client.post(f"/api/v1/jobs/{jid}/criteria/preview", json=self.BIASED)
+        assert r.status_code == 200
+        assert "Native English speaker" in r.json()["warnings"][0]
+
+    def test_acknowledged_phrase_saves(self, client, job):
+        jid, _ = job
+        self._flag(jid, acks=[{"phrase": self.PHRASE, "reason": "งานแปลเอกสาร", "by": "a", "at": "2026-10-07T00:00:00+00:00"}])
+        assert client.put(f"/api/v1/jobs/{jid}/criteria", json=self.BIASED).status_code == 200

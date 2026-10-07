@@ -13,8 +13,12 @@
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
+
+from app.agents.bias_rules import find_biased_phrases
+from app.agents.skills import alternatives
 
 MIN_REASON_CHARS = 10
 MAX_REASON_CHARS = 500
@@ -87,3 +91,79 @@ def bias_view(jd_audit: dict[str, Any] | None, acks: list[dict[str, Any]] | None
         "biased_skills": skills,
         "llm_checked": bool(jd_audit.get("llm_checked")),
     }
+
+
+# ---------- ทักษะในเกณฑ์คะแนนที่ตรงกับอคติ ----------
+# ช่องโหว่ที่เจอ 2026-10-07: AI ตรวจรายการทักษะตอนกด "วิเคราะห์" เท่านั้น แต่ HR พิมพ์ทักษะเพิ่มเองได้
+# ทั้งในขั้นยืนยันเกณฑ์และตอนแก้เกณฑ์ทีหลัง — "Native English speaker" ที่ jd_analyzer กรองทิ้งไปแล้ว
+# จึงกลับเข้าคะแนนได้โดยไม่มีอะไรเตือนหรือตัด · ทักษะแบบนี้จะนับคะแนนได้ก็ต่อเมื่อ HR ยืนยันถ้อยคำนั้น
+
+# ทักษะต้องยาวอย่างน้อยกี่ส่วนของถ้อยคำที่ถูกเตือน ถึงจะนับว่าเป็นถ้อยคำเดียวกัน — กัน "ภาษาอังกฤษ"
+# (ทักษะจริง) โดนจับเพราะบังเอิญอยู่ใน "เป็นเจ้าของภาษาอังกฤษ" (ภาษาไทยไม่เว้นวรรค เทียบระดับคำไม่ได้)
+SKILL_PHRASE_COVERAGE = 0.6
+
+_NORM = re.compile(r"[^0-9a-z#+฀-๿]+")
+
+
+def _norm(text: str) -> str:
+    # ไม่ใช้ skills.canonical: มันลบวงเล็บพร้อมข้อความข้างใน "(Native English speaker)" จะหายไปทั้งก้อน
+    return _NORM.sub(" ", (text or "").lower()).strip()
+
+
+def _variants(phrase: str) -> list[str]:
+    """ถ้อยคำหนึ่งอาจมีสองภาษา "เป็นเจ้าของภาษาอังกฤษ (Native English speaker)" — แยกส่วนในวงเล็บ."""
+    parts = [_norm(p) for p in re.split(r"[()（）]", phrase or "")]
+    whole = _norm(phrase)
+    return [v for v in dict.fromkeys([whole, *parts]) if v]
+
+
+def _same_phrase(skill: str, phrase: str) -> bool:
+    s = _norm(skill)
+    if not s:
+        return False
+    for v in _variants(phrase):
+        if s == v or f" {v} " in f" {s} ":
+            return True
+        if s in v and len(s) >= SKILL_PHRASE_COVERAGE * len(v):
+            return True
+    return False
+
+
+def biased_skills(
+    required: list[str],
+    preferred: list[str],
+    jd_criteria: list[str] | None,
+    acks: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """ทักษะในเกณฑ์ที่ตรงกับอคติ และ HR ยังไม่ได้ยืนยันถ้อยคำนั้น — ฟังก์ชันบริสุทธิ์ ไม่เรียก AI.
+
+    ทักษะหนึ่งข้อ (หรือตัวเลือกหนึ่งในกลุ่ม "A | B") ถูกจับเมื่อ
+    - ตรงกับถ้อยคำที่ตัวตรวจเตือนในประกาศ (`jd_criteria`) → phrase = ถ้อยคำนั้น ยืนยันได้
+    - หรือตัวทักษะเองเข้ากฎอคติ (bias_rules) แต่ไม่มีถ้อยคำในประกาศให้ยืนยัน → phrase = None ต้องลบออก
+    คืน [{skill, side: "required"|"preferred", phrase}] ตามลำดับในเกณฑ์
+    """
+    criteria = [c for c in (jd_criteria or []) if c]
+    acked = {a.get("phrase") for a in (acks or [])}
+    out: list[dict[str, Any]] = []
+    for side, skills in (("required", required or []), ("preferred", preferred or [])):
+        for skill in skills:
+            options = alternatives(skill) or [skill]
+            phrase = next(
+                (c for c in criteria for opt in options if _same_phrase(opt, c)), None
+            )
+            if phrase is None and not any(find_biased_phrases(opt) for opt in options):
+                continue
+            if phrase is not None and phrase in acked:
+                continue
+            out.append({"skill": skill, "side": side, "phrase": phrase})
+    return out
+
+
+def biased_skill_message(found: list[dict[str, Any]]) -> str:
+    """ข้อความเดียวกันทั้ง 409 ตอนบันทึกและคำเตือนตอนพรีวิว."""
+    names = ", ".join(f'"{f["skill"]}"' for f in found)
+    if all(f["phrase"] for f in found):
+        how = 'ลบออกจากทักษะ หรือกด "จำเป็นกับงานนี้" ที่ถ้อยคำนั้นพร้อมเหตุผล แล้วบันทึกอีกครั้ง'
+    else:
+        how = "ลบออกจากทักษะก่อนบันทึก (ไม่มีถ้อยคำนี้ในประกาศให้ยืนยัน)"
+    return f"ทักษะ {names} ตรงกับถ้อยคำที่อาจมีอคติ จะถูกนำไปคิดคะแนน — {how}"

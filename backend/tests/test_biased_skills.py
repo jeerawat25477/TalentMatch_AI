@@ -1,0 +1,53 @@
+"""bias_ack.biased_skills — ทักษะในเกณฑ์คะแนนที่ตรงกับอคติ (ไม่ใช้ AI).
+
+กฎต้องเข้มเรื่องเตือนผิด: ทักษะจริงอย่าง "English", "ภาษาอังกฤษ" ห้ามโดนจับ
+แม้จะอยู่ในถ้อยคำที่ถูกเตือนก็ตาม — เช็คกับเกณฑ์ของตำแหน่งจริงทั้ง 16 ตำแหน่งแล้ว (0 จาก 199 ทักษะ)
+"""
+from app.bias_ack import biased_skill_message, biased_skills
+
+PHRASE = "เป็นเจ้าของภาษาอังกฤษ (Native English speaker)"
+
+
+def names(found):
+    return [f["skill"] for f in found]
+
+
+def test_matches_parenthetical_english_part():
+    found = biased_skills(["Native English speaker"], [], [PHRASE], [])
+    assert found == [{"skill": "Native English speaker", "side": "required", "phrase": PHRASE}]
+
+
+def test_matches_thai_part_and_whole_phrase():
+    assert names(biased_skills(["เป็นเจ้าของภาษาอังกฤษ", PHRASE], [], [PHRASE], [])) == [
+        "เป็นเจ้าของภาษาอังกฤษ", PHRASE,
+    ]
+
+
+def test_real_skills_inside_a_flagged_phrase_are_not_caught():
+    # ภาษาไทยไม่เว้นวรรค — "ภาษาอังกฤษ" อยู่ใน "เป็นเจ้าของภาษาอังกฤษ" แต่สั้นกว่า 60% ของถ้อยคำ
+    assert biased_skills(["English", "ภาษาอังกฤษ", "Python", "Facebook Ads"], [], [PHRASE], []) == []
+
+
+def test_skill_itself_matching_rules_without_phrase_must_be_removed():
+    found = biased_skills([], ["อายุ 25-35 ปี"], [], [])
+    assert found == [{"skill": "อายุ 25-35 ปี", "side": "preferred", "phrase": None}]
+
+
+def test_group_with_one_biased_option():
+    assert names(biased_skills(["Python | เพศชาย"], [], [], [])) == ["Python | เพศชาย"]
+
+
+def test_acknowledged_phrase_is_allowed():
+    assert biased_skills(["Native English speaker"], [], [PHRASE], [{"phrase": PHRASE}]) == []
+
+
+def test_ack_does_not_cover_a_different_phrase():
+    found = biased_skills(["เพศหญิง"], [], [PHRASE, "เพศหญิง"], [{"phrase": PHRASE}])
+    assert names(found) == ["เพศหญิง"]
+
+
+def test_message_tells_what_to_do():
+    ackable = biased_skill_message([{"skill": "X", "side": "required", "phrase": "p"}])
+    assert "จำเป็นกับงานนี้" in ackable
+    remove_only = biased_skill_message([{"skill": "X", "side": "required", "phrase": None}])
+    assert "ลบออก" in remove_only and "จำเป็นกับงานนี้" not in remove_only

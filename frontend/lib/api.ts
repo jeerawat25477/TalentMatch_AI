@@ -9,6 +9,7 @@ import type {
   StageUpdate,
   BulkDecisionResult,
   CandidateDetail,
+  BiasedSkill,
   CandidateSearchHit,
   PersonSearchHit,
   CandidateSummary,
@@ -246,6 +247,15 @@ export function biasWarningOf(e: unknown): BiasPhrase[] | null {
   if (!(e instanceof ApiError) || e.status !== 409) return null;
   const d = e.detail as { code?: string; phrases?: BiasPhrase[] } | null;
   return d?.code === "bias_warning" ? (d.phrases ?? []) : null;
+}
+
+/** 409 ตอนบันทึกเกณฑ์ที่มีทักษะตรงกับอคติ (สร้างตำแหน่ง / แก้เกณฑ์) — null ถ้าไม่ใช่กรณีนี้ */
+export function biasedSkillErrorOf(e: unknown): { message: string; skills: BiasedSkill[] } | null {
+  if (!(e instanceof ApiError) || e.status !== 409) return null;
+  const d = e.detail as { code?: string; message?: string; skills?: BiasedSkill[] } | null;
+  return d?.code === "biased_skill"
+    ? { message: d.message ?? "", skills: d.skills ?? [] }
+    : null;
 }
 
 // ---------- เทมเพลตอีเมลที่บันทึกไว้ใช้ซ้ำ ----------

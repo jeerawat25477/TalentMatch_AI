@@ -18,7 +18,7 @@ from app.agents.nodes.jd_reviewer import review_jd
 from app.agents.runner import active_candidates
 from app.agents.models import JDReview
 from app.auth import get_current_user
-from app.bias_ack import AckError, validate_acks
+from app.bias_ack import AckError, biased_skill_message, biased_skills, validate_acks
 from app.rate_limit import hit_and_check, retry_after_sec
 from app.database import get_checkpointer, get_conn
 from app.criteria_edit import criteria_warnings, normalize_criteria, rescore_job
@@ -117,6 +117,19 @@ def _acks_or_422(requested: list[dict], jd_audit: dict | None, user: str, previo
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+def _refuse_biased_skills(required: list[str], preferred: list[str], jd_audit: dict | None, acks) -> None:
+    """409 ถ้าเกณฑ์คะแนนมีทักษะที่ตรงกับอคติซึ่ง HR ยังไม่ได้ยืนยัน — ดู bias_ack.biased_skills.
+
+    รูปเดียวกับ 409 bias_warning ของการส่งอีเมล: detail เป็น dict มี code ให้หน้าเว็บแยกกรณีได้
+    """
+    found = biased_skills(required, preferred, (jd_audit or {}).get("jd_criteria"), acks)
+    if found:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "biased_skill", "message": biased_skill_message(found), "skills": found},
+        )
+
+
 def _job_audit(raw_text: str, analyzed: dict | None, llm=None) -> dict:
     """ผลตรวจอคติที่จะเก็บใน jobs.jd_audit — ฟังก์ชันบริสุทธิ์ ไม่เรียก LLM.
 
@@ -149,6 +162,10 @@ def create_job(payload: JobCreate, user: str = Depends(get_current_user)) -> Job
         jd_audit = _job_audit(payload.raw_text, analyzed, payload.criteria.bias_llm)
         acks = _acks_or_422(
             [a.model_dump() for a in payload.criteria.bias_acks], jd_audit, user, previous=[]
+        )
+        _refuse_biased_skills(
+            analyzed.get("required_skills") or [], analyzed.get("preferred_skills") or [],
+            jd_audit, acks,
         )
         with get_conn() as conn:
             row = conn.execute(
@@ -454,14 +471,21 @@ def _busy_candidates(conn, job_id: str) -> int:
     return max(len(ids & active_candidates()), queued)
 
 
-def _preview(conn, job_id: str, payload: CriteriaIn, apply: bool) -> dict:
+def _preview(conn, job_id: str, payload: CriteriaIn, apply: bool, job: dict | None = None) -> dict:
     clean = normalize_criteria(payload.required_skills, payload.preferred_skills)
     req, pref = clean["required_skills"], clean["preferred_skills"]
+    warnings = criteria_warnings(req, pref)
+    if job is not None:
+        found = biased_skills(
+            req, pref, (job.get("jd_audit") or {}).get("jd_criteria"), job.get("bias_acknowledgements")
+        )
+        if found:
+            warnings = [biased_skill_message(found), *warnings]
     return {
         "required_skills": req,
         "preferred_skills": pref,
         "dropped": clean["dropped"],
-        "warnings": criteria_warnings(req, pref),
+        "warnings": warnings,
         "impact": rescore_job(conn, job_id, req, pref, apply=apply),
     }
 
@@ -470,8 +494,8 @@ def _preview(conn, job_id: str, payload: CriteriaIn, apply: bool) -> dict:
 def preview_criteria(job_id: str, payload: CriteriaIn) -> CriteriaPreviewOut:
     """ผลกระทบของเกณฑ์ใหม่ต่อผู้สมัครทุกคน — **ไม่เขียนอะไรเลย** ให้ HR ดูก่อนกดบันทึก."""
     with get_conn() as conn:
-        _load_job_for_criteria(conn, job_id)
-        result = _preview(conn, job_id, payload, apply=False)
+        job = _load_job_for_criteria(conn, job_id)
+        result = _preview(conn, job_id, payload, apply=False, job=job)
         conn.rollback()  # ไม่มีอะไรให้ย้อน แต่ปิดทรานแซกชันอ่านให้ชัดว่าไม่ได้ตั้งใจเขียน
     return CriteriaPreviewOut(**result)
 
@@ -489,6 +513,13 @@ def _save_criteria(job_id: str, payload: CriteriaIn, reset: bool = False) -> Cri
                     f"มีผู้สมัคร {busy} คนของตำแหน่งนี้กำลังวิเคราะห์หรือรอคิวอยู่ — "
                     "รอให้เสร็จก่อนแล้วค่อยแก้เกณฑ์ ไม่งั้นคะแนนของเกณฑ์เก่าจะเขียนทับ"
                 ),
+            )
+        if not reset:
+            # คืนค่าของ AI ไม่ต้องเช็ค: ทักษะชุดนั้นผ่านตัวตรวจอคติของ AI มาแล้วตอนสร้าง
+            clean = normalize_criteria(payload.required_skills, payload.preferred_skills)
+            _refuse_biased_skills(
+                clean["required_skills"], clean["preferred_skills"],
+                job.get("jd_audit"), job.get("bias_acknowledgements"),
             )
         result = _preview(conn, job_id, payload, apply=True)
         # parsed_criteria เป็น NULL ได้ (AI อ่านไม่สำเร็จตอนสร้าง) — เติมจากผลอ่านใหม่ถ้ามี

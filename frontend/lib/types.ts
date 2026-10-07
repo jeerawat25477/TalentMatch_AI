@@ -239,6 +239,14 @@ export interface CandidateSearchHit {
   same_person?: SamePerson | null;
 }
 
+/** ทักษะในเกณฑ์คะแนนที่ตรงกับอคติ ซึ่ง HR ยังไม่ได้ยืนยัน (backend: bias_ack.biased_skills)
+ *  phrase = ถ้อยคำในประกาศที่ยืนยันได้ · null = ตัวทักษะเองเข้ากฎอคติ ต้องลบออกเท่านั้น */
+export interface BiasedSkill {
+  skill: string;
+  side: "required" | "preferred";
+  phrase: string | null;
+}
+
 /** ผลค้นหาแบบรวมคนเดียวกันเป็นแถวเดียว (backend: candidates.py::group_people) */
 export interface PersonApplication {
   candidate_id: string;

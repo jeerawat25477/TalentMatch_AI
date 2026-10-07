@@ -298,3 +298,57 @@ class TestCreateWithConfirmedCriteria:
             res = client.post("/api/v1/jobs", json={"raw_text": JD})
         assert res.status_code == 201 and m.call_count == 1
         assert res.json()["parsed_criteria"]["required_skills"] == ["Python", "FastAPI"]
+
+
+class TestBiasedSkillTypedByHR:
+    """ช่องโหว่ 2026-10-07: HR พิมพ์ทักษะที่ตรงกับอคติกลับเข้าเกณฑ์ได้หลัง AI ตรวจไปแล้ว
+    → บันทึกไม่ได้ (409) จนกว่าจะลบออก หรือยืนยันถ้อยคำนั้นว่าจำเป็นพร้อมเหตุผล."""
+
+    PHRASE = "เป็นเจ้าของภาษาอังกฤษ (Native English speaker)"
+
+    def payload(self, required, acks=()):
+        from app.agents.models import BiasAudit
+
+        llm = BiasAudit(is_biased=True, audit_status="flagged", audit_log="กีดกันตามถิ่นกำเนิด",
+                        biased_jd_criteria=[self.PHRASE])
+        body = TestCreateWithConfirmedCriteria().confirm(
+            required_skills=required, bias_llm=llm.model_dump(),
+            bias_acks=[{"phrase": self.PHRASE, "reason": r} for r in acks],
+        )
+        body["raw_text"] = JD + "\n- " + self.PHRASE  # LLM ยกถ้อยคำได้เฉพาะที่อยู่ในประกาศจริง
+        return body
+
+    def _cleanup(self):
+        with get_conn() as conn:
+            conn.execute("DELETE FROM jobs WHERE raw_text LIKE %s", (JD + "%",))
+            conn.commit()
+
+    def test_ทักษะอคติที่ยังไม่ยืนยันบันทึกไม่ได้(self, client):
+        try:
+            res = client.post("/api/v1/jobs", json=self.payload(["Python", "Native English speaker"]))
+            assert res.status_code == 409
+            detail = res.json()["detail"]
+            assert detail["code"] == "biased_skill"
+            assert detail["skills"][0]["skill"] == "Native English speaker"
+            assert detail["skills"][0]["phrase"] == self.PHRASE
+            with get_conn() as conn:
+                n = conn.execute("SELECT count(*) AS n FROM jobs WHERE raw_text LIKE %s",
+                                 (JD + "%",)).fetchone()["n"]
+            assert n == 0, "409 ต้องไม่บันทึกอะไร"
+        finally:
+            self._cleanup()
+
+    def test_ยืนยันถ้อยคำแล้วบันทึกได้และนับคะแนน(self, client):
+        try:
+            res = client.post("/api/v1/jobs", json=self.payload(
+                ["Python", "Native English speaker"], acks=["งานแปลเอกสารให้ลูกค้าต่างชาติ"]))
+            assert res.status_code == 201
+            assert "Native English speaker" in res.json()["parsed_criteria"]["required_skills"]
+        finally:
+            self._cleanup()
+
+    def test_ไม่มีทักษะอคติทำงานเหมือนเดิม(self, client):
+        try:
+            assert client.post("/api/v1/jobs", json=self.payload(["Python", "English"])).status_code == 201
+        finally:
+            self._cleanup()

@@ -8,7 +8,7 @@ import { BiasAckEditor, toAckIn, type AckMap } from "@/components/bias-ack";
 import JDReviewCard from "@/components/jd-review-card";
 import SkillListsEditor from "@/components/skill-lists-editor";
 import type { SkillLists } from "@/components/skill-lists-editor";
-import { analyzeJD, createJob, reviewJD } from "@/lib/api";
+import { analyzeJD, biasedSkillErrorOf, createJob, reviewJD } from "@/lib/api";
 import type { JDReview, JobAnalyzeResult } from "@/lib/types";
 import Spinner from "@/components/spinner";
 
@@ -37,6 +37,8 @@ export default function NewJobPage() {
   const [rawText, setRawText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 409 biased_skill — แสดงติดปุ่มบันทึก ไม่ใช่กล่อง error ด้านบนที่พับอยู่ตอนยืนยันเกณฑ์
+  const [skillWarning, setSkillWarning] = useState<string | null>(null);
 
   // ร่างจาก AI (null = HR กรอกเอง เพราะ AI อ่านไม่สำเร็จ) · ยังไม่ถูกบันทึกจนกว่าจะกดยืนยัน
   const [draft, setDraft] = useState<JobAnalyzeResult | null>(null);
@@ -108,6 +110,7 @@ export default function NewJobPage() {
   async function handleCreate() {
     setBusy(true);
     setError(null);
+    setSkillWarning(null);
     try {
       const job = await createJob(rawText, {
         job_title: title.trim() || "Untitled Position",
@@ -122,7 +125,9 @@ export default function NewJobPage() {
       });
       router.push(`/jobs/${job.id}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "สร้างตำแหน่งไม่สำเร็จ");
+      const biased = biasedSkillErrorOf(e);
+      if (biased) setSkillWarning(biased.message);
+      else setError(e instanceof Error ? e.message : "สร้างตำแหน่งไม่สำเร็จ");
       setBusy(false);
     }
   }
@@ -370,6 +375,18 @@ export default function NewJobPage() {
             disabled={busy}
             sources={draft?.sources}
           />
+
+          {skillWarning && (
+            <div
+              role="alert"
+              className="flex items-start gap-xs p-sm rounded-xl border border-tertiary/50 bg-tertiary-container/15 text-label-md text-on-surface"
+            >
+              <span className="material-symbols-outlined text-tertiary text-[20px] flex-none" aria-hidden>
+                gpp_maybe
+              </span>
+              <span>{skillWarning}</span>
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center justify-end gap-xs pt-xs">
             <button
