@@ -159,11 +159,13 @@ export const createJob = (rawText: string, criteria?: JobCriteriaConfirm) =>
 // เปิด/ปิดรับสมัคร — ทางเลือกแทนการลบสำหรับงานที่รับพนักงานได้แล้ว
 // ตรวจว่าประกาศใช้คัดกรองได้ดีแค่ไหน — พรีวิวล้วน ๆ ไม่สร้างงานจริง (429 ถ้ากดถี่เกิน, 503 ถ้า AI ล่ม)
 /** HR ยืนยัน (หรือถอน) ถ้อยคำในผลตรวจอคติว่าจำเป็นกับงานนี้ — แทนรายการทั้งชุด */
-export const updateBiasAcks = (jobId: string, acks: BiasAckIn[]) =>
+/** removeSkills: ถอนถ้อยคำที่ยังเป็นทักษะในเกณฑ์ → ลบทักษะนั้นออก + คำนวณคะแนนใหม่ในคราวเดียว
+ *  (ไม่ส่ง = backend ตอบ 409 biased_skill พร้อม stripped_criteria ให้พรีวิวผลกระทบก่อน) */
+export const updateBiasAcks = (jobId: string, acks: BiasAckIn[], removeSkills = false) =>
   request<Job>(`/api/v1/jobs/${jobId}/bias-acknowledgements`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ acks }),
+    body: JSON.stringify({ acks, remove_skills: removeSkills }),
   });
 
 export const reviewJD = (rawText: string) =>
@@ -250,11 +252,21 @@ export function biasWarningOf(e: unknown): BiasPhrase[] | null {
 }
 
 /** 409 ตอนบันทึกเกณฑ์ที่มีทักษะตรงกับอคติ (สร้างตำแหน่ง / แก้เกณฑ์) — null ถ้าไม่ใช่กรณีนี้ */
-export function biasedSkillErrorOf(e: unknown): { message: string; skills: BiasedSkill[] } | null {
+export function biasedSkillErrorOf(e: unknown): {
+  message: string;
+  skills: BiasedSkill[];
+  /** มีเฉพาะตอนถอนการยืนยัน — เกณฑ์หลังลบทักษะเหล่านี้ ใช้พรีวิวผลกระทบ */
+  stripped: CriteriaIn | null;
+} | null {
   if (!(e instanceof ApiError) || e.status !== 409) return null;
-  const d = e.detail as { code?: string; message?: string; skills?: BiasedSkill[] } | null;
+  const d = e.detail as {
+    code?: string;
+    message?: string;
+    skills?: BiasedSkill[];
+    stripped_criteria?: CriteriaIn;
+  } | null;
   return d?.code === "biased_skill"
-    ? { message: d.message ?? "", skills: d.skills ?? [] }
+    ? { message: d.message ?? "", skills: d.skills ?? [], stripped: d.stripped_criteria ?? null }
     : null;
 }
 

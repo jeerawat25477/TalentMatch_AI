@@ -37,6 +37,9 @@ class BiasAck(BaseModel):
 class BiasAcksUpdate(BaseModel):
     """แทนรายการยืนยันทั้งชุดของตำแหน่ง (เพิ่ม/ถอน) — PUT /jobs/{id}/bias-acknowledgements."""
     acks: list[BiasAckIn] = Field(default_factory=list, max_length=50)
+    # ถอนถ้อยคำที่ยังเป็นทักษะในเกณฑ์: True = ลบทักษะนั้นออกจากเกณฑ์ + คำนวณคะแนนใหม่ในคราวเดียว
+    # (HR เห็นผลกระทบในหน้าต่างยืนยันก่อน) · False = ปฏิเสธ 409 เหมือนเดิม
+    remove_skills: bool = False
 
 
 class JobBiasView(BaseModel):

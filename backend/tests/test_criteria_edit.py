@@ -580,3 +580,36 @@ class TestBiasedSkillOnEdit:
         # ลบทักษะออกก่อน แล้วถอนได้
         assert client.put(f"/api/v1/jobs/{jid}/criteria", json=FIXED).status_code == 200
         assert client.put(f"/api/v1/jobs/{jid}/bias-acknowledgements", json={"acks": []}).status_code == 200
+
+    def test_withdraw_with_remove_skills_strips_and_rescores_in_one_go(self, client, job):
+        jid, ids = job
+        ack = {"phrase": self.PHRASE, "reason": "งานแปลเอกสาร", "by": "a", "at": "2026-10-07T00:00:00+00:00"}
+        self._flag(jid, acks=[ack])
+        client.put(f"/api/v1/jobs/{jid}/criteria", json=self.BIASED)  # Python + Native English speaker
+        score_with = _eval(ids[0])["fit_score"]  # คนที่มี Python ไม่มี Native → ได้ครึ่งเดียว
+
+        r = client.put(f"/api/v1/jobs/{jid}/bias-acknowledgements", json={"acks": []})
+        assert r.status_code == 409
+        stripped = r.json()["detail"]["stripped_criteria"]
+        assert stripped["required_skills"] == ["Python"]
+
+        r = client.put(f"/api/v1/jobs/{jid}/bias-acknowledgements",
+                       json={"acks": [], "remove_skills": True})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["parsed_criteria"]["required_skills"] == ["Python"]
+        assert body["bias"]["acknowledged"] == []
+        assert _eval(ids[0])["fit_score"] > score_with  # คะแนนถูกคำนวณใหม่ในคราวเดียวกัน
+
+    def test_withdraw_with_remove_skills_refused_while_busy(self, client, job, monkeypatch):
+        from app.routers import jobs as jobs_router
+
+        jid, _ = job
+        ack = {"phrase": self.PHRASE, "reason": "งานแปลเอกสาร", "by": "a", "at": "2026-10-07T00:00:00+00:00"}
+        self._flag(jid, acks=[ack])
+        client.put(f"/api/v1/jobs/{jid}/criteria", json=self.BIASED)
+        monkeypatch.setattr(jobs_router, "_busy_candidates", lambda conn, job_id: 1)
+        r = client.put(f"/api/v1/jobs/{jid}/bias-acknowledgements",
+                       json={"acks": [], "remove_skills": True})
+        assert r.status_code == 409
+        assert "Native English speaker" in _job(jid)["parsed_criteria"]["required_skills"]

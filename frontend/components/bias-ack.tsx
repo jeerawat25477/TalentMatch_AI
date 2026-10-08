@@ -1,9 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import ConfirmDialog from "@/components/confirm-dialog";
 import Spinner from "@/components/spinner";
-import { biasedSkillErrorOf, updateBiasAcks } from "@/lib/api";
-import { BIAS_ACK_MIN_REASON, type BiasAck, type BiasAckIn, type Job, type JobBiasView } from "@/lib/types";
+import { biasedSkillErrorOf, previewCriteria, updateBiasAcks } from "@/lib/api";
+import {
+  BIAS_ACK_MIN_REASON,
+  type BiasAck,
+  type BiasAckIn,
+  type CriteriaImpact,
+  type Job,
+  type JobBiasView,
+} from "@/lib/types";
 
 /**
  * HR ยืนยันว่าถ้อยคำที่ตัวตรวจอคติเตือน "จำเป็นกับงานนี้จริง" (เช่น เพศหญิงสำหรับงานตรวจค้นตัว)
@@ -163,6 +171,9 @@ export function JobBiasCard({ job, onSaved }: { job: Job; onSaved: (j: Job) => v
   const [value, setValue] = useState<AckMap>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // ถอนถ้อยคำที่ยังเป็นทักษะในเกณฑ์ → ถามก่อนพร้อมผลกระทบ แล้วลบทักษะ + คำนวณคะแนนใหม่ในคราวเดียว
+  const [removal, setRemoval] = useState<{ skills: string[]; impact: CriteriaImpact[] } | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   if (!bias) return null;
   const phrases = [...bias.acknowledged.map((a) => a.phrase), ...bias.pending];
@@ -176,12 +187,39 @@ export function JobBiasCard({ job, onSaved }: { job: Job; onSaved: (j: Job) => v
     try {
       onSaved(await updateBiasAcks(job.id, toAckIn(value)));
     } catch (e) {
-      // 409 ถอนถ้อยคำที่ยังเป็นทักษะในเกณฑ์ — แสดงข้อความของ backend ตรง ๆ ไม่มี "409:" นำหน้า
-      setError(biasedSkillErrorOf(e)?.message ?? (e instanceof Error ? e.message : "บันทึกไม่สำเร็จ"));
+      const biased = biasedSkillErrorOf(e);
+      if (biased?.stripped) {
+        // backend บอกเกณฑ์หลังลบทักษะมาแล้ว — พรีวิวผลกระทบ (ไม่เขียนอะไร) ให้ HR เห็นก่อนยืนยัน
+        try {
+          const preview = await previewCriteria(job.id, biased.stripped);
+          setRemoveError(null);
+          setRemoval({ skills: biased.skills.map((s) => s.skill), impact: preview.impact });
+        } catch (pe) {
+          setError(pe instanceof Error ? pe.message : "คำนวณผลกระทบไม่สำเร็จ");
+        }
+      } else {
+        setError(biased?.message ?? (e instanceof Error ? e.message : "บันทึกไม่สำเร็จ"));
+      }
     } finally {
       setBusy(false);
     }
   }
+
+  async function confirmRemoval() {
+    setBusy(true);
+    setRemoveError(null);
+    try {
+      onSaved(await updateBiasAcks(job.id, toAckIn(value), true));
+      setRemoval(null);
+    } catch (e) {
+      setRemoveError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const changed = removal?.impact.filter((i) => i.old_score !== i.new_score).length ?? 0;
+  const crossed = removal?.impact.filter((i) => i.old_band !== i.new_band).length ?? 0;
 
   return (
     <section className="glass-card rounded-2xl p-md space-y-sm">
@@ -233,6 +271,31 @@ export function JobBiasCard({ job, onSaved }: { job: Job; onSaved: (j: Job) => v
             บันทึก
           </button>
         </div>
+      )}
+
+      {removal && (
+        <ConfirmDialog
+          title="ถอนการยืนยันและลบออกจากเกณฑ์คะแนน"
+          body={
+            <div className="space-y-xs">
+              <p>
+                {removal.skills.map((s) => `“${s}”`).join(", ")} ยังเป็นทักษะในเกณฑ์คะแนน
+                ถ้าถอนการยืนยัน ระบบจะลบออกจากเกณฑ์และคำนวณคะแนนใหม่ให้ด้วย
+              </p>
+              <p className="text-on-surface-variant">
+                {removal.impact.length === 0
+                  ? "ตำแหน่งนี้ยังไม่มีผู้สมัคร จึงไม่มีคะแนนใครเปลี่ยน"
+                  : `คะแนนผู้สมัครเปลี่ยน ${changed} จาก ${removal.impact.length} คน` +
+                    (crossed > 0 ? ` · ${crossed} คนเปลี่ยนกลุ่ม (ควรทบทวนการตัดสินใจ)` : "")}
+              </p>
+            </div>
+          }
+          confirmLabel="ถอนและลบออกจากเกณฑ์"
+          busy={busy}
+          error={removeError}
+          onConfirm={confirmRemoval}
+          onClose={() => setRemoval(null)}
+        />
       )}
     </section>
   );

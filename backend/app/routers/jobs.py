@@ -18,7 +18,9 @@ from app.agents.nodes.jd_reviewer import review_jd
 from app.agents.runner import active_candidates
 from app.agents.models import JDReview
 from app.auth import get_current_user
-from app.bias_ack import AckError, biased_skill_message, biased_skills, validate_acks, withdraw_blocked
+from app.bias_ack import (
+    AckError, biased_skill_message, biased_skills, strip_skills, validate_acks, withdraw_blocked,
+)
 from app.rate_limit import hit_and_check, retry_after_sec
 from app.database import get_checkpointer, get_conn
 from app.criteria_edit import criteria_warnings, normalize_criteria, rescore_job
@@ -500,20 +502,55 @@ def preview_criteria(job_id: str, payload: CriteriaIn) -> CriteriaPreviewOut:
     return CriteriaPreviewOut(**result)
 
 
+def _refuse_if_busy(conn, job_id: str) -> None:
+    busy = _busy_candidates(conn, job_id)
+    if busy:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"มีผู้สมัคร {busy} คนของตำแหน่งนี้กำลังวิเคราะห์หรือรอคิวอยู่ — "
+                "รอให้เสร็จก่อนแล้วค่อยแก้เกณฑ์ ไม่งั้นคะแนนของเกณฑ์เก่าจะเขียนทับ"
+            ),
+        )
+
+
+def _write_criteria(conn, job_id: str, job: dict, payload: CriteriaIn, reset: bool = False):
+    """เขียนเกณฑ์ใหม่ + คำนวณคะแนนคนเดิม **ไม่ commit** — ผู้เรียกคุมทรานแซกชัน
+    (ถอนการยืนยันพร้อมลบทักษะต้องทำสองอย่างนี้กับการแก้ bias_acknowledgements ในก้อนเดียว)."""
+    result = _preview(conn, job_id, payload, apply=True)
+    # parsed_criteria เป็น NULL ได้ (AI อ่านไม่สำเร็จตอนสร้าง) — เติมจากผลอ่านใหม่ถ้ามี
+    # แล้วเติมค่าตั้งต้นของฟิลด์อื่นให้ครบรูป JobRequirement ที่กราฟและหน้าเว็บคาดหวัง
+    current = dict(job["parsed_criteria"] or job["ai_criteria"] or {})
+    current.setdefault("job_title", job["title"])
+    current.setdefault("min_experience_years", 0)
+    current.setdefault("education", "")
+    # เก็บของที่ AI ดึงไว้ครั้งแรกเท่านั้น — แก้รอบที่สองต้องไม่ทับด้วยฉบับของ HR
+    # ⚠️ ต้องเป็นสำเนาแยก ไม่ใช่ `or current` ตรง ๆ: ถ้าเป็น dict ตัวเดียวกัน บรรทัดถัดไป
+    # ที่แก้ current จะเขียนทับของ AI ไปด้วย แล้วปุ่มคืนค่าจะคืนฉบับของ HR (เทสจับได้)
+    ai = job["ai_criteria"] or dict(job["parsed_criteria"] or {})
+    # แทนแค่สองรายการ คง job_title / min_experience_years / education ไว้ตามเดิม
+    current["required_skills"] = result["required_skills"]
+    current["preferred_skills"] = result["preferred_skills"]
+    row = conn.execute(
+        f"""
+        UPDATE jobs
+           SET parsed_criteria = %s, ai_criteria = %s,
+               -- คืนค่าของ AI = กลับเป็น "ยังไม่เคยแก้" ไม่ใช่ "HR แก้เมื่อกี้"
+               criteria_edited_at = CASE WHEN %s THEN NULL ELSE now() END
+         WHERE id = %s
+        RETURNING {_JOB_COLS}
+        """,
+        (Json(current), Json(ai), reset, job_id),
+    ).fetchone()
+    return result, row
+
+
 def _save_criteria(job_id: str, payload: CriteriaIn, reset: bool = False) -> CriteriaSaveOut:
     """บันทึกเกณฑ์ + คำนวณคะแนนคนเดิมใหม่ในทรานแซกชันเดียว — ล้มกลางทางต้องไม่เหลือสภาพ
     ที่เกณฑ์เปลี่ยนแล้วแต่คะแนนยังเป็นของเกณฑ์เก่า (หรือกลับกัน)."""
     with get_conn() as conn:
         job = _load_job_for_criteria(conn, job_id)
-        busy = _busy_candidates(conn, job_id)
-        if busy:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"มีผู้สมัคร {busy} คนของตำแหน่งนี้กำลังวิเคราะห์หรือรอคิวอยู่ — "
-                    "รอให้เสร็จก่อนแล้วค่อยแก้เกณฑ์ ไม่งั้นคะแนนของเกณฑ์เก่าจะเขียนทับ"
-                ),
-            )
+        _refuse_if_busy(conn, job_id)
         if not reset:
             # คืนค่าของ AI ไม่ต้องเช็ค: ทักษะชุดนั้นผ่านตัวตรวจอคติของ AI มาแล้วตอนสร้าง
             clean = normalize_criteria(payload.required_skills, payload.preferred_skills)
@@ -521,31 +558,7 @@ def _save_criteria(job_id: str, payload: CriteriaIn, reset: bool = False) -> Cri
                 clean["required_skills"], clean["preferred_skills"],
                 job.get("jd_audit"), job.get("bias_acknowledgements"),
             )
-        result = _preview(conn, job_id, payload, apply=True)
-        # parsed_criteria เป็น NULL ได้ (AI อ่านไม่สำเร็จตอนสร้าง) — เติมจากผลอ่านใหม่ถ้ามี
-        # แล้วเติมค่าตั้งต้นของฟิลด์อื่นให้ครบรูป JobRequirement ที่กราฟและหน้าเว็บคาดหวัง
-        current = dict(job["parsed_criteria"] or job["ai_criteria"] or {})
-        current.setdefault("job_title", job["title"])
-        current.setdefault("min_experience_years", 0)
-        current.setdefault("education", "")
-        # เก็บของที่ AI ดึงไว้ครั้งแรกเท่านั้น — แก้รอบที่สองต้องไม่ทับด้วยฉบับของ HR
-        # ⚠️ ต้องเป็นสำเนาแยก ไม่ใช่ `or current` ตรง ๆ: ถ้าเป็น dict ตัวเดียวกัน บรรทัดถัดไป
-        # ที่แก้ current จะเขียนทับของ AI ไปด้วย แล้วปุ่มคืนค่าจะคืนฉบับของ HR (เทสจับได้)
-        ai = job["ai_criteria"] or dict(job["parsed_criteria"] or {})
-        # แทนแค่สองรายการ คง job_title / min_experience_years / education ไว้ตามเดิม
-        current["required_skills"] = result["required_skills"]
-        current["preferred_skills"] = result["preferred_skills"]
-        row = conn.execute(
-            f"""
-            UPDATE jobs
-               SET parsed_criteria = %s, ai_criteria = %s,
-                   -- คืนค่าของ AI = กลับเป็น "ยังไม่เคยแก้" ไม่ใช่ "HR แก้เมื่อกี้"
-                   criteria_edited_at = CASE WHEN %s THEN NULL ELSE now() END
-             WHERE id = %s
-            RETURNING {_JOB_COLS}
-            """,
-            (Json(current), Json(ai), reset, job_id),
-        ).fetchone()
+        result, row = _write_criteria(conn, job_id, job, payload, reset)
         conn.commit()
     changed = sum(1 for i in result["impact"] if i["old_score"] != i["new_score"])
     log.info("HR แก้เกณฑ์ของตำแหน่ง %s — คะแนนเปลี่ยน %s คน", job_id, changed)
@@ -675,8 +688,7 @@ def update_bias_acknowledgements(
     """
     with get_conn() as conn:
         job = conn.execute(
-            "SELECT jd_audit, bias_acknowledgements, parsed_criteria FROM jobs WHERE id = %s FOR UPDATE",
-            (job_id,),
+            f"SELECT {_JOB_COLS} FROM jobs WHERE id = %s FOR UPDATE", (job_id,),
         ).fetchone()
         if job is None:
             raise HTTPException(status_code=404, detail="ไม่พบตำแหน่งงานนี้")
@@ -689,7 +701,16 @@ def update_bias_acknowledgements(
             crit.get("required_skills") or [], crit.get("preferred_skills") or [],
             (job["jd_audit"] or {}).get("jd_criteria"), job["bias_acknowledgements"], acks,
         )
-        if blocked:
+        if blocked and payload.remove_skills:
+            _refuse_if_busy(conn, job_id)
+            stripped = strip_skills(
+                crit.get("required_skills") or [], crit.get("preferred_skills") or [],
+                [b["phrase"] for b in blocked if b["phrase"]],
+            )
+            _write_criteria(conn, job_id, job, CriteriaIn(**stripped))
+            log.info("%s ถอนการยืนยันและลบทักษะ %s ออกจากเกณฑ์ของตำแหน่ง %s",
+                     user, [b["skill"] for b in blocked], job_id)
+        elif blocked:
             names = ", ".join(f'"{b["skill"]}"' for b in blocked)
             raise HTTPException(
                 status_code=409,
@@ -698,6 +719,11 @@ def update_bias_acknowledgements(
                     "message": f"ถอนไม่ได้: {names} ยังเป็นทักษะในเกณฑ์คะแนน — "
                                "ลบออกจากเกณฑ์ก่อน (ปุ่มแก้เกณฑ์) แล้วค่อยถอน",
                     "skills": blocked,
+                    # เกณฑ์หลังลบทักษะเหล่านี้ — หน้าเว็บเอาไปพรีวิวผลกระทบก่อนส่ง remove_skills
+                    "stripped_criteria": strip_skills(
+                        crit.get("required_skills") or [], crit.get("preferred_skills") or [],
+                        [b["phrase"] for b in blocked if b["phrase"]],
+                    ),
                 },
             )
         row = conn.execute(

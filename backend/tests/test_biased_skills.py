@@ -89,3 +89,11 @@ def test_view_marks_scored_ack():
 def test_view_without_criteria_marks_nothing():
     view = bias_view({"jd_criteria": [PHRASE]}, [ACK])
     assert view["acknowledged"][0]["scored"] is False
+
+
+def test_strip_skills_removes_matching_skill_and_group_option():
+    from app.bias_ack import strip_skills
+
+    out = strip_skills(["Python", "Native English speaker", "Thai | Native English speaker"],
+                       ["Canva"], [PHRASE])
+    assert out == {"required_skills": ["Python", "Thai"], "preferred_skills": ["Canva"]}

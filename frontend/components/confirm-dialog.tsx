@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Spinner from "./spinner";
 
 /**
@@ -8,6 +9,9 @@ import Spinner from "./spinner";
  *
  * requireTypedText: บังคับให้พิมพ์ข้อความ (ชื่อตำแหน่งงาน) ให้ตรงก่อนกดยืนยันได้
  * ใช้เฉพาะการลบที่กวาดข้อมูลผู้สมัครไปด้วย — การกดพลาดครั้งเดียวต้องไม่ทำข้อมูลหาย
+ *
+ * วาดผ่าน portal ไปที่ document.body เสมอ: .glass-card ใช้ backdrop-filter ซึ่งทำให้ position: fixed
+ * ของลูกหลานยึดกับการ์ดแทนหน้าจอ — วางกล่องนี้ไว้ในการ์ดแล้วมันจะโผล่ในกรอบการ์ดแทนที่จะคลุมทั้งจอ
  */
 export default function ConfirmDialog({
   title,
@@ -50,7 +54,9 @@ export default function ConfirmDialog({
 
   const ready = !requireTypedText || typed.trim() === requireTypedText.trim();
 
-  return (
+  // ถูกเปิดหลังผู้ใช้กดเท่านั้น (ฝั่ง client) แต่กันไว้เผื่อถูก render ตอน SSR
+  if (typeof document === "undefined") return null;
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-md"
       role="dialog"
@@ -110,6 +116,7 @@ export default function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

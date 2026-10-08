@@ -194,6 +194,23 @@ def withdraw_blocked(
     ]
 
 
+def strip_skills(required: list[str], preferred: list[str], phrases: list[str]) -> dict[str, list[str]]:
+    """เกณฑ์ที่เอาทักษะ (หรือตัวเลือกในกลุ่ม "A | B") ที่ตรงกับถ้อยคำเหล่านี้ออก — ใช้ตอน HR ถอนการยืนยัน
+    แล้วเลือก "ลบออกจากเกณฑ์ด้วย" · ตัวเลือกอื่นในกลุ่มยังอยู่ กลุ่มที่เหลือตัวเลือกเดียวกลายเป็นทักษะเดี่ยว."""
+    def keep(skills: list[str]) -> list[str]:
+        out = []
+        for s in skills or []:
+            options = alternatives(s) or [s]
+            left = [o for o in options if not any(_same_phrase(o, p) for p in phrases)]
+            if len(left) == len(options):
+                out.append(s)
+            elif left:
+                out.append(" | ".join(left))
+        return out
+
+    return {"required_skills": keep(required), "preferred_skills": keep(preferred)}
+
+
 def biased_skill_message(found: list[dict[str, Any]]) -> str:
     """ข้อความเดียวกันทั้ง 409 ตอนบันทึกและคำเตือนตอนพรีวิว."""
     names = ", ".join(f'"{f["skill"]}"' for f in found)
