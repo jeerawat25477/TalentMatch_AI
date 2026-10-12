@@ -320,10 +320,12 @@ export default function CandidateTimeline({
         </p>
       )}
 
-      {/* ซ้ายไปขวา และ **ขึ้นบรรทัดใหม่เองเมื่อจอแคบ** (flex-wrap) ไม่ใช่เลื่อนแนวนอน —
-          ข้อความกำกับเป็นภาษาไทยยาว ๆ 9 ขั้น บนมือถือจะกลายเป็นแถวละ 2 ขั้น ยังอ่านไล่
-          ซ้ายไปขวาได้ตามเดิม ส่วนแถบเลื่อนแนวนอนซ่อนขั้นท้าย ๆ ไว้จนไม่มีใครเห็น */}
-      <ol className="flex flex-wrap items-start gap-y-sm">
+      {/* จอ sm ขึ้นไป: ซ้ายไปขวา และ **ขึ้นบรรทัดใหม่เองเมื่อจอแคบ** (flex-wrap) ไม่ใช่เลื่อนแนวนอน —
+          แถบเลื่อนแนวนอนซ่อนขั้นท้าย ๆ ไว้จนไม่มีใครเห็น
+          มือถือ: เรียงลงแนวตั้ง ไอคอนซ้าย ข้อความขวา ลูกศรชี้ลง — เดิมใช้ flex-wrap ด้วย การ์ดในหน้าผู้สมัคร
+          แคบจนได้แถวละ 1 ขั้น ลูกศรจึงชี้ไปทางขวาทั้งที่ขั้นถัดไปอยู่ข้างล่าง และขั้นสุดท้าย (ไม่มีลูกศร)
+          หลุดไปอยู่ข้างขั้นก่อนหน้า (เจอตอนตรวจมือถือ 2026-10-12) */}
+      <ol className="flex flex-col sm:flex-row sm:flex-wrap items-start sm:gap-y-sm">
         {rows.map((r, i) => {
           const isCurrent = r.stage != null && r.stage === stage;
           const clickable = r.stage != null && !locked && !isCurrent && !busy;
@@ -337,9 +339,9 @@ export default function CandidateTimeline({
                   ? "ไม่มีข้อมูล"
                   : "ยังไม่ถึงขั้นนี้";
           return (
-            <li key={r.key} className="flex items-start">
+            <li key={r.key} className="flex flex-col sm:flex-row items-start w-full sm:w-auto">
               <div
-                className={`w-[124px] flex flex-col items-center text-center gap-0.5 ${
+                className={`w-full sm:w-[124px] flex sm:flex-col items-start sm:items-center text-left sm:text-center gap-sm sm:gap-0.5 ${
                   r.done ? "" : "opacity-60"
                 }`}
               >
@@ -361,51 +363,55 @@ export default function CandidateTimeline({
                   <span className="material-symbols-outlined text-[18px]">{r.icon}</span>
                 </span>
 
-                {r.stage ? (
-                  <button
-                    type="button"
-                    onClick={() => request(r.stage as BoardStage)}
-                    disabled={!clickable}
-                    aria-current={isCurrent ? "step" : undefined}
-                    title={clickable ? "กดเพื่อย้ายมาขั้นนี้" : undefined}
-                    className={`text-label-md font-semibold leading-tight disabled:cursor-default ${
-                      isCurrent ? "text-primary" : "text-on-surface"
-                    } ${clickable ? "hover:text-primary hover:underline" : ""}`}
-                  >
-                    {r.label}
-                  </button>
-                ) : (
-                  <p
-                    className={`text-label-md font-semibold leading-tight ${
-                      r.tone === "positive"
-                        ? "text-secondary"
-                        : r.tone === "negative"
-                          ? "text-error"
-                          : "text-on-surface"
-                    }`}
-                  >
-                    {r.label}
-                  </p>
-                )}
+                <div className="flex flex-col items-start sm:items-center gap-0.5 min-w-0">
 
-                {isCurrent && (
-                  <span className="text-label-sm font-semibold px-2 py-0.5 rounded-full bg-primary/15 text-primary">
-                    ตอนนี้อยู่ขั้นนี้
-                  </span>
-                )}
-                <p className="text-label-sm text-on-surface-variant leading-tight">{when}</p>
-                {r.detail && (
-                  <div className="text-label-sm text-on-surface-variant break-words">
-                    {r.detail}
-                  </div>
-                )}
+                  {r.stage ? (
+                    <button
+                      type="button"
+                      onClick={() => request(r.stage as BoardStage)}
+                      disabled={!clickable}
+                      aria-current={isCurrent ? "step" : undefined}
+                      title={clickable ? "กดเพื่อย้ายมาขั้นนี้" : undefined}
+                      className={`text-label-md font-semibold leading-tight disabled:cursor-default ${
+                        isCurrent ? "text-primary" : "text-on-surface"
+                      } ${clickable ? "hover:text-primary hover:underline" : ""}`}
+                    >
+                      {r.label}
+                    </button>
+                  ) : (
+                    <p
+                      className={`text-label-md font-semibold leading-tight ${
+                        r.tone === "positive"
+                          ? "text-secondary"
+                          : r.tone === "negative"
+                            ? "text-error"
+                            : "text-on-surface"
+                      }`}
+                    >
+                      {r.label}
+                    </p>
+                  )}
+
+                  {isCurrent && (
+                    <span className="text-label-sm font-semibold px-2 py-0.5 rounded-full bg-primary/15 text-primary">
+                      ตอนนี้อยู่ขั้นนี้
+                    </span>
+                  )}
+                  <p className="text-label-sm text-on-surface-variant leading-tight">{when}</p>
+                  {r.detail && (
+                    <div className="text-label-sm text-on-surface-variant break-words">
+                      {r.detail}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* ลูกศรคั่น — อยู่ระดับเดียวกับวงกลม (วงกลมสูง 36px จึงเยื้องลงครึ่งหนึ่ง) */}
+              {/* ลูกศรคั่น — จอ sm ขึ้นไปอยู่ระดับเดียวกับวงกลม (วงกลมสูง 36px จึงเยื้องลงครึ่งหนึ่ง)
+                  มือถือหมุนชี้ลง อยู่กึ่งกลางใต้วงกลม (เยื้องขวาครึ่งหนึ่งของ 36−18) */}
               {i < rows.length - 1 && (
                 <span
                   aria-hidden
-                  className={`material-symbols-outlined text-[18px] mt-[9px] ${
+                  className={`material-symbols-outlined text-[18px] rotate-90 sm:rotate-0 ml-[9px] my-0.5 sm:ml-0 sm:my-0 sm:mt-[9px] ${
                     i < lastDone ? "text-primary/50" : "text-outline"
                   }`}
                 >

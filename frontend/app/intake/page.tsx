@@ -68,14 +68,14 @@ export default function IntakePage() {
             <h2 id="feed-h" className="text-headline-md text-on-surface">
               ความเคลื่อนไหวล่าสุด
             </h2>
-            <div role="tablist" aria-label="กรองรายการ" className="flex gap-1 p-1 rounded-lg bg-glass/40">
+            <div role="tablist" aria-label="กรองรายการ" className="flex gap-1 p-1 rounded-lg bg-glass/40 max-w-full overflow-x-auto">
               {FILTERS.map((f) => (
                 <button
                   key={f.key}
                   role="tab"
                   aria-selected={filter === f.key}
                   onClick={() => setFilter(f.key)}
-                  className={`px-sm py-1 rounded-md text-label-md transition-colors ${
+                  className={`px-2 sm:px-sm py-1 rounded-md text-label-md transition-colors whitespace-nowrap flex-none ${
                     filter === f.key
                       ? "bg-primary/15 text-primary font-semibold"
                       : "text-on-surface-variant hover:text-on-surface"

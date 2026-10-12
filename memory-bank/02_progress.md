@@ -97,7 +97,7 @@
 - **mobile:** เปิดเป็น drawer ซ้อน + backdrop, ปิดด้วย Esc / คลิกพื้นหลัง / เปลี่ยนหน้า (เดิมมือถือเข้าเมนูไม่ได้เลยเพราะ `hidden md:flex`)
 - แก้ไอคอน active ที่เป็น `border-r-4` + `rounded-lg` แล้วโผล่เป็นขีดโค้งแปลก ๆ → เปลี่ยนเป็น `bg-primary/10`
 - ครอบก้อนแสงพื้นหลังด้วย `fixed inset-0 overflow-hidden` (element แบบ fixed ไม่ถูกคลิปด้วย `body{overflow-x:hidden}`)
-- ⚠️ **ยังไม่ได้ยืนยัน mobile drawer ด้วยตาจริง** — headless บน Windows ย่อ viewport ต่ำกว่า ~500px ไม่ได้ (ดู 03); ยืนยันได้แค่ว่า hamburger โผล่และ sidebar ซ่อนตอน viewport < 768
+- ✓ **ยืนยัน mobile drawer แล้ว (2026-10-12)** — ตรวจทุกหน้าที่ 375px ในเบราว์เซอร์ของแอป: drawer เปิด/ปิด (Esc) ได้ · แก้ที่เจอ: หน้าต่างรับเข้าทำงานโดนเมนูทับ, ค้นหา/รับสมัครทางอีเมลล้นจอ, ปุ่มกรองแตกบรรทัด (ห้ามตัดคำ + "Needs Review" → "รอ HR" ทั้งระบบ), เส้นทางผู้สมัครเรียงแนวตั้งบนมือถือ · ยังไม่ได้ตรวจ: หน้าเข้าสู่ระบบ, เครื่องจริง (iOS Safari/คีย์บอร์ดบังช่อง)
 
 - 🐛 **บั๊กที่เจอจากการดูภาพ:** ป้าย "Needs Review" ไม่มีพื้นหลัง เพราะ `tailwind.config.ts` ไม่ได้ scan `lib/` ทั้งที่ `BANDS` ใน `lib/types.ts` ถือคลาสสีอยู่ → **แก้แล้วโดยเพิ่ม `./lib/**/*.{ts,tsx}` ใน content** (บทเรียน: คลาส Tailwind ที่เขียนไว้นอก app//components/ จะไม่ถูก generate; และแก้ tailwind.config ต้อง restart container)
 

@@ -101,7 +101,7 @@ export default function EmployeesPage() {
                 <button
                   key={t.key}
                   onClick={() => setTab(t.key)}
-                  className={`px-sm py-1.5 rounded-lg text-label-md font-semibold transition-colors ${
+                  className={`px-sm py-1.5 rounded-lg text-label-md font-semibold transition-colors whitespace-nowrap flex-none ${
                     tab === t.key
                       ? "bg-primary text-on-primary"
                       : "text-on-surface-variant hover:bg-glass/40"

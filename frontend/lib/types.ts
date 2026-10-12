@@ -560,7 +560,7 @@ export const BANDS: Record<
   review: {
     color: "var(--band-review)",
     ring: "conic-gradient(var(--band-review-ring) 0 100%)",
-    label: "Needs Review",
+    label: "รอ HR",
     // ใช้คู่ *-fixed ทั้งพื้นและตัวอักษร — คู่ tertiary ปกติจะกลายเป็นสว่างบนสว่างในโหมดมืด
     chip: "bg-tertiary-fixed text-on-tertiary-fixed-variant",
   },

@@ -1,6 +1,6 @@
 import { BANDS, scoreBand } from "@/lib/types";
 
-// ป้ายสถานะ — แบนด์ 50–70 (Needs Review) กะพริบเบา ๆ ตาม brief
+// ป้ายสถานะ — แบนด์ 50–70 ("รอ HR" — เดิมใช้คำว่า Needs Review) กะพริบเบา ๆ ตาม brief
 export default function StatusBadge({ score }: { score: number | null }) {
   const key = scoreBand(score);
   const band = BANDS[key];

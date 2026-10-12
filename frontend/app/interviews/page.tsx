@@ -22,9 +22,9 @@ import Spinner from "@/components/spinner";
 
 // ช่วงเวลาให้เลือก — คำนวณฝั่งนี้แล้วส่ง ISO พร้อมโซนเวลาไป backend ไม่เดาโซนให้
 const RANGES = [
-  { key: "next7", label: "7 วันข้างหน้า", from: 0, to: 7 },
-  { key: "next30", label: "30 วันข้างหน้า", from: 0, to: 30 },
-  { key: "past7", label: "ย้อนหลัง 7 วัน", from: -7, to: 0 },
+  { key: "next7", label: "อีก 7 วัน", from: 0, to: 7 },
+  { key: "next30", label: "อีก 30 วัน", from: 0, to: 30 },
+  { key: "past7", label: "ย้อน 7 วัน", from: -7, to: 0 },
 ] as const;
 
 type RangeKey = (typeof RANGES)[number]["key"];
@@ -98,12 +98,12 @@ export default function InterviewsPage() {
             นัดของทุกตำแหน่งรวมกัน — วันนัดแก้ได้ที่กระดานของแต่ละตำแหน่ง
           </p>
         </div>
-        <div className="flex gap-base bg-glass/50 border border-outline/30 backdrop-blur-md p-1 rounded-xl">
+        <div className="flex gap-base bg-glass/50 border border-outline/30 backdrop-blur-md p-1 rounded-xl max-w-full overflow-x-auto">
           {RANGES.map((r) => (
             <button
               key={r.key}
               onClick={() => setRange(r.key)}
-              className={`px-sm py-1.5 rounded-lg text-label-md font-semibold transition-colors ${
+              className={`px-sm py-1.5 rounded-lg text-label-md font-semibold transition-colors whitespace-nowrap flex-none ${
                 range === r.key
                   ? "bg-primary text-on-primary"
                   : "text-on-surface-variant hover:bg-glass/40"

@@ -15,7 +15,7 @@ import PipelineFunnel from "@/components/pipeline-funnel";
 import ScoreHistogram from "@/components/score-histogram";
 import { SkillGapDisclosure } from "@/components/skill-gap-chart";
 import { bulkDecision, fetcher } from "@/lib/api";
-import { JOB_STATUS, scoreBand } from "@/lib/types";
+import { BANDS, JOB_STATUS, scoreBand } from "@/lib/types";
 import { skillLabel } from "@/lib/skill-group";
 import type {
   BulkDecisionResult,
@@ -36,7 +36,7 @@ function isSelectable(c: CandidateSummary): boolean {
 const TABS: { key: "all" | ScoreBand; label: string }[] = [
   { key: "all", label: "ทั้งหมด" },
   { key: "pass", label: "ผ่านเกณฑ์" },
-  { key: "review", label: "Needs Review" },
+  { key: "review", label: BANDS.review.label },
   { key: "fail", label: "ไม่ผ่าน" },
 ];
 
@@ -306,12 +306,12 @@ export default function JobDashboard() {
 
       {/* Controls */}
       <div className="flex items-center justify-between gap-sm flex-wrap">
-        <div className="flex gap-base bg-glass/50 border border-outline/30 backdrop-blur-md p-1 rounded-xl">
+        <div className="flex gap-base bg-glass/50 border border-outline/30 backdrop-blur-md p-1 rounded-xl max-w-full overflow-x-auto">
           {TABS.map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`px-sm py-1.5 rounded-lg text-label-md font-semibold transition-colors ${
+              className={`px-sm py-1.5 rounded-lg text-label-md font-semibold transition-colors whitespace-nowrap flex-none ${
                 tab === t.key
                   ? "bg-primary text-on-primary"
                   : "text-on-surface-variant hover:bg-glass/40"
