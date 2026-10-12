@@ -44,7 +44,8 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center p-md overflow-hidden">
+    // pt เพิ่มบนจอเล็ก: ปุ่มธีมลอยมุมขวาบน จอ 320×640 การ์ดขึ้นไปทับมัน 12px
+    <div className="relative min-h-screen flex items-center justify-center p-md pt-[4.5rem] sm:pt-md overflow-hidden">
       {/* แสงจาง ๆ หลังการ์ด — หน้านี้โล่งกว่าหน้าอื่น ถ้าไม่มีอะไรรองการ์ดกระจกจะดูลอยบนความว่าง
           ใช้สีของธีม (เปลี่ยนตามโหมดมืด/สว่างเอง) และ pointer-events-none กันไปบังการคลิก */}
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -117,6 +118,11 @@ export default function LoginPage() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
+                // backend เทียบชื่อผู้ใช้แบบตัวพิมพ์ตรงทุกตัว — ไม่ปิด iPhone จะเปลี่ยน admin เป็น Admin ให้เอง
+                // แล้วล็อกอินไม่ผ่านโดยขึ้นเหมือนรหัสผิด
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 autoFocus
                 required
                 disabled={busy}
