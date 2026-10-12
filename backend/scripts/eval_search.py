@@ -12,6 +12,7 @@ memory-bank/06_scoring_criteria.md
     docker compose exec backend python scripts/eval_search.py --cache /tmp/search_q.json
 
 ⚠ คำตอบที่ถูกตั้งจากผู้สมัครในฐานข้อมูล dev ตอน 2026-10-07 (13 คน) ระบุด้วยอีเมล
+  ปรับ 2026-10-12 หลังลบข้อมูลทดสอบซ้ำ: Kittipat หายจากระบบ (เหลือ 12 คน) — เอาออกจากคำตอบ
 ฐานข้อมูลเปลี่ยน (เพิ่ม/ลบคน) ต้องทบทวน CASES ก่อนเชื่อตัวเลข
 """
 import argparse
@@ -25,7 +26,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 ANAN = "anan@example.com"
 NATTIDA = "nattida.s@example.com"
 WORAMET = "woramet.b@example.com"
-KITTIPAT = "kittipat.r@example.com"
 JEERAWAT = "jeerawat.sakwong@gmail.com"
 SOMCHAI = "somchai@example.com"
 SUDA = "suda@example.com"
@@ -42,13 +42,13 @@ CASES: list[tuple[str, str, set[str]]] = [
     ("Facebook Ads, Google Analytics", "คีย์เวิร์ด", {NATTIDA}),
     ("คนที่เคยทำงานขาย อยากย้ายมาทำการตลาด", "พูด", {WORAMET}),
     ("นักการตลาดออนไลน์", "พูด", {NATTIDA, WORAMET}),
-    ("โปรแกรมเมอร์หลังบ้านที่อยากเปลี่ยนสายไปทำ AI", "พูด", {KITTIPAT, JEERAWAT}),
-    ("คนที่เคยทำงานกับ LLM", "พูด", {JEERAWAT, SOMCHAI, KITTIPAT}),
+    ("โปรแกรมเมอร์หลังบ้านที่อยากเปลี่ยนสายไปทำ AI", "พูด", {JEERAWAT}),
+    ("คนที่เคยทำงานกับ LLM", "พูด", {JEERAWAT, SOMCHAI}),
     ("Python, FastAPI", "คีย์เวิร์ด", {SOMCHAI, SUDA, JEERAWAT}),
-    ("Docker, Kubernetes, AWS", "คีย์เวิร์ด", {KITTIPAT}),
+    ("Docker, Kubernetes, AWS", "คีย์เวิร์ด", {SOMCHAI, SUDA, JEERAWAT}),  # ทั้งสามมี Docker
     ("นักศึกษาจบใหม่ ทำเว็บด้วย PHP กับ MySQL", "พูด",
      {SUREERAT, CHYANEE, PHAKPHOOM, PRIYANON, WATCHARAPHON, JEERAWAT}),
-    ("Backend developer with years of experience", "อังกฤษ", {SOMCHAI, SUDA, KITTIPAT}),
+    ("Backend developer with years of experience", "อังกฤษ", {SOMCHAI, SUDA}),
     ("คนที่ทำ IoT กับ Arduino ได้", "พูด", {PHAKPHOOM, SUREERAT, CHYANEE, PRIYANON}),
     ("นักบัญชี ปิดงบการเงินได้", "ไม่มีในระบบ", set()),
     ("พยาบาล ดูแลผู้ป่วย", "ไม่มีในระบบ", set()),
