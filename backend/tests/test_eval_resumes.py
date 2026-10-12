@@ -37,3 +37,29 @@ def test_cases_cover_brief_variety():
     for f, (name, targets, must, ok, _) in CASES.items():
         assert name and targets and must, f
         assert not set(must) & set(ok), f"{f}: ทักษะอยู่ทั้งสองช่อง"
+
+
+def test_live_target_calls_real_parser_with_file_text():
+    from scripts.eval_resumes import live_target
+
+    seen = []
+
+    def fake_parse(state):
+        seen.append(state["raw_resumes"][0]["content"])
+        return {"parsed_resumes": [{"full_name": "A", "skills": ["Python"]}]}
+
+    target = live_target({"a.pdf": "ข้อความ A", "b.pdf": "ข้อความ B"}, parse=fake_parse)
+    assert target({"file": "b.pdf"}) == {"profile": {"full_name": "A", "skills": ["Python"]}}
+    assert seen == ["ข้อความ B"]
+
+
+def test_evaluators_score_live_output_like_replay():
+    from types import SimpleNamespace
+
+    from scripts.eval_resumes import ev_name, ev_precision, ev_recall
+
+    run = SimpleNamespace(outputs={"profile": {"full_name": "Somchai Jaidee", "skills": ["Python", "Docker"]}})
+    ex = SimpleNamespace(outputs={"name": "somchai  jaidee", "must": ["Python", "SQL"], "ok": ["Docker"]})
+    assert ev_recall(run, ex) == {"key": "skill_recall", "score": 0.5}
+    assert ev_precision(run, ex) == {"key": "skill_precision", "score": 1.0}
+    assert ev_name(run, ex) == {"key": "name_correct", "score": 1}

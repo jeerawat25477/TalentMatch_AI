@@ -7,7 +7,8 @@
   ก. resume_parser: Recall / Precision ของทักษะ + อ่านชื่อถูกไหม (ใช้ skills.matches เทียบ เหมือนตอนให้คะแนน)
   ข. การให้คะแนน: กลุ่มคะแนน (ผ่าน / รอ HR / ไม่ผ่าน) ตรงกับที่ควรได้ไหม · ข้อมูลส่วนตัวไม่มีผลกับคะแนน
   ค. ทั้งกราฟ 3 คน: จำนวน call, token, เวลาแยกตามโหนด (กราฟไม่มี checkpointer ไม่เขียน DB ไม่ส่งอีเมล)
-  ง. --langsmith: อัปโหลด Dataset + Experiment ของผลที่วัดแล้ว (ไม่เรียก AI ซ้ำ)
+  ง. --langsmith: อัปโหลด Dataset + Experiment ของผลที่วัดแล้ว (ไม่เรียก AI ซ้ำ · ไม่มีเวลา/token)
+     --langsmith-live: เรียกตัวอ่านเรซูเม่จริง 9 ไฟล์ (18 call) — Experiment มีเวลาและ token ด้วย
 
 ⚠ เรียก Gemini จริง (~3 + 18×รอบ + ~12 call) · ถามเจ้าของงบก่อนรันทุกครั้ง
 ผลดิบเก็บใน --out แล้วคิดตัวเลขใหม่ได้ด้วย --replay โดยไม่เสีย call
@@ -16,6 +17,7 @@
     docker compose exec backend python scripts/eval_resumes.py --pdf-dir /tmp/demo_pdf \\
         --rounds 2 --graph --out /tmp/eval_resumes.json --price-in 0.30 --price-out 2.50
     docker compose exec backend python scripts/eval_resumes.py --replay /tmp/eval_resumes.json --langsmith
+    docker compose exec backend python scripts/eval_resumes.py --pdf-dir /tmp/demo_pdf --langsmith-live
 """
 import argparse
 import json
@@ -313,37 +315,83 @@ def report(raw: dict, price_in: float | None, price_out: float | None) -> dict:
     return summary
 
 
-def push_langsmith(raw: dict, summary: dict) -> None:
-    """Dataset + Experiment ใน LangSmith จากผลที่วัดแล้ว — ไม่เรียก AI ซ้ำ (target คืนผลที่เก็บไว้)."""
-    from langsmith import Client, evaluate
+DATASET = "talentmatch-resume-eval"
 
-    client = Client()
-    name = "talentmatch-resume-eval"
-    ds = next(iter(client.list_datasets(dataset_name=name)), None) or client.create_dataset(
-        name, description="เรซูเม่สาธิต 9 ไฟล์ + คำตอบที่ถูก (บรีฟข้อ 7) — scripts/eval_resumes.py")
+
+def _dataset(client) -> str:
+    """Dataset 9 ไฟล์ + คำตอบที่ถูก — สร้างครั้งแรกครั้งเดียว ใช้ร่วมกันทั้งโหมดอัปผลเก่าและโหมดรันจริง."""
+    ds = next(iter(client.list_datasets(dataset_name=DATASET)), None) or client.create_dataset(
+        DATASET, description="เรซูเม่สาธิต 9 ไฟล์ + คำตอบที่ถูก (บรีฟข้อ 7) — scripts/eval_resumes.py")
     have = {e.inputs.get("file") for e in client.list_examples(dataset_id=ds.id)}
     for f, (want_name, targets, must, ok, _) in CASES.items():
         if f not in have:
             client.create_example(inputs={"file": f}, outputs={"name": want_name, "must": must, "ok": ok},
                                   dataset_id=ds.id)
+    return DATASET
+
+
+def ev_recall(run, example):
+    sc = skill_scores(run.outputs["profile"].get("skills") or [], example.outputs["must"], example.outputs["ok"])
+    return {"key": "skill_recall", "score": sc["recall"]}
+
+
+def ev_precision(run, example):
+    sc = skill_scores(run.outputs["profile"].get("skills") or [], example.outputs["must"], example.outputs["ok"])
+    return {"key": "skill_precision", "score": sc["precision"]}
+
+
+def ev_name(run, example):
+    return {"key": "name_correct", "score": int(same_name(run.outputs["profile"].get("full_name"), example.outputs["name"]))}
+
+
+EVALUATORS = [ev_recall, ev_precision, ev_name]
+
+
+def push_langsmith(raw: dict, summary: dict) -> None:
+    """Dataset + Experiment ใน LangSmith จากผลที่วัดแล้ว — ไม่เรียก AI ซ้ำ (target คืนผลที่เก็บไว้).
+
+    ข้อเสีย: ไม่มี call เกิดขึ้นตอนอัป หน้า Experiment จึงไม่มีเวลา/token — ใช้ --langsmith-live ถ้าต้องการ
+    """
+    from langsmith import Client, evaluate
+
+    name = _dataset(Client())
     cached = {f: runs[0]["profile"] for f, runs in raw["parses"].items()}
 
     def target(inputs: dict) -> dict:
         return {"profile": cached[inputs["file"]]}
 
-    def recall(run, example):
-        sc = skill_scores(run.outputs["profile"].get("skills") or [], example.outputs["must"], example.outputs["ok"])
-        return {"key": "skill_recall", "score": sc["recall"]}
-
-    def precision(run, example):
-        sc = skill_scores(run.outputs["profile"].get("skills") or [], example.outputs["must"], example.outputs["ok"])
-        return {"key": "skill_precision", "score": sc["precision"]}
-
-    def name_ok(run, example):
-        return {"key": "name_correct", "score": int(same_name(run.outputs["profile"].get("full_name"), example.outputs["name"]))}
-
-    evaluate(target, data=name, evaluators=[recall, precision, name_ok], experiment_prefix="resume-parser")
+    evaluate(target, data=name, evaluators=EVALUATORS, experiment_prefix="resume-parser")
     print(f"\nอัปโหลด LangSmith แล้ว: dataset '{name}' + experiment 'resume-parser-…'")
+
+
+def live_target(texts: dict[str, str], parse=None):
+    """target ที่เรียกตัวอ่านเรซูเม่จริงทุกไฟล์ — LangSmith จับเวลา/token ของ Gemini ข้างในให้เอง."""
+    if parse is None:
+        from app.agents.nodes.resume_parser import parse_resumes as parse
+
+    def target(inputs: dict) -> dict:
+        state = {"raw_resumes": [{"candidate_id": "eval", "content": texts[inputs["file"]]}]}
+        return {"profile": parse(state)["parsed_resumes"][0]}
+
+    return target
+
+
+def push_langsmith_live(pdf_dir: Path) -> None:
+    """Experiment ที่เรียก AI จริง 9 ไฟล์ (2 call ต่อไฟล์ = 18 call) — มีเวลาและ token ในหน้า Experiment."""
+    from langsmith import Client, evaluate
+
+    from app.database import close_pool
+    from app.utils.pdf_extractor import extract_text_from_pdf
+
+    texts = {f: extract_text_from_pdf((pdf_dir / f).read_bytes()) for f in CASES}
+    name = _dataset(Client())
+    try:
+        # ทีละไฟล์ — ไม่ยิง Gemini พร้อมกัน และเวลาที่วัดไม่เพี้ยนเพราะแย่งกัน
+        evaluate(live_target(texts), data=name, evaluators=EVALUATORS,
+                 experiment_prefix="resume-parser-live", max_concurrency=1)
+    finally:
+        close_pool()  # ตัวนับโควตาเขียน DB ทุก call
+    print(f"\nอัปโหลด LangSmith แล้ว: dataset '{name}' + experiment 'resume-parser-live-…'")
 
 
 def main(argv: list[str]) -> int:
@@ -356,7 +404,15 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--price-in", type=float, help="USD ต่อ 1M token ขาเข้า")
     ap.add_argument("--price-out", type=float, help="USD ต่อ 1M token ขาออก")
     ap.add_argument("--langsmith", action="store_true")
+    ap.add_argument("--langsmith-live", action="store_true",
+                    help="เรียก AI จริง 18 call แล้วส่งผลพร้อมเวลา/token เข้า LangSmith (ใช้กับ --pdf-dir)")
     args = ap.parse_args(argv)
+
+    if args.langsmith_live:
+        if not args.pdf_dir:
+            ap.error("--langsmith-live ต้องใส่ --pdf-dir")
+        push_langsmith_live(args.pdf_dir)
+        return 0
 
     if args.replay:
         raw = json.loads(args.replay.read_text(encoding="utf-8"))
