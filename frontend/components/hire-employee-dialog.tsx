@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { hireCandidate } from "@/lib/api";
 import { hireDefaults, localToday } from "@/lib/offer";
 import type { EmployeeCreate, JobOffer } from "@/lib/types";
@@ -66,7 +67,9 @@ export default function HireEmployeeDialog({
     }
   }
 
-  return (
+  // วางที่ body — ถ้าอยู่ในเนื้อหน้า (กล่อง relative z-10 ของ AppShell) เมนูข้างจะทับครึ่งซ้ายของโมดัล
+  if (typeof document === "undefined") return null;
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-md"
       role="dialog"
@@ -165,7 +168,8 @@ export default function HireEmployeeDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
