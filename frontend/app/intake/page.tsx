@@ -61,7 +61,7 @@ export default function IntakePage() {
         </p>
       </div>
 
-      <div className="grid gap-md lg:grid-cols-[minmax(0,1fr)_22rem] items-start">
+      <div className="grid gap-md grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_22rem] items-start">
         {/* ความเคลื่อนไหว */}
         <section className="glass-card rounded-2xl p-md space-y-sm" aria-labelledby="feed-h">
           <div className="flex flex-wrap items-center justify-between gap-sm">

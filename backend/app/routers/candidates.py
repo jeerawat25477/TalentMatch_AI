@@ -423,11 +423,20 @@ def _mark_same_person(current_id: str, hits: list[dict]) -> list[dict]:
                  FROM candidates WHERE id::text = ANY(%s)""",
             (ids,),
         ).fetchall()
-    by_id = {r["id"]: r for r in rows}
+    return mark_hits(current_id, hits, {r["id"]: r for r in rows})
+
+
+def mark_hits(current_id: str, hits: list[dict], by_id: dict[str, dict]) -> list[dict]:
+    """ส่วนที่ไม่แตะ DB ของ _mark_same_person — ทิ้งแถวที่ไม่มีใน by_id แล้วเติมป้าย.
+
+    `evaluations.similar_candidates` เก็บไว้ตั้งแต่ตอนวิเคราะห์ คนในนั้นอาจถูกลบไปแล้ว
+    (เช่นล้างข้อมูลซ้ำ 2026-10-12) — ถ้าไม่ทิ้ง หน้าผู้สมัครจะมีลิงก์ที่กดแล้วเจอ 404
+    """
     current = by_id.get(str(current_id)) or {}
     return [
-        {**h, "same_person": same_person(current, by_id.get(str(h.get("id"))) or {})}
+        {**h, "same_person": same_person(current, by_id[str(h["id"])])}
         for h in hits
+        if h.get("id") and str(h["id"]) in by_id
     ]
 
 

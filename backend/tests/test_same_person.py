@@ -160,3 +160,19 @@ class TestSearchPeopleEndpoint:
         monkeypatch.setattr(candidates, "vector_search", lambda q, limit=10: [])
         r = client.get("/api/v1/candidates/search/people", params={"q": "x"})
         assert r.status_code == 200 and r.json() == []
+
+
+class TestMarkHitsDropsDeleted:
+    """ผลคล้ายที่เก็บไว้ตอนวิเคราะห์อาจชี้ไปคนที่ถูกลบแล้ว — ต้องไม่โผล่เป็นลิงก์ 404."""
+
+    def test_drops_rows_no_longer_in_db_and_marks_the_rest(self):
+        from app.routers.candidates import mark_hits
+
+        by_id = {"me": ME, "b": {"sha": "aaa", "text_md5": None, "email": None}}
+        hits = [{"id": "gone", "full_name": "ลบแล้ว"}, {"id": "b", "full_name": "B"}, {"full_name": "ไม่มี id"}]
+        assert mark_hits("me", hits, by_id) == [{"id": "b", "full_name": "B", "same_person": "same_file"}]
+
+    def test_all_deleted_gives_empty_list(self):
+        from app.routers.candidates import mark_hits
+
+        assert mark_hits("me", [{"id": "gone"}], {"me": ME}) == []

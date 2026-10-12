@@ -73,7 +73,7 @@ export default function SearchPage() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="เช่น คนที่ทำเว็บด้วย React ได้"
-            className="input-glass flex-1"
+            className="input-glass flex-1 min-w-0"
             aria-label="คำค้นหา"
           />
           <button type="submit" disabled={busy || !q.trim()} className="btn-primary">
