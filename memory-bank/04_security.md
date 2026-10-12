@@ -15,7 +15,7 @@
 | 5 | **Prompt injection** | resume → LLM ฉีดทักษะปลอมได้ | 🟡 ต่ำ | ⚠️ ยอมรับ |
 | 6 | **SQL injection** | psycopg parameterized ทุกจุด | 🟢 — | ✅ สะอาด |
 | 7 | **CORS / network** | จำกัด origin, db ไม่ publish port | 🟢 — | ✅ โอเค (dev) |
-| 8 | **Container** | รันเป็น root, ไม่มี resource limit | 🟡 ต่ำ | ⏭️ เลื่อน |
+| 8 | **Container** | รันเป็น root, ไม่มี resource limit | 🟡 ต่ำ | ✅ แก้แล้ว (2026-10-12) |
 | 9 | **Transport (TLS)** | HTTP ล้วน ไม่มี TLS | 🟠 กลาง (prod) | ⏭️ prod เท่านั้น |
 
 ---
@@ -80,8 +80,10 @@ resume text เข้า LLM (`resume_parser`, `bias_auditor`, `planner`, `draft
 - db และ mailhog SMTP **ไม่ publish port ออก host** — เข้าได้เฉพาะ network ภายใน compose
 - **prod:** ต้องเปลี่ยน origin เป็นโดเมนจริง
 
-### 8. Container — 🟡 เลื่อน
-- backend/frontend รันเป็น **root** ใน container (ไม่มี `USER`) — escalation ง่ายขึ้นถ้าหลุด
+### 8. Container — ✅ แก้แล้ว
+- ~~backend/frontend รันเป็น **root** ใน container~~ → backend `USER app` (uid 1000) ทั้ง dev และ prod ตั้งแต่ 2026-10-12, frontend prod `USER node`
+  · แอปไม่เขียนไฟล์ลงดิสก์ (PDF อ่านในหน่วยความจำ) จึงต้องการแค่สิทธิ์อ่านโค้ด · ทดสอบแล้ว: health, หน้าเว็บ, reload, pytest 1377, เขียน /tmp
+  · `.pytest_cache` เก่าที่ root สร้างไว้ต้องลบจากฝั่ง host ครั้งเดียว (ใน container ลบไม่ได้) · Studio (`Dockerfile.studio`) ยังเป็น root — dev เท่านั้น ผูก 127.0.0.1
 - ไม่มี `mem_limit`/`cpus` — DoS ทำให้ทั้งเครื่องช้าได้
 - **prod:** เพิ่ม non-root user ใน Dockerfile + resource limits ใน compose
 
@@ -96,7 +98,7 @@ resume text เข้า LLM (`resume_parser`, `bias_auditor`, `planner`, `draft
 2. [x] **TLS** — Caddy ใน `docker-compose.prod.yml` ขอ/ต่ออายุใบรับรอง Let's Encrypt เอง (2026-09-23) · ยังไม่ได้ deploy จริง
 3. [ ] **Rate limiting แบบถาวร** — login rate-limit มีแล้วแต่ in-memory · ย้ายไป Redis + คลุม API ทั่วไป/การส่งอีเมล
 4. [ ] **Secrets manager** — ย้าย `JWT_SECRET`/`GOOGLE_API_KEY`/`ADMIN_PASSWORD` ออกจากไฟล์ `.env`, rotate
-5. [ ] **Non-root container** + resource limits — ทำแล้วบางส่วน: frontend โปรดักชันรันเป็น uid 1000 และมี `mem_limit` ทุก service ใน `docker-compose.prod.yml` · **backend ยังรันเป็น root**
+5. [x] **Non-root container** + resource limits — frontend โปรดักชันรันเป็น uid 1000, backend รันเป็น `app` uid 1000 (2026-10-12) และมี `mem_limit` ทุก service ใน `docker-compose.prod.yml`
 6. [x] **จำกัดจำนวนหน้า PDF** — `MAX_PDF_PAGES` (ดีฟอลต์ 30) ใน `utils/pdf_extractor.py` · ยังไม่จำกัดเวลาแกะ
 7. [ ] **Audit log ถาวร** — ตอนนี้ log ไป stdout เท่านั้น (login สำเร็จ/ส่งอีเมล log แล้ว แต่ไม่ persist)
 8. [ ] **Supabase RLS / Data API** — ทุกตารางอยู่ใน `public` และยังไม่เปิด RLS ถ้า Data API เปิด
