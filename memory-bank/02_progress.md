@@ -1000,6 +1000,13 @@ attempts 0 · แถว `a8ce77b3` ไม่ถูกแตะ ขึ้น `int
 - `cleanup_dev_data.py --apply --clear-stub-drafts`: orphan checkpoint 3 thread / 175 แถว + ร่างอีเมล stub ของ Anan → ไม่เหลือทั้ง 3 ข้อ
 - ถอด `supabase` จาก requirements (ไม่มีโค้ดใช้) · build ใหม่ + pytest 1377 ผ่าน
 
+### ล้างไฟล์ backup เก่า (2026-10-12)
+- ทดสอบกู้ `backup_before_cleanup_debts.sql` ลงฐานชั่วคราว `restore_test` ก่อน: ไม่มี error, จำนวนแถวตรงกับที่คาด
+  (มากกว่าของจริง 1 ตำแหน่ง / 3 ใบ / 6 thread = ส่วนที่เพิ่งลบ) แล้ว drop ฐานชั่วคราวทิ้ง
+- ย้าย 18 ไฟล์ไป **Recycle Bin** (ไม่ลบถาวร): `backup_before_git_implies.sql` + ทั้งหมดใน `backups/` (17 ไฟล์ ก.ย.–ต.ค.)
+  ชื่อ `backups/backup_before_*.sql` ที่อ้างในบันทึกด้านบนจึงไม่มีไฟล์อยู่แล้ว · **เก็บไว้ 2 ไฟล์**: `backup_before_cleanup_debts.sql`
+  (ล่าสุด) และ `backup_before_dedupe.sql` (ก่อนลบข้อมูลซ้ำครั้งใหญ่) · โฟลเดอร์ `backups/` ว่างไว้ใช้ต่อ
+
 ### LangSmith: error 16% มาจาก pytest + ปิด trace ตอนรันเทสต์ (2026-10-12)
 - ไล่ trace 7 วัน (ไม่ใช้ AI): 308 trace, error 50 — **ทั้ง 50 คือ `RuntimeError('429 RESOURCE_EXHAUSTED')` ที่เทสต์จำลองเอง**
   (รันเทสต์ 1 ครั้ง = trace ~24 รายการ ผ่าน 19 + error 5 · เจอ 10 ครั้ง) · trace ที่เรียก Gemini จริง 62 รายการ **error 0**
