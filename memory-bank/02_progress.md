@@ -844,7 +844,7 @@ attempts 0 · แถว `a8ce77b3` ไม่ถูกแตะ ขึ้น `int
 - `NEXT_PUBLIC_API_BASE_URL` ฝังตอน build — เปลี่ยนโดเมนต้อง `--build` ใหม่
 - ตรวจแล้ว: build อิมเมจหน้าเว็บผ่าน เสิร์ฟ 200 รันเป็น uid 1000 · **ยังไม่ได้ deploy จริง** รอ VPS + โดเมน
 - ถามเรื่อง Supabase แล้วตัดสินใช้ Postgres ใน compose — Supabase ต้องแก้ checkpointer ต่อใหม่ได้
-  (05_database ข้อ 2) และต่อพอร์ต 5432 ก่อน · แพ็กเกจ `supabase` ใน requirements ไม่มีใครใช้
+  (05_database ข้อ 2) และต่อพอร์ต 5432 ก่อน · ~~แพ็กเกจ `supabase` ใน requirements ไม่มีใครใช้~~ ถอดแล้ว 2026-10-12
 
 ### ตัวตรวจอคติ: ด่านกฎตายตัว + 8 หมวด (2026-09-28)
 
@@ -991,7 +991,14 @@ attempts 0 · แถว `a8ce77b3` ไม่ถูกแตะ ขึ้น `int
   ข้ามด่าน ประวัติส่งอีเมล 7 ฉบับหายถาวร) · Backend `507cf06b` · HR Officer ว่าง `a1a5b6ae`
 - ผู้สมัครซ้ำในตำแหน่งเดียวกัน 3 ใบ (เก็บใบที่ตัดสินแล้ว) · ผลรวม: 18 → **12 ตำแหน่ง**, 71 → **42 ใบ**
 - Kittipat หายจากระบบ (สมัครแค่ตำแหน่งที่ลบ) → ปรับคำตอบใน `eval_search.py` · ค่าฐานเท่าเดิม Hit@1 92% Hit@3 100%
-- orphan checkpoint 3 thread ที่ `cleanup_dev_data.py` เจอ **มีอยู่ก่อนการลบครั้งนี้** (ไม่ใช่ผู้สมัครใน backup) — ยังไม่ลบ
+- orphan checkpoint 3 thread ที่ `cleanup_dev_data.py` เจอ **มีอยู่ก่อนการลบครั้งนี้** (ไม่ใช่ผู้สมัครใน backup) — ลบแล้วรอบถัดไป
+
+### เก็บหนี้เล็ก (2026-10-12, backup `backup_before_cleanup_debts.sql`)
+- ลบ AI Engineer `7b44445d` (ผู้ใช้ยืนยัน — อีเมลส่งตอนทดลองระบบ) ผ่าน endpoint จริง ข้ามเฉพาะด่าน "เคยส่งอีเมล" →
+  ผู้สมัคร 3 ใบ (Anan/Suda/Somchai — ยังมีใบอื่นในระบบ) + checkpoint 3 thread · **เก็บ `6c0d205a` ไว้ เพราะ `eval_resumes.py` ใช้**
+  · เหลือ **11 ตำแหน่ง** · ค้นหายังเจอ: "อยากได้คนออกแบบกราฟิก" → Anan อันดับ 1, "Python, FastAPI" → Somchai อันดับ 2
+- `cleanup_dev_data.py --apply --clear-stub-drafts`: orphan checkpoint 3 thread / 175 แถว + ร่างอีเมล stub ของ Anan → ไม่เหลือทั้ง 3 ข้อ
+- ถอด `supabase` จาก requirements (ไม่มีโค้ดใช้) · build ใหม่ + pytest 1377 ผ่าน
 
 ### LangSmith: error 16% มาจาก pytest + ปิด trace ตอนรันเทสต์ (2026-10-12)
 - ไล่ trace 7 วัน (ไม่ใช้ AI): 308 trace, error 50 — **ทั้ง 50 คือ `RuntimeError('429 RESOURCE_EXHAUSTED')` ที่เทสต์จำลองเอง**
@@ -1006,7 +1013,7 @@ attempts 0 · แถว `a8ce77b3` ไม่ถูกแตะ ขึ้น `int
    แล้วทำตาม [DEPLOY.md](../DEPLOY.md) · Hardening ที่เหลือ (ดู [04_security.md](04_security.md)):
    ~~TLS/reverse proxy~~ (Caddy แล้ว) · backend ยังรันเป็น root (frontend โปรดักชันเป็น uid 1000 แล้ว) ·
    ย้าย rate-limit ไป Redis · secrets manager · backup อัตโนมัติมีสคริปต์ใน DEPLOY.md ขั้นที่ 8 แต่ยังไม่ได้ตั้งจริง
-2. เคลียร์หนี้ dev: ~~job ที่ `parsed_criteria` เป็น NULL~~ (ปิดแล้ว), แถวอีเมลที่โดน stub ทับ (subject='s') **เหลือ 1 แถว** (Anan Sukjai ในงาน `29270baa…` — ล้างได้ด้วย `--clear-stub-drafts` ยังไม่ได้ล้าง), reducer ของ HRSystemState
+2. เคลียร์หนี้ dev: ~~job ที่ `parsed_criteria` เป็น NULL~~ (ปิดแล้ว), ~~แถวอีเมลที่โดน stub ทับ (subject='s')~~ (ล้างแล้ว 2026-10-12), reducer ของ HRSystemState
 3. ~~ปรับปรุงความทนทาน: อัปโหลดหลายไฟล์แล้วชนโควตา~~ — **ปิดแล้ว 2026-09-10** ดู "คิวงานประมวลผล + คุมโควตา" ด้านล่าง
 4. ~~ข้อมูล dev ค้าง: 2 งาน `parsed_criteria` = NULL~~ — **ปิดแล้ว 2026-09-02** ดู "เก็บกวาดข้อมูล dev" ด้านล่าง
 5. ~~รับใบสมัครทางอีเมลอัตโนมัติ~~ — **ปิดแล้ว 2026-09-10 ครบทั้ง backend และ frontend** ดู "ปากทางรับใบสมัครทางอีเมล" ด้านล่าง · เหลือแค่ทดสอบกับกล่องเมลจริง ซึ่งต้องให้ผู้ใช้ทำเอง (ดู [03_environment.md](03_environment.md))

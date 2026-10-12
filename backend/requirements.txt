@@ -3,7 +3,6 @@ uvicorn>=0.22.0
 langchain>=0.1.0
 langgraph>=0.0.10
 langchain-google-genai>=0.0.11
-supabase>=1.0.3
 pydantic>=2.0
 email-validator>=2.0        # ให้ pydantic EmailStr ตรวจรูปแบบอีเมล (ผู้รับก่อนส่ง)
 python-multipart>=0.0.6
