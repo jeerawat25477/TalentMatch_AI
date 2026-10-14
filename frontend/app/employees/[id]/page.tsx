@@ -11,6 +11,7 @@ import { fetcher, setEmployeeStatus } from "@/lib/api";
 import { EMPLOYEE_STATUS } from "@/lib/types";
 import type { EmployeeDetail, EmployeeStatus } from "@/lib/types";
 import Spinner from "@/components/spinner";
+import NotFoundCard, { useGone } from "@/components/not-found-card";
 
 // ปุ่มเปลี่ยนสถานะที่จะโชว์ (ยกเว้นสถานะปัจจุบัน) + ป้ายกำกับการกระทำ
 const ACTIONS: Record<EmployeeStatus, { label: string; danger?: boolean }> = {
@@ -26,10 +27,8 @@ function fmtDate(d: string | null): string {
 
 export default function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { data: e, mutate } = useSWR<EmployeeDetail>(
-    `/api/v1/employees/${id}`,
-    fetcher,
-  );
+  const { gone, swr: goneSwr } = useGone();
+  const { data: e, mutate } = useSWR<EmployeeDetail>(`/api/v1/employees/${id}`, fetcher, goneSwr);
 
   const [pending, setPending] = useState<EmployeeStatus | null>(null);
   const [note, setNote] = useState("");
@@ -51,6 +50,14 @@ export default function EmployeeDetailPage() {
       setBusy(false);
     }
   }
+
+  if (gone)
+    return (
+      <div className="space-y-md">
+        <Breadcrumb items={[{ label: "พนักงาน", href: "/employees" }, { label: "ไม่พบ" }]} />
+        <NotFoundCard title="ไม่พบพนักงานคนนี้" backHref="/employees" backLabel="กลับไปหน้าพนักงาน" />
+      </div>
+    );
 
   if (!e)
     return (

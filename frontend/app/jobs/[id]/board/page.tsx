@@ -15,18 +15,25 @@ import ConfirmDialog from "@/components/confirm-dialog";
 import HireEmployeeDialog from "@/components/hire-employee-dialog";
 import { InterviewScheduleDialog } from "@/components/interview-schedule";
 import JobTabs from "@/components/job-tabs";
+import NotFoundCard, { useGone } from "@/components/not-found-card";
 import { fetcher, getBoard, setStage } from "@/lib/api";
 import type { BoardItem, BoardStage, Job } from "@/lib/types";
 
 export default function HiringBoard() {
   const { id } = useParams<{ id: string }>();
 
-  const { data: job } = useSWR<Job>(`/api/v1/jobs/${id}`, fetcher);
+  // poll ช้า ๆ ทุก 15 วิเฉพาะข้อมูลตำแหน่ง (ไม่ใช่การ์ด) — รู้ตัวถ้าตำแหน่งถูกลบขณะเปิดค้าง
+  // การ์ดยังไม่ poll ตามเหตุผลข้างล่าง ข้อมูลตำแหน่งไม่ได้ป้อนการ์ด จึงไม่ทำให้การ์ดกระโดดระหว่างลาก
+  const { gone, swr: goneSwr } = useGone();
+  const { data: job } = useSWR<Job>(`/api/v1/jobs/${id}`, fetcher, {
+    ...goneSwr,
+    refreshInterval: gone ? 0 : 15000,
+  });
   // ไม่ poll ต่างจากหน้ารายชื่อที่ poll ทุก 4 วิโดยตั้งใจ: หน้านั้นรอผลที่ทยอยมาจากกราฟ
   // ส่วนกระดานเปลี่ยนเฉพาะตอน HR ลงมือเอง — revalidate ระหว่างที่กำลังลากจะทำให้
   // การ์ดกระโดดกลางคัน จึงรีเฟรชตอนกลับมาโฟกัสหน้าต่างและหลังย้ายขั้นเท่านั้น
   const { data, mutate, error, isLoading } = useSWR<BoardItem[]>(
-    ["board", id],
+    gone ? null : ["board", id],
     () => getBoard(id),
   );
 
@@ -89,6 +96,15 @@ export default function HiringBoard() {
     } finally {
       setBusyId(null);
     }
+  }
+
+  if (gone) {
+    return (
+      <div className="space-y-md">
+        <Breadcrumb items={[{ label: "ตำแหน่งงาน", href: "/" }, { label: "ไม่พบ" }]} />
+        <NotFoundCard title="ไม่พบตำแหน่งงานนี้" backHref="/" backLabel="กลับไปหน้าตำแหน่งงาน" />
+      </div>
+    );
   }
 
   return (

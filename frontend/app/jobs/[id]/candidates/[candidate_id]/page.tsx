@@ -27,6 +27,7 @@ import SkillGap from "@/components/skill-gap";
 import StatusBadge from "@/components/status-badge";
 import WorkingNote from "@/components/working-note";
 import Spinner from "@/components/spinner";
+import NotFoundCard, { isNotFound, useGone } from "@/components/not-found-card";
 import {
   biasWarningOf,
   clearEmailDraft,
@@ -63,13 +64,16 @@ import type {
 
 export default function CandidateDeepDive() {
   const { id, candidate_id } = useParams<{ id: string; candidate_id: string }>();
+  const { gone, swr: goneSwr } = useGone();
   const { data: c, mutate } = useSWR<CandidateDetail>(
     `/api/v1/candidates/${candidate_id}`,
     fetcher,
-    { refreshInterval: 4000 },
+    { ...goneSwr, refreshInterval: gone ? 0 : 4000 }, // ถูกลบ = หยุด poll
   );
-  // ใช้เฉพาะชื่อตำแหน่งใน breadcrumb (SWR แคชร่วมกับหน้า job dashboard)
-  const { data: job } = useSWR<Job>(`/api/v1/jobs/${id}`, fetcher);
+  // ใช้เฉพาะชื่อตำแหน่งใน breadcrumb (SWR แคชร่วมกับหน้า job dashboard) · บอกปุ่มกลับว่ายังมีตำแหน่งไหม
+  const { data: job } = useSWR<Job>(`/api/v1/jobs/${id}`, fetcher, {
+    shouldRetryOnError: (e: Error) => !isNotFound(e),
+  });
   const showPhoto = useScreeningPhotos();
   // ขอเฉพาะเมื่อคนนี้มีคะแนนแล้ว — ยังไม่มีผล ไม่มีหมุดให้ปัก จึงไม่แสดงกราฟนี้เลย
   const { data: distribution } = useSWR<ScoreDistribution>(
@@ -250,6 +254,25 @@ export default function CandidateDeepDive() {
       setBusy(null);
     }
   }
+
+  if (gone)
+    return (
+      <div className="space-y-md">
+        <Breadcrumb
+          items={[
+            { label: "ตำแหน่งงาน", href: "/" },
+            ...(job ? [{ label: job.title, href: `/jobs/${id}` }] : []),
+            { label: "ไม่พบ" },
+          ]}
+        />
+        {/* ผู้สมัครหาย แต่ตำแหน่งยังอยู่ → พากลับไปตำแหน่งนั้น · ตำแหน่งหายด้วย → หน้าตำแหน่งงาน */}
+        <NotFoundCard
+          title="ไม่พบผู้สมัครคนนี้"
+          backHref={job ? `/jobs/${id}` : "/"}
+          backLabel={job ? `กลับไปหน้า ${job.title}` : "กลับไปหน้าตำแหน่งงาน"}
+        />
+      </div>
+    );
 
   // ระหว่างโหลดก็ยังต้องเห็น breadcrumb — ตำแหน่งของหน้าห้ามหายไป
   if (!c)

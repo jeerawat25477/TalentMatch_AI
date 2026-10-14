@@ -6,6 +6,7 @@ import useSWR from "swr";
 import ApplyAddress from "@/components/apply-address";
 import Breadcrumb from "@/components/breadcrumb";
 import JobTabs from "@/components/job-tabs";
+import NotFoundCard, { useGone } from "@/components/not-found-card";
 import CandidateCard from "@/components/candidate-card";
 import ConfirmDialog from "@/components/confirm-dialog";
 import { JobBiasCard } from "@/components/bias-ack";
@@ -51,27 +52,35 @@ export default function JobDashboard() {
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [bulkResult, setBulkResult] = useState<BulkDecisionResult | null>(null);
 
-  const { data: job, mutate: mutateJob } = useSWR<Job>(`/api/v1/jobs/${id}`, fetcher);
+  // poll ช้า ๆ ทุก 15 วิ: ข้อมูลตำแหน่งเปลี่ยนน้อย แต่ถ้ามีคนลบตำแหน่งขณะหน้านี้เปิดค้าง ต้องรู้ตัว
+  // (ไม่งั้นหน้าโชว์ตำแหน่งที่ไม่มีแล้วจนกว่าจะรีเฟรช — ส่วนอื่นที่ poll ทุก 4 วิแค่กลายเป็นว่าง)
+  const { gone, swr: goneSwr } = useGone();
+  const { data: job, mutate: mutateJob } = useSWR<Job>(`/api/v1/jobs/${id}`, fetcher, {
+    ...goneSwr,
+    refreshInterval: gone ? 0 : 15000,
+  });
+  // ตำแหน่งไม่มีแล้ว → หยุด poll ส่วนอื่น (key = null) ไม่ยิงทิ้งทุก 4 วิ
+  const live = (path: string) => (gone ? null : path);
   const [editingCriteria, setEditingCriteria] = useState(false);
   // กรวยรวมทั้งตำแหน่ง — อ่านอย่างเดียว นับจากข้อมูลชุดเดียวกับกระดาน
   const { data: funnel } = useSWR<FunnelStage[]>(
-    `/api/v1/jobs/${id}/funnel`,
+    live(`/api/v1/jobs/${id}/funnel`),
     fetcher,
     { refreshInterval: 4000 },
   );
   // คะแนนทยอยขึ้นระหว่างวิเคราะห์ จึง poll จังหวะเดียวกับกรวย
   const { data: distribution } = useSWR<ScoreDistribution>(
-    `/api/v1/jobs/${id}/score-distribution`,
+    live(`/api/v1/jobs/${id}/score-distribution`),
     fetcher,
     { refreshInterval: 4000 },
   );
   const { data: skillGaps } = useSWR<SkillGapStats>(
-    `/api/v1/jobs/${id}/skill-gaps`,
+    live(`/api/v1/jobs/${id}/skill-gaps`),
     fetcher,
     { refreshInterval: 4000 },
   );
   const { data: candidates, mutate } = useSWR<CandidateSummary[]>(
-    `/api/v1/jobs/${id}/candidates`,
+    live(`/api/v1/jobs/${id}/candidates`),
     fetcher,
     { refreshInterval: 4000 }, // poll: คะแนนทยอยขึ้นเมื่อ background task รันเสร็จ
   );
@@ -122,6 +131,15 @@ export default function JobDashboard() {
   }
 
   const criteria = job?.parsed_criteria;
+
+  if (gone) {
+    return (
+      <div className="space-y-md">
+        <Breadcrumb items={[{ label: "ตำแหน่งงาน", href: "/" }, { label: "ไม่พบ" }]} />
+        <NotFoundCard title="ไม่พบตำแหน่งงานนี้" backHref="/" backLabel="กลับไปหน้าตำแหน่งงาน" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-md">
