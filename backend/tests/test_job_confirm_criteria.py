@@ -158,6 +158,18 @@ class TestAnalyze:
         assert body["bias"]["status"] == "passed" and body["bias"]["llm_checked"] is True
         assert body["bias_llm"]["audit_status"] == "passed"
 
+    def test_ส่งทักษะที่ยืนยันได้_เฉพาะที่ยังอยู่ในเกณฑ์(self, client, no_real_bias_llm):
+        """skill_phrases คิดฝั่ง server — ชื่อที่ AI ชี้แต่ไม่อยู่ในร่างเกณฑ์ไม่ต้องให้กดยืนยัน."""
+        from app.agents.models import BiasAudit
+
+        no_real_bias_llm.return_value = BiasAudit(
+            is_biased=True, audit_status="flagged", audit_log="x",
+            biased_required_skills=["FastAPI", "ไม่อยู่ในเกณฑ์"],
+        )
+        with patch("app.routers.jobs.extract_jd", side_effect=fake_extract):
+            body = client.post("/api/v1/jobs/analyze", json={"raw_text": JD}).json()
+        assert body["skill_phrases"] == ["FastAPI"]
+
     def test_ตัวตรวจล้มแล้ววิเคราะห์ยังสำเร็จด้วยกฎตายตัว(self, client, no_real_bias_llm):
         no_real_bias_llm.side_effect = RuntimeError("quota")
         biased = JD + "\nเพศชาย อายุไม่เกิน 30 ปี"

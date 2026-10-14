@@ -100,6 +100,8 @@ class TestView:
     def test_ลบออกจากเกณฑ์แล้ว_คำเตือนหาย(self):
         v = bias_view(AUDIT, [], {"required_skills": ["Python"], "preferred_skills": []})
         assert v["status"] == "passed" and v["biased_skills"] == []
+        # สรุปต้องไม่พูดว่า "มีอคติ" คู่กับสถานะผ่าน (เจอตอนลองบนหน้าเว็บ 2026-10-14)
+        assert "ลบออกจากเกณฑ์แล้ว" in v["summary"]
 
     def test_ถ้อยคำในประกาศยังเป็น_kind_phrase(self):
         audit = {**AUDIT, "jd_criteria": ["เพศหญิง"]}

@@ -19,7 +19,7 @@ from app.agents.runner import active_candidates
 from app.agents.models import JDReview
 from app.auth import get_current_user
 from app.bias_ack import (
-    AckError, biased_skill_message, biased_skills, effective_biased_skills, removal_phrases,
+    AckError, biased_skill_message, biased_skills, effective_biased_skills, llm_skill_phrases, removal_phrases,
     strip_skills, validate_acks, warned_phrases, withdraw_blocked,
 )
 from app.rate_limit import hit_and_check, retry_after_sec
@@ -290,6 +290,7 @@ def analyze_job_description(
     except Exception as exc:  # noqa: BLE001
         log.warning("ตรวจอคติของประกาศด้วย AI ไม่สำเร็จ ใช้กฎตายตัวอย่างเดียว: %s", exc)
 
+    audit = build_jd_audit(bias_llm, payload.raw_text)
     return JobAnalyzeOut(
         job_title=(requirement.job_title or "").strip()[:255],
         min_experience_years=max(0, min(requirement.min_experience_years, 60)),
@@ -300,8 +301,10 @@ def analyze_job_description(
         dropped=clean["dropped"],
         sources=criteria_sources(req + pref, labels, payload.raw_text),
         extraction=labels,
-        bias=JDBiasAudit(**build_jd_audit(bias_llm, payload.raw_text)),
+        bias=JDBiasAudit(**audit),
         bias_llm=bias_llm,
+        # คิดฝั่ง server ด้วยกติกาเดียวกับ create_job (ตัดข้อที่ซ้ำถ้อยคำในประกาศ) หน้าเว็บไม่ต้องเขียนซ้ำ
+        skill_phrases=llm_skill_phrases(audit, {"required_skills": req, "preferred_skills": pref}),
     )
 
 

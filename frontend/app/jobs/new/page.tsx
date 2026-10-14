@@ -76,6 +76,15 @@ export default function NewJobPage() {
     }
   }
 
+  // ทักษะที่ AI ชี้ซึ่งยังอยู่ในรายการที่ HR กำลังแก้ — ลบออกแล้วปุ่มยืนยันก็หายไป
+  // เทียบแบบหยาบ (ตัวพิมพ์ ช่องว่าง กลุ่ม "|") ถ้าพลาด ยืนยันที่การ์ดในหน้าตำแหน่งได้หลังสร้าง
+  // (ใช้ผลจาก server) และ backend ทิ้งการยืนยันของทักษะที่ไม่อยู่ในเกณฑ์แล้วเอง
+  const skillKey = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+  const listed = new Set(
+    [...lists.required, ...lists.preferred].flatMap((s) => s.split("|")).map(skillKey),
+  );
+  const ackableSkills = (draft?.skill_phrases ?? []).filter((s) => listed.has(skillKey(s)));
+
   function startConfirm(d: JobAnalyzeResult | null) {
     setDraft(d);
     setLists({
@@ -280,17 +289,19 @@ export default function NewJobPage() {
               ) : (
                 <p className="text-label-sm text-on-surface">{draft.bias.log.split("\n")[0]}</p>
               )}
-              {draft.bias.biased_required_skills.length +
-                draft.bias.biased_preferred_skills.length >
-                0 && (
-                <p className="text-label-sm text-on-surface">
-                  ทักษะที่อาจเป็นเกณฑ์อคติ:{" "}
-                  {[
-                    ...draft.bias.biased_required_skills,
-                    ...draft.bias.biased_preferred_skills,
-                  ].join(", ")}{" "}
-                  — ลบออกจากรายการด้านล่างได้เลย
-                </p>
+              {ackableSkills.length > 0 && (
+                <div className="space-y-xs">
+                  <p className="text-label-sm text-on-surface">
+                    <span className="font-semibold">ทักษะที่ AI ชี้ว่าอาจมีอคติ</span> — ไม่นับคะแนนจนกว่าจะยืนยัน
+                    ลบออกจากรายการด้านล่างได้เลย หรือถ้างานต้องการจริง กด “จำเป็นกับงานนี้”
+                  </p>
+                  <BiasAckEditor
+                    phrases={ackableSkills}
+                    value={acks}
+                    onChange={setAcks}
+                    disabled={busy}
+                  />
+                </div>
               )}
               <p className="text-label-sm text-on-surface-variant">
                 ถ้อยคำในประกาศไม่ได้ถูกใช้คิดคะแนน แต่ผู้สมัครจะเห็น ควรลบก่อนโพสต์ ถ้างานต้องการจริง

@@ -253,7 +253,11 @@ export default function JobDashboard() {
         <JobBiasCard
           key={JSON.stringify(job.bias.acknowledged)}
           job={job}
-          onSaved={(j) => mutateJob(j, false)}
+          onSaved={(j, scoresChanged) => {
+            mutateJob(j, false);
+            // ยืนยัน/ถอนทักษะที่ AI ชี้ = คะแนนคนเดิมเปลี่ยน — ดึงรายชื่อใหม่ทันที ไม่รอรอบ poll 4 วิ
+            if (scoresChanged) mutate();
+          }}
         />
       )}
 

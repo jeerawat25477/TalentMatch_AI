@@ -103,9 +103,15 @@ def bias_view(
     named_any = bool(jd_audit.get("biased_required_skills") or jd_audit.get("biased_preferred_skills"))
     flagged_other = jd_audit.get("status") == "flagged" and not criteria and not named_any
     log = jd_audit.get("log") or ""
+    status = "flagged" if (pending or skills or flagged_other) else "passed"
+    summary = log.split("\n")[0]
+    if status == "passed" and jd_audit.get("status") == "flagged" and not acknowledged:
+        # ตัวตรวจเคยเตือน แต่ทุกข้อหายไปเพราะ HR ลบทักษะนั้นออกจากเกณฑ์ — ถ้าใช้สรุปเดิม
+        # หน้าผู้สมัครจะขึ้น "AI ชี้ว่ามีอคติ" คู่กับ "ผ่านเกณฑ์ความโปร่งใส" ขัดกันเอง
+        summary = "ไม่มีคำเตือนค้าง — ทักษะที่ตัวตรวจเคยชี้ว่าอาจมีอคติถูกลบออกจากเกณฑ์แล้ว"
     return {
-        "status": "flagged" if (pending or skills or flagged_other) else "passed",
-        "summary": log.split("\n")[0],
+        "status": status,
+        "summary": summary,
         "pending": pending,
         "acknowledged": acknowledged,
         "biased_skills": skills,

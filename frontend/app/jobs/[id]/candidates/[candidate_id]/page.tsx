@@ -464,6 +464,25 @@ export default function CandidateDeepDive() {
                       คะแนน {c.bias_revision.score_before ?? "—"} →{" "}
                       {c.bias_revision.score_after ?? c.fit_score ?? "—"}
                     </p>
+                    {/* ตัวเลขข้างบนเป็นของตอนที่ลูปทำงาน — ถ้า HR ยืนยันทักษะนั้นทีหลัง คะแนนถูกคิดใหม่แล้ว
+                        ต้องบอก ไม่งั้นกล่องนี้ขัดกับคะแนนปัจจุบันที่เห็นด้านบน */}
+                    {(() => {
+                      const later = (c.job_bias?.acknowledged ?? [])
+                        .filter((a) => a.kind === "skill")
+                        .map((a) => a.phrase)
+                        .filter((p) =>
+                          [
+                            ...c.bias_revision!.excluded_required,
+                            ...c.bias_revision!.excluded_preferred,
+                          ].includes(p),
+                        );
+                      return later.length > 0 ? (
+                        <p className="text-label-sm text-on-surface-variant mt-1">
+                          HR ยืนยันภายหลังว่า {later.join(", ")} จำเป็นกับงานนี้ — คะแนนปัจจุบันนับทักษะนี้แล้ว (
+                          {c.fit_score ?? "—"})
+                        </p>
+                      ) : null;
+                    })()}
                   </div>
                 </div>
               )}

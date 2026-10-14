@@ -930,6 +930,8 @@ export interface JobAnalyzeResult {
   bias: JDBiasAudit;
   /** ผลดิบของ AI — ส่งกลับไปตอนสร้างเหมือน extraction · null = AI ตรวจไม่สำเร็จ */
   bias_llm: unknown | null;
+  /** ทักษะที่ AI ชี้ว่ามีอคติซึ่งกด "จำเป็นกับงานนี้" ได้ (backend ตัดข้อที่ซ้ำถ้อยคำในประกาศแล้ว) */
+  skill_phrases?: string[];
 }
 
 /**

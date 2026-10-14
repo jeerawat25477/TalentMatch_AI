@@ -168,6 +168,8 @@ class JobAnalyzeOut(BaseModel):
     # ผลตรวจอคติของประกาศ (กฎ + LLM) สำหรับโชว์ในขั้นยืนยัน · bias_llm = ของดิบให้ส่งกลับตอนสร้าง
     bias: JDBiasAudit
     bias_llm: Optional[BiasAudit] = None
+    # ทักษะที่ AI ชี้ว่ามีอคติซึ่ง HR กด "จำเป็นกับงานนี้" ได้ในขั้นยืนยัน (ไม่ซ้ำกับถ้อยคำใน jd_criteria)
+    skill_phrases: list[str] = Field(default_factory=list)
 
 
 class CriteriaImpact(BaseModel):

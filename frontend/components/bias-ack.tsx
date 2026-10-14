@@ -3,7 +3,7 @@
 import { useState } from "react";
 import ConfirmDialog from "@/components/confirm-dialog";
 import Spinner from "@/components/spinner";
-import { biasedSkillErrorOf, previewCriteria, updateBiasAcks } from "@/lib/api";
+import { biasedSkillErrorOf, previewBiasAcks, updateBiasAcks } from "@/lib/api";
 import {
   BIAS_ACK_MIN_REASON,
   type BiasAck,
@@ -19,6 +19,8 @@ import {
  * ยืนยันทีละถ้อยคำ ต้องมีเหตุผล และบันทึกว่าใคร/เมื่อไร (ฝั่ง backend) · ปกติไม่มีผลกับคะแนน —
  * เปลี่ยนแค่สิ่งที่ HR เห็นในหน้าผู้สมัคร ไม่ให้คำเตือนเรื่องที่ตัดสินแล้วขึ้นซ้ำทุกคนจนคนเลิกอ่าน
  * ยกเว้นถ้อยคำที่ HR ใส่เป็นทักษะในเกณฑ์ด้วย (scored): ยืนยันแล้วจึงนับคะแนน และถอนไม่ได้จนกว่าจะลบทักษะ
+ * และทักษะที่ AI ชี้ว่ามีอคติ (kind = "skill", ตั้งแต่ 2026-10-14): ไม่ยืนยัน = ลูปตัดออกจากคะแนน
+ * ยืนยัน/ถอน = คะแนนคนเดิมถูกคำนวณใหม่ การ์ดจึงพรีวิวผลกระทบให้ดูก่อนบันทึก
  */
 
 /** phrase → เหตุผล (มีคีย์ = ยืนยันแล้ว) */
@@ -83,7 +85,11 @@ export function BiasAckEditor({
                   </span>
                   {m?.scored && (
                     <span
-                      title="ถ้อยคำนี้ใส่ไว้เป็นทักษะในเกณฑ์ด้วย — ถอนได้หลังลบทักษะออกจากเกณฑ์"
+                      title={
+                        m.kind === "skill"
+                          ? "ทักษะนี้อยู่ในเกณฑ์ — ยืนยันแล้วจึงนับคะแนน ถ้าถอน ระบบจะไม่นับและคำนวณคะแนนใหม่ (ข้อที่เข้ากฎอคติต้องลบออกจากเกณฑ์ด้วย ระบบจะถามก่อน)"
+                          : "ถ้อยคำนี้ใส่ไว้เป็นทักษะในเกณฑ์ด้วย — ถอนได้หลังลบทักษะออกจากเกณฑ์"
+                      }
                       className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed-variant"
                     >
                       นับเป็นทักษะในคะแนน
@@ -164,62 +170,110 @@ export function BiasAckEditor({
   );
 }
 
-/** การ์ดในหน้าตำแหน่ง — ยืนยัน/ถอนถ้อยคำของตำแหน่งที่สร้างไปแล้ว */
-export function JobBiasCard({ job, onSaved }: { job: Job; onSaved: (j: Job) => void }) {
+/** ชุดชื่อที่ยืนยันอยู่ในกลุ่มนี้ — เทียบก่อน/หลังเพื่อรู้ว่าการบันทึกครั้งนี้แตะคะแนนไหม */
+const ackedKeys = (m: AckMap, names: string[]) =>
+  JSON.stringify(names.filter((n) => m[n] !== undefined).sort());
+
+type Pending = {
+  /** "remove" = ถอนทักษะที่ยังอยู่ในเกณฑ์ ต้องลบออกด้วย · "rescore" = ยืนยัน/ถอนทักษะที่ AI ชี้ */
+  mode: "remove" | "rescore";
+  skills: string[];
+  impact: CriteriaImpact[];
+};
+
+/** การ์ดในหน้าตำแหน่ง — ยืนยัน/ถอนถ้อยคำและทักษะที่ AI ชี้ ของตำแหน่งที่สร้างไปแล้ว */
+export function JobBiasCard({
+  job,
+  onSaved,
+}: {
+  job: Job;
+  /** scoresChanged = คะแนนคนเดิมถูกคำนวณใหม่ หน้าแม่ควรดึงรายชื่อใหม่ทันที ไม่รอรอบ poll */
+  onSaved: (j: Job, scoresChanged: boolean) => void;
+}) {
   const bias = job.bias;
   const initial = fromAcks(bias?.acknowledged ?? []);
   const [value, setValue] = useState<AckMap>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // ถอนถ้อยคำที่ยังเป็นทักษะในเกณฑ์ → ถามก่อนพร้อมผลกระทบ แล้วลบทักษะ + คำนวณคะแนนใหม่ในคราวเดียว
-  const [removal, setRemoval] = useState<{ skills: string[]; impact: CriteriaImpact[] } | null>(null);
-  const [removeError, setRemoveError] = useState<string | null>(null);
+  // บันทึกที่แตะคะแนน → ถามก่อนพร้อมผลกระทบ (ไม่มีใครคะแนนเปลี่ยน = บันทึกเลยไม่ถาม)
+  const [confirming, setConfirming] = useState<Pending | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   if (!bias) return null;
-  const phrases = [...bias.acknowledged.map((a) => a.phrase), ...bias.pending];
-  if (phrases.length === 0 && bias.biased_skills.length === 0) return null;
+  const isSkill = (a: BiasAck) => a.kind === "skill";
+  const phrases = [...bias.acknowledged.filter((a) => !isSkill(a)).map((a) => a.phrase), ...bias.pending];
+  const skills = [...bias.acknowledged.filter(isSkill).map((a) => a.phrase), ...bias.biased_skills];
+  if (phrases.length === 0 && skills.length === 0) return null;
 
   const dirty = JSON.stringify(value) !== JSON.stringify(initial);
+  // ยืนยัน/ถอนทักษะที่ AI ชี้ = เปลี่ยนว่าลูปตรวจอคติต้องตัดอะไร → คะแนนคนเดิมถูกคิดใหม่
+  // (แก้แค่เหตุผล หรือแตะแค่ถ้อยคำในประกาศ ไม่แตะคะแนน)
+  const touchesScores = ackedKeys(value, skills) !== ackedKeys(initial, skills);
+
+  async function commit(removeSkills: boolean, scoresChanged: boolean) {
+    onSaved(await updateBiasAcks(job.id, toAckIn(value), removeSkills), scoresChanged);
+  }
+
+  async function askRemoval(e: unknown): Promise<boolean> {
+    // ถอนทักษะที่ยังอยู่ในเกณฑ์ (ถ้อยคำที่ HR ใส่เป็นทักษะ หรือทักษะที่ AI ชี้ซึ่งเข้ากฎตายตัวด้วย)
+    // → backend ตอบ 409 · พรีวิวด้วยเส้นทางเดียวกับตอนบันทึกจริง ตัวเลขจึงตรงกับผลจริง
+    const biased = biasedSkillErrorOf(e);
+    if (!biased?.stripped) return false;
+    const preview = await previewBiasAcks(job.id, toAckIn(value), true);
+    setConfirmError(null);
+    setConfirming({ mode: "remove", skills: biased.skills.map((s) => s.skill), impact: preview.impact });
+    return true;
+  }
 
   async function save() {
     setBusy(true);
     setError(null);
     try {
-      onSaved(await updateBiasAcks(job.id, toAckIn(value)));
-    } catch (e) {
-      const biased = biasedSkillErrorOf(e);
-      if (biased?.stripped) {
-        // backend บอกเกณฑ์หลังลบทักษะมาแล้ว — พรีวิวผลกระทบ (ไม่เขียนอะไร) ให้ HR เห็นก่อนยืนยัน
-        try {
-          const preview = await previewCriteria(job.id, biased.stripped);
-          setRemoveError(null);
-          setRemoval({ skills: biased.skills.map((s) => s.skill), impact: preview.impact });
-        } catch (pe) {
-          setError(pe instanceof Error ? pe.message : "คำนวณผลกระทบไม่สำเร็จ");
+      if (touchesScores) {
+        const preview = await previewBiasAcks(job.id, toAckIn(value));
+        if (preview.impact.some((i) => i.old_score !== i.new_score)) {
+          setConfirmError(null);
+          setConfirming({ mode: "rescore", skills: [], impact: preview.impact });
+          return;
         }
-      } else {
-        setError(biased?.message ?? (e instanceof Error ? e.message : "บันทึกไม่สำเร็จ"));
       }
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function confirmRemoval() {
-    setBusy(true);
-    setRemoveError(null);
-    try {
-      onSaved(await updateBiasAcks(job.id, toAckIn(value), true));
-      setRemoval(null);
+      await commit(false, touchesScores);
     } catch (e) {
-      setRemoveError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ");
+      try {
+        if (await askRemoval(e)) return;
+      } catch (pe) {
+        setError(pe instanceof Error ? pe.message : "คำนวณผลกระทบไม่สำเร็จ");
+        return;
+      }
+      const biased = biasedSkillErrorOf(e);
+      setError(biased?.message ?? (e instanceof Error ? e.message : "บันทึกไม่สำเร็จ"));
     } finally {
       setBusy(false);
     }
   }
 
-  const changed = removal?.impact.filter((i) => i.old_score !== i.new_score).length ?? 0;
-  const crossed = removal?.impact.filter((i) => i.old_band !== i.new_band).length ?? 0;
+  async function confirmSave() {
+    if (!confirming) return;
+    setBusy(true);
+    setConfirmError(null);
+    try {
+      await commit(confirming.mode === "remove", true);
+      setConfirming(null);
+    } catch (e) {
+      setConfirmError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const changed = confirming?.impact.filter((i) => i.old_score !== i.new_score).length ?? 0;
+  const crossed = confirming?.impact.filter((i) => i.old_band !== i.new_band).length ?? 0;
+  const impactLine = confirming
+    ? confirming.impact.length === 0
+      ? "ตำแหน่งนี้ยังไม่มีผู้สมัคร จึงไม่มีคะแนนใครเปลี่ยน"
+      : `คะแนนผู้สมัครเปลี่ยน ${changed} จาก ${confirming.impact.length} คน` +
+        (crossed > 0 ? ` · ${crossed} คนเปลี่ยนกลุ่ม (ควรทบทวนการตัดสินใจ)` : "")
+    : "";
 
   return (
     <section className="glass-card rounded-2xl p-md space-y-sm">
@@ -228,7 +282,7 @@ export function JobBiasCard({ job, onSaved }: { job: Job; onSaved: (j: Job) => v
           <span className="material-symbols-outlined text-tertiary text-[20px]" aria-hidden>
             gpp_maybe
           </span>
-          ถ้อยคำในประกาศที่อาจมีอคติ
+          {skills.length > 0 ? "ถ้อยคำและทักษะที่อาจมีอคติ" : "ถ้อยคำในประกาศที่อาจมีอคติ"}
         </h3>
         <p className="text-label-sm text-on-surface-variant">
           ถ้างานนี้ต้องการจริง กด “จำเป็นกับงานนี้” พร้อมเหตุผล — คำเตือนในหน้าผู้สมัครจะเปลี่ยนเป็นบันทึกการยืนยันแทน
@@ -245,10 +299,20 @@ export function JobBiasCard({ job, onSaved }: { job: Job; onSaved: (j: Job) => v
           disabled={busy}
         />
       )}
-      {bias.biased_skills.length > 0 && (
-        <p className="text-label-sm text-on-surface">
-          เกณฑ์ทักษะที่อาจมีอคติ: {bias.biased_skills.join(", ")} — แก้ได้ที่ปุ่มแก้เกณฑ์
-        </p>
+      {skills.length > 0 && (
+        <div className="space-y-xs">
+          <p className="text-label-sm text-on-surface">
+            <span className="font-semibold">ทักษะในเกณฑ์ที่ AI ชี้ว่าอาจมีอคติ</span> — ไม่นับคะแนนจนกว่าจะยืนยัน
+            ถ้าไม่จำเป็น ลบออกได้ที่ปุ่มแก้เกณฑ์
+          </p>
+          <BiasAckEditor
+            phrases={skills}
+            value={value}
+            onChange={setValue}
+            saved={bias.acknowledged}
+            disabled={busy}
+          />
+        </div>
       )}
 
       {error && (
@@ -273,28 +337,41 @@ export function JobBiasCard({ job, onSaved }: { job: Job; onSaved: (j: Job) => v
         </div>
       )}
 
-      {removal && (
+      {confirming?.mode === "remove" && (
         <ConfirmDialog
           title="ถอนการยืนยันและลบออกจากเกณฑ์คะแนน"
           body={
             <div className="space-y-xs">
               <p>
-                {removal.skills.map((s) => `“${s}”`).join(", ")} ยังเป็นทักษะในเกณฑ์คะแนน
+                {confirming.skills.map((s) => `“${s}”`).join(", ")} ยังเป็นทักษะในเกณฑ์คะแนน
                 ถ้าถอนการยืนยัน ระบบจะลบออกจากเกณฑ์และคำนวณคะแนนใหม่ให้ด้วย
               </p>
-              <p className="text-on-surface-variant">
-                {removal.impact.length === 0
-                  ? "ตำแหน่งนี้ยังไม่มีผู้สมัคร จึงไม่มีคะแนนใครเปลี่ยน"
-                  : `คะแนนผู้สมัครเปลี่ยน ${changed} จาก ${removal.impact.length} คน` +
-                    (crossed > 0 ? ` · ${crossed} คนเปลี่ยนกลุ่ม (ควรทบทวนการตัดสินใจ)` : "")}
-              </p>
+              <p className="text-on-surface-variant">{impactLine}</p>
             </div>
           }
           confirmLabel="ถอนและลบออกจากเกณฑ์"
           busy={busy}
-          error={removeError}
-          onConfirm={confirmRemoval}
-          onClose={() => setRemoval(null)}
+          error={confirmError}
+          onConfirm={confirmSave}
+          onClose={() => setConfirming(null)}
+        />
+      )}
+      {confirming?.mode === "rescore" && (
+        <ConfirmDialog
+          title="บันทึกแล้วคะแนนจะเปลี่ยน"
+          body={
+            <div className="space-y-xs">
+              <p>
+                ทักษะที่ยืนยันจะถูกนับคะแนน ข้อที่ถอนจะไม่นับ — ระบบคำนวณคะแนนผู้สมัครเดิมใหม่ให้ (ไม่ใช้ AI)
+              </p>
+              <p className="text-on-surface-variant">{impactLine}</p>
+            </div>
+          }
+          confirmLabel="บันทึกและคำนวณใหม่"
+          busy={busy}
+          error={confirmError}
+          onConfirm={confirmSave}
+          onClose={() => setConfirming(null)}
         />
       )}
     </section>
@@ -326,7 +403,7 @@ export function CandidateBiasBox({ bias }: { bias: JobBiasView }) {
               )}
               {bias.biased_skills.length > 0 && (
                 <p className="text-label-sm text-on-surface">
-                  เกณฑ์ทักษะที่อาจมีอคติ: {bias.biased_skills.join(", ")}
+                  ทักษะในเกณฑ์ที่ AI ชี้ว่าอาจมีอคติ (ไม่ได้ถูกใช้คิดคะแนน): {bias.biased_skills.join(", ")}
                 </p>
               )}
             </>
