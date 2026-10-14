@@ -28,6 +28,7 @@ import type {
   JobOffer,
   JobOfferUpsert,
   BiasAckIn,
+  BiasAcksPreview,
   BiasPhrase,
   Job,
   JobAnalyzeResult,
@@ -164,6 +165,14 @@ export const createJob = (rawText: string, criteria?: JobCriteriaConfirm) =>
 export const updateBiasAcks = (jobId: string, acks: BiasAckIn[], removeSkills = false) =>
   request<Job>(`/api/v1/jobs/${jobId}/bias-acknowledgements`, {
     method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ acks, remove_skills: removeSkills }),
+  });
+
+/** ผลต่อคะแนนคนเดิมก่อนบันทึก — ไม่เขียนอะไร (กติกาและ error เหมือน updateBiasAcks) */
+export const previewBiasAcks = (jobId: string, acks: BiasAckIn[], removeSkills = false) =>
+  request<BiasAcksPreview>(`/api/v1/jobs/${jobId}/bias-acknowledgements/preview`, {
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ acks, remove_skills: removeSkills }),
   });

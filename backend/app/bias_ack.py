@@ -10,6 +10,9 @@
 - **ไม่แตะคะแนน** — ถ้อยคำพวกนี้ไม่อยู่ในคะแนนอยู่แล้ว การยืนยันเปลี่ยนแค่สิ่งที่ HR เห็น
   ยกเว้นถ้อยคำที่ HR ใส่เป็นทักษะในเกณฑ์ด้วย: ต้องยืนยันก่อนถึงบันทึกเกณฑ์ได้ (biased_skills)
   และถอนไม่ได้ตราบที่ทักษะนั้นยังอยู่ในเกณฑ์ — การ์ดโชว์ป้าย "นับเป็นทักษะในคะแนน" (scored)
+- **ทักษะที่ AI ชี้ว่ามีอคติ** (`jd_audit.biased_*_skills`, ตั้งแต่ 2026-10-14) ยืนยันได้แบบเดียวกัน
+  — ไม่ยืนยัน ลูปตรวจอคติตัดออกจากคะแนน · ยืนยันแล้วนับคะแนน · ลบออกจากเกณฑ์แล้วไม่เตือนอีก
+  ข้อนี้ **แตะคะแนน**: ยืนยัน/ถอนแล้วคะแนนคนเดิมถูกคำนวณใหม่ (effective_biased_skills)
 
 ฟังก์ชันบริสุทธิ์ทั้งไฟล์ ทดสอบได้โดยไม่ต่อ DB
 """
@@ -20,7 +23,7 @@ from datetime import datetime
 from typing import Any
 
 from app.agents.bias_rules import find_biased_phrases
-from app.agents.skills import alternatives
+from app.agents.skills import alternatives, canonical
 
 MIN_REASON_CHARS = 10
 MAX_REASON_CHARS = 500
@@ -75,24 +78,30 @@ def bias_view(
     """ผลตรวจของตำแหน่งแยกเป็น "ยังเตือนอยู่" กับ "HR ยืนยันแล้ว" — ใช้ทั้งหน้าตำแหน่งและหน้าผู้สมัคร.
 
     None = ตำแหน่งยังไม่มีผลตรวจ (หน้าผู้สมัครถอยไปใช้ audit_log ของผลประเมินเดิม)
-    status = "flagged" ก็ต่อเมื่อยังมีถ้อยคำค้างเตือน หรือ LLM เตือนเรื่องที่ไม่ใช่ถ้อยคำ
-    (เกณฑ์ทักษะที่มีอคติ) ซึ่งการยืนยันถ้อยคำไม่ได้ครอบคลุม
+    status = "flagged" ก็ต่อเมื่อยังมีถ้อยคำค้างเตือน, ทักษะที่ AI ชี้ซึ่งยังอยู่ในเกณฑ์และยังไม่ยืนยัน,
+    หรือ LLM เตือนโดยไม่ระบุทั้งถ้อยคำและทักษะ
+    `biased_skills` = ทักษะที่ AI ชี้ซึ่งยังค้างเตือน (ลบออกจากเกณฑ์แล้วหายไป) · รายการใน `acknowledged`
+    มี `kind` = "phrase" (ถ้อยคำในประกาศ) หรือ "skill" (ทักษะที่ AI ชี้ — นับคะแนนเสมอ)
     """
     if not jd_audit:
         return None
     criteria = list(jd_audit.get("jd_criteria") or [])
-    by_phrase = {a["phrase"]: a for a in (acks or []) if a.get("phrase") in criteria}
+    llm_names = llm_skill_phrases(jd_audit, skill_criteria)
+    warned = criteria + llm_names
+    by_phrase = {a["phrase"]: a for a in (acks or []) if a.get("phrase") in warned}
     pending = [c for c in criteria if c not in by_phrase]
     scored = scored_phrases(
         (skill_criteria or {}).get("required_skills") or [],
         (skill_criteria or {}).get("preferred_skills") or [],
         criteria,
     )
-    acknowledged = [{**by_phrase[c], "scored": c in scored} for c in criteria if c in by_phrase]
-    skills = list(jd_audit.get("biased_required_skills") or []) + list(
-        jd_audit.get("biased_preferred_skills") or []
-    )
-    flagged_other = jd_audit.get("status") == "flagged" and not criteria
+    acknowledged = [
+        {**by_phrase[c], "scored": c in scored, "kind": "phrase"} for c in criteria if c in by_phrase
+    ] + [{**by_phrase[n], "scored": True, "kind": "skill"} for n in llm_names if n in by_phrase]
+    eff = effective_biased_skills(jd_audit, acks, skill_criteria)
+    skills = eff["required_skills"] + [s for s in eff["preferred_skills"] if s not in eff["required_skills"]]
+    named_any = bool(jd_audit.get("biased_required_skills") or jd_audit.get("biased_preferred_skills"))
+    flagged_other = jd_audit.get("status") == "flagged" and not criteria and not named_any
     log = jd_audit.get("log") or ""
     return {
         "status": "flagged" if (pending or skills or flagged_other) else "passed",
@@ -101,6 +110,104 @@ def bias_view(
         "acknowledged": acknowledged,
         "biased_skills": skills,
         "llm_checked": bool(jd_audit.get("llm_checked")),
+    }
+
+
+# ---------- ทักษะที่ AI ชี้ว่ามีอคติ (jd_audit.biased_*_skills) ----------
+# ช่องโหว่ที่ปิด 2026-10-14: ลูปตรวจอคติตัดทักษะพวกนี้ทุกครั้ง HR ยืนยันไม่ได้ (AI ชี้ผิดก็แก้ไม่ได้)
+# และลบออกจากเกณฑ์แล้วคำเตือนก็ไม่หาย เพราะ jd_audit ถูกเขียนครั้งเดียวตอนสร้างตำแหน่ง
+# — ทุกที่ที่ใช้รายการนี้ (กราฟ, หน้าแก้เกณฑ์, การ์ดอคติ) ต้องผ่าน effective_biased_skills ตัวเดียว
+
+
+def _criterion_keys(criteria: dict[str, Any] | None) -> set[str] | None:
+    """ชื่อมาตรฐานของทักษะทุกตัวในเกณฑ์ (แยกกลุ่ม "A | B" ก่อน) · None = ไม่รู้เกณฑ์ (ไม่กรอง)."""
+    if criteria is None:
+        return None
+    keys: set[str] = set()
+    for s in (*(criteria.get("required_skills") or []), *(criteria.get("preferred_skills") or [])):
+        for opt in alternatives(s) or [s]:
+            keys.add(canonical(opt))
+    return keys
+
+
+def llm_skill_phrases(jd_audit: dict[str, Any] | None, criteria: dict[str, Any] | None) -> list[str]:
+    """ทักษะที่ AI ชี้ว่ามีอคติ ซึ่งยังอยู่ในเกณฑ์ และไม่ใช่ถ้อยคำเดียวกับที่เตือนในประกาศอยู่แล้ว.
+
+    เทียบด้วย canonical (ไม่ใช่ string ตรงตัว) — HR แก้ตัวพิมพ์ หรือย้ายเข้ากลุ่ม "A | B" ต้องยังนับว่ามีอยู่
+    ไม่งั้นคำเตือนหายทั้งที่อคติยังอยู่ในคะแนน · ซ้ำกับถ้อยคำในประกาศ = ยืนยันที่ถ้อยคำนั้นข้อเดียวพอ
+    """
+    audit = jd_audit or {}
+    keys = _criterion_keys(criteria)
+    phrases = [c for c in (audit.get("jd_criteria") or []) if c]
+    out: list[str] = []
+    for name in (*(audit.get("biased_required_skills") or []), *(audit.get("biased_preferred_skills") or [])):
+        name = (name or "").strip()
+        if not name or name in out:
+            continue
+        if keys is not None and canonical(name) not in keys:
+            continue
+        if any(_same_phrase(name, p) for p in phrases):
+            continue
+        out.append(name)
+    return out
+
+
+def warned_phrases(jd_audit: dict[str, Any] | None, criteria: dict[str, Any] | None) -> list[str]:
+    """ทุกอย่างที่ HR กด "จำเป็นกับงานนี้" ได้ — ถ้อยคำในประกาศ + ทักษะที่ AI ชี้ซึ่งยังอยู่ในเกณฑ์."""
+    return [c for c in ((jd_audit or {}).get("jd_criteria") or []) if c] + llm_skill_phrases(jd_audit, criteria)
+
+
+def effective_biased_skills(
+    jd_audit: dict[str, Any] | None,
+    acks: list[dict[str, Any]] | None,
+    criteria: dict[str, Any] | None,
+) -> dict[str, list[str]]:
+    """ทักษะที่ AI ชี้ว่ามีอคติซึ่ง **ต้องตัดออกจากคะแนนตอนนี้** — ยังอยู่ในเกณฑ์ และ HR ยังไม่ยืนยัน.
+
+    ยืนยันได้ทั้งที่ชื่อทักษะเอง หรือที่ถ้อยคำในประกาศที่ตรงกัน · `criteria=None` = ไม่รู้เกณฑ์ ถือว่ายังอยู่ทุกตัว
+    คืนรูปเดียวกับ jd_audit: {"required_skills": [...], "preferred_skills": [...]}
+    """
+    audit = jd_audit or {}
+    keys = _criterion_keys(criteria)
+    acked = {(a.get("phrase") or "").strip() for a in (acks or [])}
+    acked_keys = {canonical(p) for p in acked if p}
+    acked_phrases = [p for p in (audit.get("jd_criteria") or []) if p in acked]
+
+    def keep(names: list[str] | None) -> list[str]:
+        out: list[str] = []
+        for name in names or []:
+            name = (name or "").strip()
+            if not name or name in out:
+                continue
+            if keys is not None and canonical(name) not in keys:
+                continue  # ลบออกจากเกณฑ์แล้ว — ไม่มีอะไรให้ตัด
+            if name in acked or canonical(name) in acked_keys or any(_same_phrase(name, p) for p in acked_phrases):
+                continue  # HR ยืนยันว่าจำเป็น — นับคะแนน
+            out.append(name)
+        return out
+
+    return {
+        "required_skills": keep(audit.get("biased_required_skills")),
+        "preferred_skills": keep(audit.get("biased_preferred_skills")),
+    }
+
+
+def audit_for_graph(
+    jd_audit: dict[str, Any] | None,
+    acks: list[dict[str, Any]] | None,
+    criteria: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """jd_audit ที่ส่งเข้า state ของกราฟ — แทนรายการทักษะที่มีอคติด้วยรายการที่ต้องตัดจริงตอนนี้.
+
+    รูปเดิมทุกช่อง โหนด bias_auditor จึงไม่ต้องรู้เรื่องการยืนยัน และ checkpoint เก่ายังใช้ได้
+    """
+    if not jd_audit:
+        return jd_audit
+    eff = effective_biased_skills(jd_audit, acks, criteria)
+    return {
+        **jd_audit,
+        "biased_required_skills": eff["required_skills"],
+        "biased_preferred_skills": eff["preferred_skills"],
     }
 
 
@@ -155,6 +262,10 @@ def biased_skills(
     """
     criteria = [c for c in (jd_criteria or []) if c]
     acked = {a.get("phrase") for a in (acks or [])}
+    # การยืนยันที่ชื่อทักษะ (ทักษะที่ AI ชี้ว่ามีอคติ) — ทักษะนั้นมักเข้ากฎตายตัวด้วย ("มหาวิทยาลัยชั้นนำ")
+    # ถ้าไม่นับตรงนี้ HR ยืนยันได้แต่บันทึกเกณฑ์ไม่ได้ (409 "ไม่มีถ้อยคำในประกาศให้ยืนยัน")
+    # ปลอดภัย: acks ผ่าน validate_acks แล้ว ชื่อที่ไม่เคยถูก AI ชี้ไม่มีทางอยู่ในนี้
+    acked_keys = {canonical(p) for p in acked if p}
     out: list[dict[str, Any]] = []
     for side, skills in (("required", required or []), ("preferred", preferred or [])):
         for skill in skills:
@@ -165,6 +276,8 @@ def biased_skills(
             if phrase is None and not any(find_biased_phrases(opt) for opt in options):
                 continue
             if phrase is not None and phrase in acked:
+                continue
+            if phrase is None and any(canonical(opt) in acked_keys for opt in options):
                 continue
             out.append({"skill": skill, "side": side, "phrase": phrase})
     return out
@@ -192,6 +305,19 @@ def withdraw_blocked(
         f for f in biased_skills(required, preferred, jd_criteria, new)
         if (f["skill"], f["phrase"]) not in before
     ]
+
+
+def removal_phrases(blocked: list[dict[str, Any]]) -> list[str]:
+    """สิ่งที่ต้องส่งให้ strip_skills เพื่อลบทักษะที่ถอนการยืนยันไม่ได้ — ถ้อยคำในประกาศถ้ามี
+    ไม่งั้น (ทักษะที่เข้ากฎเอง ไม่มีถ้อยคำ) เอาเฉพาะตัวเลือกในกลุ่มที่เข้ากฎ ตัวเลือกอื่นในกลุ่มยังอยู่."""
+    out: list[str] = []
+    for b in blocked:
+        if b.get("phrase"):
+            out.append(b["phrase"])
+            continue
+        options = alternatives(b["skill"]) or [b["skill"]]
+        out.extend([o for o in options if find_biased_phrases(o)] or [b["skill"]])
+    return list(dict.fromkeys(out))
 
 
 def strip_skills(required: list[str], preferred: list[str], phrases: list[str]) -> dict[str, list[str]]:

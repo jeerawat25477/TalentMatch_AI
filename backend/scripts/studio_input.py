@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.agents.runner import initial_state  # noqa: E402
+from app.bias_ack import audit_for_graph  # noqa: E402
 from app.database import close_pool, get_conn  # noqa: E402
 
 
@@ -25,7 +26,8 @@ def build(row: dict, candidate_id: str) -> dict:
         raw_jd=row["raw_text"],
         analyzed_jd=row["parsed_criteria"],
         resume_text=row["raw_resume_text"] or "",
-        jd_audit=row["jd_audit"],
+        # ตัวเดียวกับ queue_worker — Studio ต้องตัดทักษะอคติแบบเดียวกับการรันจริง
+        jd_audit=audit_for_graph(row["jd_audit"], row.get("bias_acknowledgements"), row["parsed_criteria"]),
     )
 
 
@@ -37,7 +39,8 @@ def main(argv: list[str]) -> int:
     try:
         with get_conn() as conn:
             row = conn.execute(
-                """SELECT c.raw_resume_text, j.raw_text, j.parsed_criteria, j.jd_audit
+                """SELECT c.raw_resume_text, j.raw_text, j.parsed_criteria, j.jd_audit,
+                          j.bias_acknowledgements
                      FROM candidates c
                      JOIN jobs j ON j.id = c.job_id
                     WHERE c.id::text = %s""",

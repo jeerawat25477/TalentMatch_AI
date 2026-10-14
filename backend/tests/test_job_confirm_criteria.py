@@ -352,3 +352,45 @@ class TestBiasedSkillTypedByHR:
             assert client.post("/api/v1/jobs", json=self.payload(["Python", "English"])).status_code == 201
         finally:
             self._cleanup()
+
+
+class TestLLMNamedBiasedSkillOnCreate:
+    """ทักษะที่ AI ชี้ว่ามีอคติ (biased_required_skills) ยืนยันได้ตั้งแต่ขั้นยืนยันเกณฑ์ (2026-10-14)."""
+
+    SKILL = "มหาวิทยาลัยชั้นนำ"  # AI ชี้ + กฎตายตัวจับด้วย — เดิม 409 ทั้งที่ไม่มีถ้อยคำให้ยืนยัน
+
+    def payload(self, acks=()):
+        from app.agents.models import BiasAudit
+
+        llm = BiasAudit(is_biased=True, audit_status="flagged", audit_log="เกณฑ์สถาบัน",
+                        biased_required_skills=[self.SKILL])
+        body = TestCreateWithConfirmedCriteria().confirm(
+            required_skills=["Python", self.SKILL], bias_llm=llm.model_dump(),
+            bias_acks=[{"phrase": self.SKILL, "reason": r} for r in acks],
+        )
+        body["raw_text"] = JD + "\n- " + self.SKILL
+        return body
+
+    def _cleanup(self):
+        with get_conn() as conn:
+            conn.execute("DELETE FROM jobs WHERE raw_text LIKE %s", (JD + "%",))
+            conn.commit()
+
+    def test_ยังไม่ยืนยัน_บันทึกไม่ได้(self, client):
+        try:
+            res = client.post("/api/v1/jobs", json=self.payload())
+            assert res.status_code == 409 and res.json()["detail"]["code"] == "biased_skill"
+        finally:
+            self._cleanup()
+
+    def test_ยืนยันที่ชื่อทักษะแล้วบันทึกได้_และไม่ถูกตัด(self, client):
+        try:
+            res = client.post("/api/v1/jobs", json=self.payload(["สัญญาลูกค้ากำหนดสถาบันไว้ชัดเจน"]))
+            assert res.status_code == 201, res.text
+            bias = res.json()["bias"]
+            assert bias["biased_skills"] == []
+            # กฎตายตัวเจอคำเดียวกันในประกาศด้วย → เป็นถ้อยคำในประกาศ ยืนยันครั้งเดียวขึ้นที่เดียว (ไม่ซ้ำสองที่)
+            [ack] = bias["acknowledged"]
+            assert ack["kind"] == "phrase" and ack["scored"] is True
+        finally:
+            self._cleanup()

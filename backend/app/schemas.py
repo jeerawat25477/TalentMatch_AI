@@ -32,6 +32,8 @@ class BiasAck(BaseModel):
     at: datetime
     # คำนวณตอนแสดง ไม่ได้เก็บ: ถ้อยคำนี้เป็นทักษะในเกณฑ์คะแนนด้วย (ยืนยันแล้วจึงถูกนับคะแนน)
     scored: bool = False
+    # คำนวณตอนแสดง: "phrase" = ถ้อยคำในประกาศ · "skill" = ทักษะที่ AI ชี้ว่ามีอคติ (ยืนยันแล้วนับคะแนน)
+    kind: Literal["phrase", "skill"] = "phrase"
 
 
 class BiasAcksUpdate(BaseModel):
@@ -178,6 +180,11 @@ class CriteriaImpact(BaseModel):
     new_band: Literal["pass", "review", "fail"]
     hr_decision: Optional[Literal["approved", "rejected", "pending"]] = None
     email_sent: bool = False
+
+
+class BiasAcksPreviewOut(BaseModel):
+    """ผลของการยืนยัน/ถอนชุดใหม่ต่อคะแนนคนเดิม — ว่าง = คะแนนไม่ขยับ (ถ้อยคำในประกาศอย่างเดียว)."""
+    impact: list[CriteriaImpact] = Field(default_factory=list)
 
 
 class CriteriaPreviewOut(BaseModel):

@@ -52,6 +52,13 @@ export interface BiasAck {
   at: string;
   /** ถ้อยคำนี้เป็นทักษะในเกณฑ์คะแนนด้วย — ยืนยันแล้วจึงถูกนับคะแนน และถอนไม่ได้จนกว่าจะลบทักษะ */
   scored?: boolean;
+  /** "phrase" = ถ้อยคำในประกาศ · "skill" = ทักษะที่ AI ชี้ว่ามีอคติ (ยืนยันแล้วนับคะแนน) */
+  kind?: "phrase" | "skill";
+}
+
+/** มิเรอร์ BiasAcksPreviewOut — ผลต่อคะแนนคนเดิมถ้าบันทึกการยืนยันชุดนี้ (ว่าง = คะแนนไม่ขยับ) */
+export interface BiasAcksPreview {
+  impact: CriteriaImpact[];
 }
 
 /** มิเรอร์ JobBiasView ใน backend/app/schemas.py (สร้างด้วย bias_ack.bias_view) */

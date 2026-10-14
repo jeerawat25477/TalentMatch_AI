@@ -27,6 +27,7 @@ import threading
 
 from app.agents import runner
 from app.agents.llm import COMPLEX_MODEL, DEFAULT_MODEL
+from app.bias_ack import audit_for_graph
 from app.database import get_conn
 from app.job_queue import (
     claim_next,
@@ -98,7 +99,8 @@ def _run_job(row: dict) -> None:
     # คิวอยู่ข้ามวันได้ สำเนาที่แช่ไว้ตั้งแต่ตอน enqueue อาจเป็นฉบับเก่าถ้า JD ถูกแก้
     with get_conn() as conn:
         data = conn.execute(
-            """SELECT c.raw_resume_text, c.job_id, j.raw_text, j.parsed_criteria, j.jd_audit
+            """SELECT c.raw_resume_text, c.job_id, j.raw_text, j.parsed_criteria, j.jd_audit,
+                      j.bias_acknowledgements
                  FROM candidates c
                  JOIN jobs j ON j.id = c.job_id
                 WHERE c.id = %s""",
@@ -117,7 +119,8 @@ def _run_job(row: dict) -> None:
         # ผู้สมัครรายนี้มาจาก HR อัปเอง หรือมาจากปากทางรับอีเมล
         source=payload.get("source") or "upload",
         # ผลตรวจอคติของตำแหน่ง ทำครั้งเดียวตอนสร้าง — ต่อผู้สมัครจึงไม่เรียก LLM ตรวจซ้ำ
-        jd_audit=data["jd_audit"],
+        # ทักษะที่ AI ชี้ว่ามีอคติ: ส่งเฉพาะที่ต้องตัดตอนนี้ (ยังอยู่ในเกณฑ์ + HR ยังไม่ยืนยัน)
+        jd_audit=audit_for_graph(data["jd_audit"], data["bias_acknowledgements"], data["parsed_criteria"]),
     )
 
 

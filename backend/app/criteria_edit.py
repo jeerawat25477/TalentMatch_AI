@@ -161,7 +161,9 @@ _ROWS = """
 
 
 def _exclusions(bias_revision: Optional[dict]) -> dict:
-    """เกณฑ์ที่ลูปตรวจอคติเคยตัดไว้ — ต้องตัดต่อไปแม้ HR จะแก้เกณฑ์ใหม่."""
+    """เกณฑ์ที่ลูปตรวจอคติเคยตัดไว้ในผลประเมินคนนั้น — ใช้เมื่อผู้เรียกไม่ได้ส่ง `exclusions` มา
+    (สคริปต์เก่า) · router ส่ง bias_ack.effective_biased_skills ของตำแหน่งเสมอ ซึ่งรู้เรื่องการยืนยัน
+    และทักษะที่ลบออกจากเกณฑ์แล้ว ส่วนบันทึกเก่าไม่รู้ ถ้าใช้บันทึกเก่า ทักษะที่ HR ยืนยันทีหลังจะถูกตัดตลอดไป"""
     br = bias_revision or {}
     return {
         "required_skills": br.get("excluded_required") or [],
@@ -169,7 +171,10 @@ def _exclusions(bias_revision: Optional[dict]) -> dict:
     }
 
 
-def rescore_job(conn, job_id: str, required: list[str], preferred: list[str], apply: bool) -> list[dict]:
+def rescore_job(
+    conn, job_id: str, required: list[str], preferred: list[str], apply: bool,
+    exclusions: Optional[dict] = None,
+) -> list[dict]:
     """คำนวณคะแนนผู้สมัครทุกคนของตำแหน่งนี้ใหม่ตามเกณฑ์ที่ให้มา.
 
     apply=False (พรีวิว) ไม่เขียนอะไรเลย · apply=True เขียนเฉพาะผลประเมิน
@@ -178,6 +183,7 @@ def rescore_job(conn, job_id: str, required: list[str], preferred: list[str], ap
 
     ผู้สมัครที่ยังไม่มี parsed_resume (ยังวิเคราะห์ไม่เสร็จ) ถูกข้าม กราฟจะอ่านเกณฑ์ใหม่จาก
     jobs.parsed_criteria เองตอนประมวลผล
+    `exclusions` = ทักษะที่ต้องตัดตอนนี้ ใช้กับทุกคนเท่ากัน (กราฟตัดแบบเดียวกันให้ทุกคนในตำแหน่ง)
     """
     rows = conn.execute(_ROWS, (job_id,)).fetchall()
     impact: list[dict] = []
@@ -187,7 +193,7 @@ def rescore_job(conn, job_id: str, required: list[str], preferred: list[str], ap
             preferred,
             r["parsed_resume"] or {},
             r["raw_resume_text"] or "",
-            _exclusions(r["bias_revision"]),
+            exclusions if exclusions is not None else _exclusions(r["bias_revision"]),
         )
         old, new = r["fit_score"], result["fit_score"]
         impact.append({

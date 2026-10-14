@@ -19,7 +19,8 @@ from app.agents.runner import active_candidates
 from app.agents.models import JDReview
 from app.auth import get_current_user
 from app.bias_ack import (
-    AckError, biased_skill_message, biased_skills, strip_skills, validate_acks, withdraw_blocked,
+    AckError, biased_skill_message, biased_skills, effective_biased_skills, removal_phrases,
+    strip_skills, validate_acks, warned_phrases, withdraw_blocked,
 )
 from app.rate_limit import hit_and_check, retry_after_sec
 from app.database import get_checkpointer, get_conn
@@ -27,6 +28,7 @@ from app.criteria_edit import criteria_warnings, normalize_criteria, rescore_job
 from app.job_queue import PENDING_STATUSES
 from app.llm_quota import has_room, used_today
 from app.schemas import (
+    BiasAcksPreviewOut,
     BiasAcksUpdate,
     CriteriaIn,
     CriteriaPreviewOut,
@@ -105,12 +107,17 @@ def _confirmed(raw_text: str, c: JobCriteriaConfirm, fallback_title: str) -> tup
     return parsed, c.extraction.model_dump(), (ai if edited else None)
 
 
-def _acks_or_422(requested: list[dict], jd_audit: dict | None, user: str, previous: list) -> list:
-    """ตรวจคำขอยืนยันกับผลตรวจของตำแหน่ง — ผิดกติกา (เหตุผลสั้นเกิน) เป็น 422 ข้อความอ่านรู้เรื่อง."""
+def _acks_or_422(
+    requested: list[dict], jd_audit: dict | None, user: str, previous: list, criteria: dict | None,
+) -> list:
+    """ตรวจคำขอยืนยันกับผลตรวจของตำแหน่ง — ผิดกติกา (เหตุผลสั้นเกิน) เป็น 422 ข้อความอ่านรู้เรื่อง.
+
+    ยืนยันได้ทั้งถ้อยคำในประกาศ และทักษะที่ AI ชี้ว่ามีอคติซึ่งยังอยู่ใน `criteria` (bias_ack.warned_phrases)
+    """
     try:
         return validate_acks(
             requested,
-            list((jd_audit or {}).get("jd_criteria") or []),
+            warned_phrases(jd_audit, criteria),
             user,
             datetime.now(timezone.utc),
             previous,
@@ -163,7 +170,8 @@ def create_job(payload: JobCreate, user: str = Depends(get_current_user)) -> Job
         )
         jd_audit = _job_audit(payload.raw_text, analyzed, payload.criteria.bias_llm)
         acks = _acks_or_422(
-            [a.model_dump() for a in payload.criteria.bias_acks], jd_audit, user, previous=[]
+            [a.model_dump() for a in payload.criteria.bias_acks], jd_audit, user, previous=[],
+            criteria=analyzed,
         )
         _refuse_biased_skills(
             analyzed.get("required_skills") or [], analyzed.get("preferred_skills") or [],
@@ -473,10 +481,24 @@ def _busy_candidates(conn, job_id: str) -> int:
     return max(len(ids & active_candidates()), queued)
 
 
-def _preview(conn, job_id: str, payload: CriteriaIn, apply: bool, job: dict | None = None) -> dict:
+def _job_exclusions(job: dict, req: list[str], pref: list[str], acks: list | None = None) -> dict:
+    """ทักษะที่ AI ชี้ว่ามีอคติซึ่งต้องตัดจากคะแนนภายใต้เกณฑ์ req/pref — ตัวเดียวกับที่กราฟใช้
+    (queue_worker ส่ง bias_ack.audit_for_graph เข้า state) คะแนนจากหน้าแก้เกณฑ์จึงไม่ต่างจากกราฟ."""
+    return effective_biased_skills(
+        job.get("jd_audit"),
+        job.get("bias_acknowledgements") if acks is None else acks,
+        {"required_skills": req, "preferred_skills": pref},
+    )
+
+
+def _preview(
+    conn, job_id: str, payload: CriteriaIn, apply: bool, job: dict | None = None,
+    acks: list | None = None,
+) -> dict:
     clean = normalize_criteria(payload.required_skills, payload.preferred_skills)
     req, pref = clean["required_skills"], clean["preferred_skills"]
     warnings = criteria_warnings(req, pref)
+    exclusions = _job_exclusions(job, req, pref, acks) if job is not None else None
     if job is not None:
         found = biased_skills(
             req, pref, (job.get("jd_audit") or {}).get("jd_criteria"), job.get("bias_acknowledgements")
@@ -488,7 +510,7 @@ def _preview(conn, job_id: str, payload: CriteriaIn, apply: bool, job: dict | No
         "preferred_skills": pref,
         "dropped": clean["dropped"],
         "warnings": warnings,
-        "impact": rescore_job(conn, job_id, req, pref, apply=apply),
+        "impact": rescore_job(conn, job_id, req, pref, apply=apply, exclusions=exclusions),
     }
 
 
@@ -514,10 +536,13 @@ def _refuse_if_busy(conn, job_id: str) -> None:
         )
 
 
-def _write_criteria(conn, job_id: str, job: dict, payload: CriteriaIn, reset: bool = False):
+def _write_criteria(
+    conn, job_id: str, job: dict, payload: CriteriaIn, reset: bool = False, acks: list | None = None,
+):
     """เขียนเกณฑ์ใหม่ + คำนวณคะแนนคนเดิม **ไม่ commit** — ผู้เรียกคุมทรานแซกชัน
-    (ถอนการยืนยันพร้อมลบทักษะต้องทำสองอย่างนี้กับการแก้ bias_acknowledgements ในก้อนเดียว)."""
-    result = _preview(conn, job_id, payload, apply=True)
+    (ถอนการยืนยันพร้อมลบทักษะต้องทำสองอย่างนี้กับการแก้ bias_acknowledgements ในก้อนเดียว)
+    `acks` = การยืนยันชุดที่กำลังจะบันทึก (ไม่ส่ง = ชุดเดิมของตำแหน่ง) ใช้คิดว่าทักษะไหนต้องตัด."""
+    result = _preview(conn, job_id, payload, apply=True, job=job, acks=acks)
     # parsed_criteria เป็น NULL ได้ (AI อ่านไม่สำเร็จตอนสร้าง) — เติมจากผลอ่านใหม่ถ้ามี
     # แล้วเติมค่าตั้งต้นของฟิลด์อื่นให้ครบรูป JobRequirement ที่กราฟและหน้าเว็บคาดหวัง
     current = dict(job["parsed_criteria"] or job["ai_criteria"] or {})
@@ -645,7 +670,7 @@ def reanalyze_criteria(job_id: str, user: str = Depends(get_current_user)) -> Cr
             "UPDATE jobs SET jd_extraction = %s, ai_criteria = %s WHERE id = %s",
             (Json(labels.model_dump()), Json(requirement.model_dump()), job_id),
         )
-        result = _preview(conn, job_id, payload, apply=False)
+        result = _preview(conn, job_id, payload, apply=False, job=job)
         conn.commit()
     log.info("AI อ่านประกาศใหม่ job=%s — ต้องมี %s ข้อ อยากได้ %s ข้อ", job_id,
              len(result["required_skills"]), len(result["preferred_skills"]))
@@ -676,63 +701,96 @@ def update_job_status(job_id: str, payload: JobStatusUpdate) -> JobOut:
     return JobOut(**row)
 
 
+def _apply_acks(conn, job_id: str, payload: BiasAcksUpdate, user: str, apply: bool):
+    """ยืนยัน/ถอนชุดใหม่ — ส่วนที่ PUT กับพรีวิวใช้ร่วมกัน **ไม่ commit** (ผู้เรียกคุม).
+
+    คืน (acks, impact, row) · impact = ผลต่อคะแนนคนเดิม ([] ถ้าคะแนนไม่ขยับเลย) · row = None ตอน apply=False
+    คะแนนขยับได้สองทาง: ถอนพร้อมลบทักษะ (remove_skills) หรือยืนยัน/ถอน **ทักษะที่ AI ชี้ว่ามีอคติ**
+    ซึ่งเปลี่ยนว่าลูปตรวจอคติต้องตัดอะไร — ถ้อยคำในประกาศอย่างเดียวไม่แตะคะแนนเหมือนเดิม
+    """
+    job = conn.execute(
+        f"SELECT {_JOB_COLS} FROM jobs WHERE id = %s FOR UPDATE", (job_id,),
+    ).fetchone()
+    if job is None:
+        raise HTTPException(status_code=404, detail="ไม่พบตำแหน่งงานนี้")
+    crit = job["parsed_criteria"] or {}
+    acks = _acks_or_422(
+        [a.model_dump() for a in payload.acks], job["jd_audit"], user,
+        previous=job["bias_acknowledgements"] or [], criteria=crit,
+    )
+    req, pref = crit.get("required_skills") or [], crit.get("preferred_skills") or []
+    blocked = withdraw_blocked(
+        req, pref, (job["jd_audit"] or {}).get("jd_criteria"), job["bias_acknowledgements"], acks,
+    )
+    impact: list = []
+    if blocked and payload.remove_skills:
+        _refuse_if_busy(conn, job_id)
+        stripped = strip_skills(req, pref, removal_phrases(blocked))
+        if apply:
+            result, _ = _write_criteria(conn, job_id, job, CriteriaIn(**stripped), acks=acks)
+        else:
+            result = _preview(conn, job_id, CriteriaIn(**stripped), apply=False, job=job, acks=acks)
+        impact = result["impact"]
+        if apply:
+            log.info("%s ถอนการยืนยันและลบทักษะ %s ออกจากเกณฑ์ของตำแหน่ง %s",
+                     user, [b["skill"] for b in blocked], job_id)
+    elif blocked:
+        names = ", ".join(f'"{b["skill"]}"' for b in blocked)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "biased_skill",
+                "message": f"ถอนไม่ได้: {names} ยังเป็นทักษะในเกณฑ์คะแนน — "
+                           "ลบออกจากเกณฑ์ก่อน (ปุ่มแก้เกณฑ์) แล้วค่อยถอน",
+                "skills": blocked,
+                # เกณฑ์หลังลบทักษะเหล่านี้ — หน้าเว็บเอาไปพรีวิวผลกระทบก่อนส่ง remove_skills
+                "stripped_criteria": strip_skills(req, pref, removal_phrases(blocked)),
+            },
+        )
+    elif _job_exclusions(job, req, pref, acks) != _job_exclusions(job, req, pref):
+        # ยืนยัน/ถอนทักษะที่ AI ชี้ → สิ่งที่ต้องตัดเปลี่ยน → คนเดิมต้องคิดคะแนนกติกาเดียวกับคนใหม่
+        _refuse_if_busy(conn, job_id)
+        impact = rescore_job(
+            conn, job_id, req, pref, apply=apply, exclusions=_job_exclusions(job, req, pref, acks),
+        )
+    if not apply:
+        return acks, impact, None
+    row = conn.execute(
+        f"UPDATE jobs SET bias_acknowledgements = %s WHERE id = %s RETURNING {_JOB_COLS}",
+        (Json(acks), job_id),
+    ).fetchone()
+    return acks, impact, row
+
+
 @router.put("/{job_id}/bias-acknowledgements", response_model=JobOut)
 def update_bias_acknowledgements(
     job_id: str, payload: BiasAcksUpdate, user: str = Depends(get_current_user)
 ) -> JobOut:
-    """HR ยืนยัน (หรือถอนการยืนยัน) ว่าถ้อยคำที่ตัวตรวจอคติเตือน "จำเป็นกับงานนี้จริง".
+    """HR ยืนยัน (หรือถอนการยืนยัน) ว่าถ้อยคำ/ทักษะที่ตัวตรวจอคติเตือน "จำเป็นกับงานนี้จริง".
 
     แทนรายการทั้งชุด — ส่งรายการที่ต้องการคงไว้ทั้งหมด ข้อที่ไม่ส่งมาคือถอน · ข้อเดิมที่เหตุผลไม่เปลี่ยน
-    คงชื่อคนยืนยันและเวลาเดิม · **ไม่แตะคะแนน ไม่เดินกราฟใหม่** เปลี่ยนแค่สิ่งที่ HR เห็นในหน้าผู้สมัคร
-    (หน้าผู้สมัครอ่านผลตรวจจากตำแหน่งสด ๆ ผลประเมินเดิมในฐานข้อมูลไม่ถูกแก้)
+    คงชื่อคนยืนยันและเวลาเดิม · ถ้อยคำในประกาศ **ไม่แตะคะแนน** (หน้าผู้สมัครอ่านผลตรวจจากตำแหน่งสด ๆ)
+    · ทักษะที่ AI ชี้ว่ามีอคติ **แตะคะแนน** — คำนวณคนเดิมใหม่ในทรานแซกชันเดียวกัน ไม่เดินกราฟใหม่
+    ดูผลก่อนได้ที่ POST .../bias-acknowledgements/preview
     """
     with get_conn() as conn:
-        job = conn.execute(
-            f"SELECT {_JOB_COLS} FROM jobs WHERE id = %s FOR UPDATE", (job_id,),
-        ).fetchone()
-        if job is None:
-            raise HTTPException(status_code=404, detail="ไม่พบตำแหน่งงานนี้")
-        acks = _acks_or_422(
-            [a.model_dump() for a in payload.acks], job["jd_audit"], user,
-            previous=job["bias_acknowledgements"] or [],
-        )
-        crit = job["parsed_criteria"] or {}
-        blocked = withdraw_blocked(
-            crit.get("required_skills") or [], crit.get("preferred_skills") or [],
-            (job["jd_audit"] or {}).get("jd_criteria"), job["bias_acknowledgements"], acks,
-        )
-        if blocked and payload.remove_skills:
-            _refuse_if_busy(conn, job_id)
-            stripped = strip_skills(
-                crit.get("required_skills") or [], crit.get("preferred_skills") or [],
-                [b["phrase"] for b in blocked if b["phrase"]],
-            )
-            _write_criteria(conn, job_id, job, CriteriaIn(**stripped))
-            log.info("%s ถอนการยืนยันและลบทักษะ %s ออกจากเกณฑ์ของตำแหน่ง %s",
-                     user, [b["skill"] for b in blocked], job_id)
-        elif blocked:
-            names = ", ".join(f'"{b["skill"]}"' for b in blocked)
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "biased_skill",
-                    "message": f"ถอนไม่ได้: {names} ยังเป็นทักษะในเกณฑ์คะแนน — "
-                               "ลบออกจากเกณฑ์ก่อน (ปุ่มแก้เกณฑ์) แล้วค่อยถอน",
-                    "skills": blocked,
-                    # เกณฑ์หลังลบทักษะเหล่านี้ — หน้าเว็บเอาไปพรีวิวผลกระทบก่อนส่ง remove_skills
-                    "stripped_criteria": strip_skills(
-                        crit.get("required_skills") or [], crit.get("preferred_skills") or [],
-                        [b["phrase"] for b in blocked if b["phrase"]],
-                    ),
-                },
-            )
-        row = conn.execute(
-            f"UPDATE jobs SET bias_acknowledgements = %s WHERE id = %s RETURNING {_JOB_COLS}",
-            (Json(acks), job_id),
-        ).fetchone()
+        acks, impact, row = _apply_acks(conn, job_id, payload, user, apply=True)
         conn.commit()
-    log.info("%s ยืนยันถ้อยคำอคติของตำแหน่ง %s: %s", user, job_id, [a["phrase"] for a in acks])
+    log.info("%s ยืนยันอคติของตำแหน่ง %s: %s (คะแนนเปลี่ยน %s คน)", user, job_id,
+             [a["phrase"] for a in acks], sum(1 for i in impact if i["old_score"] != i["new_score"]))
     return JobOut(**row)
+
+
+@router.post("/{job_id}/bias-acknowledgements/preview", response_model=BiasAcksPreviewOut)
+def preview_bias_acknowledgements(
+    job_id: str, payload: BiasAcksUpdate, user: str = Depends(get_current_user)
+) -> BiasAcksPreviewOut:
+    """ผลต่อคะแนนคนเดิมถ้าบันทึกชุดนี้ — **ไม่เขียนอะไรเลย** ให้ HR ดูก่อนกดยืนยัน
+    (กติกาและ error เหมือน PUT ทุกอย่าง: 422 เหตุผลสั้น, 409 ถอนไม่ได้/มีคนกำลังวิเคราะห์)."""
+    with get_conn() as conn:
+        _, impact, _ = _apply_acks(conn, job_id, payload, user, apply=False)
+        conn.rollback()  # ปลด FOR UPDATE และยืนยันว่าไม่ได้ตั้งใจเขียน
+    return BiasAcksPreviewOut(impact=impact)
 
 
 def _deletion_blocker(
