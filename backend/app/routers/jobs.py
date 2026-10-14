@@ -19,7 +19,8 @@ from app.agents.runner import active_candidates
 from app.agents.models import JDReview
 from app.auth import get_current_user
 from app.bias_ack import (
-    AckError, biased_skill_message, biased_skills, effective_biased_skills, llm_skill_phrases, removal_phrases,
+    AckError, biased_skill_message, biased_skills, effective_biased_skills, llm_skill_phrases,
+    names_in_criteria, removal_phrases,
     strip_skills, validate_acks, warned_phrases, withdraw_blocked,
 )
 from app.rate_limit import hit_and_check, retry_after_sec
@@ -147,10 +148,13 @@ def _job_audit(raw_text: str, analyzed: dict | None, llm=None) -> dict:
     ยืนยันจริง — HR อาจลบหรือแก้ไปแล้วในขั้นยืนยัน ชื่อที่ไม่อยู่แล้วถอดไม่ได้อยู่ดี
     """
     audit = build_jd_audit(llm, raw_text)
-    required = set((analyzed or {}).get("required_skills") or [])
-    preferred = set((analyzed or {}).get("preferred_skills") or [])
-    audit["biased_required_skills"] = [s for s in audit["biased_required_skills"] if s in required]
-    audit["biased_preferred_skills"] = [s for s in audit["biased_preferred_skills"] if s in preferred]
+    # เทียบ canonical ไม่ใช่ string ตรงตัว (2026-10-14): HR พิมพ์ "ใบขับขี่  ท.2" (เว้นวรรคสองที) ในขั้นยืนยัน
+    # เทียบตรงตัวแล้วคำเตือนของ AI หายทั้งข้อ การยืนยันที่กดไว้ก็ถูกทิ้ง ทักษะนั้นถูกนับคะแนนโดยไม่มีใครเห็น
+    a = analyzed or {}
+    audit["biased_required_skills"] = names_in_criteria(
+        audit["biased_required_skills"], {"required_skills": a.get("required_skills") or []})
+    audit["biased_preferred_skills"] = names_in_criteria(
+        audit["biased_preferred_skills"], {"preferred_skills": a.get("preferred_skills") or []})
     return audit
 
 

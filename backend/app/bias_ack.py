@@ -136,6 +136,17 @@ def _criterion_keys(criteria: dict[str, Any] | None) -> set[str] | None:
     return keys
 
 
+def names_in_criteria(names: list[str] | None, criteria: dict[str, Any] | None) -> list[str]:
+    """ชื่อที่ยังมีอยู่ในเกณฑ์ (เทียบ canonical + แยกกลุ่ม) คงชื่อตามที่ AI ให้มา · criteria=None = ไม่กรอง."""
+    keys = _criterion_keys(criteria)
+    out: list[str] = []
+    for n in names or []:
+        n = (n or "").strip()
+        if n and n not in out and (keys is None or canonical(n) in keys):
+            out.append(n)
+    return out
+
+
 def llm_skill_phrases(jd_audit: dict[str, Any] | None, criteria: dict[str, Any] | None) -> list[str]:
     """ทักษะที่ AI ชี้ว่ามีอคติ ซึ่งยังอยู่ในเกณฑ์ และไม่ใช่ถ้อยคำเดียวกับที่เตือนในประกาศอยู่แล้ว.
 

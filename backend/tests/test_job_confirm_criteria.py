@@ -406,3 +406,31 @@ class TestLLMNamedBiasedSkillOnCreate:
             assert ack["kind"] == "phrase" and ack["scored"] is True
         finally:
             self._cleanup()
+
+
+class TestLLMSkillSpacingOnCreate:
+    """บั๊กที่เจอตอนลองบนหน้าเว็บ 2026-10-14: HR พิมพ์ทักษะที่ AI ชี้ใหม่โดยเว้นวรรคต่าง → คำเตือนหาย
+    การยืนยันถูกทิ้ง ทักษะถูกนับคะแนนโดยไม่มีใครเห็น (_job_audit เทียบ string ตรงตัว)."""
+
+    SKILL = "ใบขับขี่ ท.2"  # กฎตายตัวไม่จับ — มีแค่ AI ที่ชี้
+
+    def payload(self, typed, acks=()):
+        from app.agents.models import BiasAudit
+
+        llm = BiasAudit(is_biased=True, audit_status="flagged", audit_log="x",
+                        biased_required_skills=[self.SKILL])
+        return TestCreateWithConfirmedCriteria().confirm(
+            required_skills=["Python", typed], bias_llm=llm.model_dump(),
+            bias_acks=[{"phrase": self.SKILL, "reason": r} for r in acks],
+        )
+
+    def test_เว้นวรรคต่าง_คำเตือนยังอยู่(self, client):
+        res = client.post("/api/v1/jobs", json=self.payload("ใบขับขี่  ท.2"))
+        assert res.status_code == 201, res.text
+        assert res.json()["bias"]["biased_skills"] == [self.SKILL]
+
+    def test_เว้นวรรคต่าง_การยืนยันไม่ถูกทิ้ง(self, client):
+        res = client.post("/api/v1/jobs", json=self.payload("ใบขับขี่  ท.2", ["งานขับรถต้องมีใบขับขี่ประเภทนี้"]))
+        assert res.status_code == 201, res.text
+        [ack] = res.json()["bias"]["acknowledged"]
+        assert ack["phrase"] == self.SKILL and ack["kind"] == "skill"
