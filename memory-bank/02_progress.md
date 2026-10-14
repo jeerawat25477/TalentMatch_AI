@@ -928,7 +928,15 @@ attempts 0 · แถว `a8ce77b3` ไม่ถูกแตะ ขึ้น `int
   · **รอบสอง + HR Generalist (2 call): ผ่านทั้งคู่** — Junior Web รอบสองยก 4 ข้อเดิมแต่ตัดสั้นกว่า (ทุกข้อจากส่วนทักษะ)
     และเพิ่ม structure_issue ที่ถูก (Soft Skills ไม่ระบุต้องมี/อยากได้) · HR Generalist: unmeasurable 4 ข้อจากส่วนทักษะ
     (Interpersonal, Time Management, Native English speaker, เป็นคนไทย) ไม่มีจากส่วนหน้าที่ · vague_skills "HRIS Systems"
-    (แนะนำระบุชื่อระบบ) ถูกต้อง · ⚠ ประกาศ HR Generalist ยังมีบรรทัดจากการทดลองอคติ (Native English speaker / เป็นคนไทย)
+    (แนะนำระบุชื่อระบบ) ถูกต้อง · ~~ประกาศ HR Generalist ยังมีบรรทัดจากการทดลองอคติ~~ ลบแล้ว (หัวข้อถัดไป)
+
+### ลบบรรทัดทดลองในประกาศ HR Generalist (2026-10-14, backup `backup_before_clean_hr_jd.sql`)
+- `55a275a3`: ลบ 3 บรรทัดท้ายประกาศ "Native English speaker" / "English  ระดับ C2" / "เป็นคนไทย" (สคริปต์ตัดเฉพาะ 3 ข้อความนี้
+  ตรงตัว ไม่ตรง 3 บรรทัดหยุดเอง) · ไม่มีปุ่มแก้ประกาศ จึง UPDATE raw_text ตรง
+- ตรวจอคติใหม่ด้วย `_job_audit` + `audit_jd` (ทางเดียวกับตอนสร้างตำแหน่ง, 1 call) → passed, llm_checked
+- ไม่แตะเกณฑ์/คะแนน/ai_criteria/jd_extraction · 3 บรรทัดไม่อยู่ในเกณฑ์อยู่แล้ว · 11 ตำแหน่งคะแนนขยับ 0
+- ยังเตือนอยู่ (ไม่ได้แตะ): Sales Executive "เป็นคนไทย" (สร้าง 7 ต.ค. วันทดลองลูปอคติ — น่าจะทดลองเหมือนกัน)
+  · Software Engineer / Backend Developer / UI/UX Designer เพศ+อายุ (ตัวอย่างสาธิตอคติที่ตั้งใจใส่)
 
 ### ข้อมูลและไฟล์สาธิต (2026-09-28)
 
