@@ -211,3 +211,9 @@ class TestSetupScript:
         setup.write_env(p, "A=2\n")
         assert p.read_text() == "A=2\n"
         assert [f.name for f in tmp_path.iterdir()] == [".env"]  # ไม่ทิ้งไฟล์ชั่วคราว/สำรอง
+
+    def test_client_id_rejects_double_paste(self):
+        cid = "446150175440-c6j1vgasaa1vdbn4urd1p6rm8is5bggn.apps.googleusercontent.com"
+        assert setup.valid_client_id(cid)
+        assert not setup.valid_client_id(cid + cid)
+        assert not setup.valid_client_id("abc.apps.googleusercontent.com")

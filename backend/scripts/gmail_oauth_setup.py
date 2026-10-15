@@ -7,7 +7,7 @@
 
     cd /root/TalentMatch_AI
     python3 backend/scripts/gmail_oauth_setup.py
-    docker compose -f docker-compose.prod.yml up -d backend
+    docker compose -f docker-compose.prod.yml up -d --build backend
 
 ขั้นตอน: ถาม Client ID/Secret (OAuth client แบบ Desktop app) → พิมพ์ลิงก์ให้เปิดในเบราว์เซอร์
 → ล็อกอิน Google + กดอนุญาต → เบราว์เซอร์เด้งไปหน้า 127.0.0.1 ที่เปิดไม่ขึ้น (ปกติ) →
@@ -23,6 +23,7 @@ import getpass
 import hashlib
 import json
 import os
+import re
 import secrets
 import sys
 import tempfile
@@ -40,6 +41,14 @@ REDIRECT_URI = "http://127.0.0.1:8765/"
 
 # คีย์ที่สคริปต์นี้เป็นเจ้าของใน .env — บรรทัดอื่นทุกบรรทัดคงไว้ตามเดิม
 OWNED_KEYS = ("EMAIL_TRANSPORT", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN")
+
+# รูปแบบ Client ID ของ Google — ตรวจทั้งเส้น ไม่ใช่แค่ลงท้าย เพราะคลิกขวาวางซ้ำสองครั้งได้
+# "...googleusercontent.com446...googleusercontent.com" ซึ่งลงท้ายถูกแต่ Google ไม่รู้จัก (เจอจริง 2026-10-16)
+CLIENT_ID_RE = re.compile(r"\d+-[a-z0-9]+\.apps\.googleusercontent\.com")
+
+
+def valid_client_id(client_id: str) -> bool:
+    return CLIENT_ID_RE.fullmatch(client_id) is not None
 
 
 def pkce_pair() -> tuple[str, str]:
@@ -132,9 +141,11 @@ def main() -> None:
 
     print("ตั้งค่าส่งอีเมลผ่าน Gmail API — ใช้ OAuth client แบบ Desktop app จาก Google Cloud\n")
     client_id = input("Client ID: ").strip()
+    if not valid_client_id(client_id):
+        sys.exit("Client ID ผิดรูปแบบ (ตัวเลข-ตัวอักษร.apps.googleusercontent.com) — วางซ้ำสองครั้งหรือเปล่า? รันใหม่แล้ววางครั้งเดียว")
     client_secret = getpass.getpass("Client Secret (ไม่แสดงบนจอ): ").strip()
-    if not client_id.endswith(".apps.googleusercontent.com") or not client_secret:
-        sys.exit("Client ID ต้องลงท้ายด้วย .apps.googleusercontent.com และต้องมี Client Secret")
+    if not client_secret:
+        sys.exit("ต้องมี Client Secret")
 
     verifier, challenge = pkce_pair()
     state = secrets.token_urlsafe(16)
@@ -165,7 +176,8 @@ def main() -> None:
     }))
     print(
         f"\n✅ เขียนลง {env_path} แล้ว (EMAIL_TRANSPORT=gmail_api)"
-        "\nให้ backend อ่านค่าใหม่:  docker compose -f docker-compose.prod.yml up -d backend"
+        "\nให้ backend อ่านค่าใหม่:  docker compose -f docker-compose.prod.yml up -d --build backend"
+        "\n(--build จำเป็นถ้าเพิ่ง git pull โค้ดใหม่มา — ใส่ไว้เสมอก็ไม่เสียหาย)"
         "\nแล้วลองส่งอีเมลหาตัวเองจากหน้าเว็บ"
     )
 

@@ -260,7 +260,7 @@ for p in 587 465; do timeout 5 bash -c "echo > /dev/tcp/smtp.gmail.com/$p" 2>/de
 ```bash
 cd /root/TalentMatch_AI
 python3 backend/scripts/gmail_oauth_setup.py
-docker compose -f docker-compose.prod.yml up -d backend
+docker compose -f docker-compose.prod.yml up -d --build backend
 ```
 
 ตอนกดอนุญาตจะเจอ "Google hasn't verified this app" เป็นปกติ (แอปของคุณเอง) กด **Advanced →

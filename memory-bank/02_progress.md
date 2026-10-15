@@ -1055,6 +1055,8 @@ attempts 0 · แถว `a8ce77b3` ไม่ถูกแตะ ขึ้น `int
 - DigitalOcean SGP1 `68.183.187.62` + `talentmatch-hr.duckdns.org` · Ubuntu 24.04 2GB + swap 2GB · ufw 22/80/443 · `up -d --build` ผ่าน (build ~275 วิ) · HTTPS Let's Encrypt จริง, /health, 401, http→https เช็คจากเครื่อง dev ผ่าน · ล็อกอิน + สร้างตำแหน่ง + ให้คะแนนเรซูเม่สมมติ ผ่าน · IMAP (993) ออกได้
 - **ส่งอีเมล 502: DigitalOcean บล็อก 587/465 ขาออก** → เพิ่ม `EMAIL_TRANSPORT=gmail_api` ใน `email_sender.py` (urllib ล้วน, ขอ token ใหม่ทุกครั้ง, `invalid_grant`→503) + `scripts/gmail_oauth_setup.py` (PKCE+state, เขียน .env แบบ atomic chmod 600) · เทสต์ `test_email_gmail_api.py` 18 ตัว (รวม 1427) · dev ยังเป็น smtp · ขั้นตอน Google Cloud อยู่ใน DEPLOY.md ใต้ขั้นที่ 7
 - เจอบั๊กคู่มือ: `openssl rand -base64` ทำ DATABASE_URL พังถ้ามี `/` → เปลี่ยนเป็น `-hex` แล้ว
+- **ส่งจริงบน VPS ผ่าน Gmail API สำเร็จ (2026-10-16)** ถึงอีเมล msu ของผู้ใช้ เข้ากล่องหลัก ไม่ติด spam · Google Cloud โปรเจกต์ `talentmatch-mail` แอป **In production** (Branding ต้องมี home page + `PRIVACY.md` + domain `github.com`, ห้ามใส่โลโก้) client แบบ Desktop app · เจอคลิกขวาวาง Client ID ซ้ำสองครั้ง → สคริปต์ตรวจรูปแบบทั้งเส้นแล้ว
+- **พักไว้ (ผู้ใช้สั่ง):** บัญชีให้อาจารย์/เพื่อนลองใช้ + ยังไม่ได้ตั้ง backup ขั้นที่ 8 บน VPS (ลบแล้วหายถาวร) — คุยต่อหลังเรื่องอีเมล
 
 ## 🔜 ค้างอยู่ / ขั้นต่อไป (เรียงลำดับแนะนำ)
 
