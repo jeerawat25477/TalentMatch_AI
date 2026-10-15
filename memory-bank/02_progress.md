@@ -1051,6 +1051,11 @@ attempts 0 · แถว `a8ce77b3` ไม่ถูกแตะ ขึ้น `int
 - แก้: `tests/conftest.py` ปิด tracing เฉพาะ pytest (+ล้าง cache ของ SDK) · `tests/test_tracing_off.py` ล็อกไว้
   ยืนยัน: รันเทสต์ครบแล้ว trace ใหม่ = 0 · นอก pytest ยังเปิด · trace เทสต์เก่าหลุดหน้าสรุป 7 วันเองภายใน 19 ต.ค.
 
+### ขึ้น VPS จริง + ส่งอีเมลผ่าน Gmail API (2026-10-15)
+- DigitalOcean SGP1 `68.183.187.62` + `talentmatch-hr.duckdns.org` · Ubuntu 24.04 2GB + swap 2GB · ufw 22/80/443 · `up -d --build` ผ่าน (build ~275 วิ) · HTTPS Let's Encrypt จริง, /health, 401, http→https เช็คจากเครื่อง dev ผ่าน · ล็อกอิน + สร้างตำแหน่ง + ให้คะแนนเรซูเม่สมมติ ผ่าน · IMAP (993) ออกได้
+- **ส่งอีเมล 502: DigitalOcean บล็อก 587/465 ขาออก** → เพิ่ม `EMAIL_TRANSPORT=gmail_api` ใน `email_sender.py` (urllib ล้วน, ขอ token ใหม่ทุกครั้ง, `invalid_grant`→503) + `scripts/gmail_oauth_setup.py` (PKCE+state, เขียน .env แบบ atomic chmod 600) · เทสต์ `test_email_gmail_api.py` 18 ตัว (รวม 1427) · dev ยังเป็น smtp · ขั้นตอน Google Cloud อยู่ใน DEPLOY.md ใต้ขั้นที่ 7
+- เจอบั๊กคู่มือ: `openssl rand -base64` ทำ DATABASE_URL พังถ้ามี `/` → เปลี่ยนเป็น `-hex` แล้ว
+
 ## 🔜 ค้างอยู่ / ขั้นต่อไป (เรียงลำดับแนะนำ)
 
 1. **Deploy จริง** — ฝั่งโค้ดพร้อมแล้ว (ดู "ชุดไฟล์ขึ้น cloud" ด้านบน) **รอผู้ใช้หา VPS + โดเมน**

@@ -275,9 +275,9 @@ def send_candidate_email(
     try:
         send_email(to=payload.to, subject=payload.subject, body=payload.body)
     except EmailConfigError as exc:
-        log.error("ตั้งค่า SMTP ไม่ครบ: %s", exc)
+        log.error("ตั้งค่าอีเมลไม่ครบ: %s", exc)
         raise HTTPException(status_code=503, detail="ระบบอีเมลยังไม่ถูกตั้งค่า") from exc
-    except Exception as exc:  # noqa: BLE001 — SMTP ล้มได้หลายแบบ ไม่ leak stack ให้ client
+    except Exception as exc:  # noqa: BLE001 — SMTP/Gmail API ล้มได้หลายแบบ ไม่ leak stack ให้ client
         log.exception("ส่งอีเมลถึง %s ล้มเหลว: %s", payload.to, exc)
         raise HTTPException(status_code=502, detail="ส่งอีเมลไม่สำเร็จ ลองใหม่อีกครั้ง") from exc
 

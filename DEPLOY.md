@@ -224,6 +224,44 @@ docker compose -f docker-compose.prod.yml logs -f
 
 > ข้อ 1, 3, 4, 6 ซ้อมรันในเครื่องผ่านแล้ว (2026-10-15) ส่วน 2, 5, 7 กับกุญแจ 🔒 ต้องลองบนเครื่องจริงเท่านั้น
 
+### ข้อ 5 ขึ้น "502: ส่งอีเมลไม่สำเร็จ" — ผู้ให้เช่าบล็อกการส่งอีเมล
+
+**เช็คก่อน** (บน VPS)
+
+```bash
+for p in 587 465; do timeout 5 bash -c "echo > /dev/tcp/smtp.gmail.com/$p" 2>/dev/null && echo "$p ออกได้" || echo "$p ถูกบล็อก"; done
+```
+
+ถ้าขึ้น "ถูกบล็อก" ทั้งคู่ = ผู้ให้เช่าปิดพอร์ตส่งอีเมล (DigitalOcean ทำกับบัญชีใหม่ทุกบัญชี)
+ไม่ใช่การตั้งค่าผิด **ทางแก้คือส่งผ่าน Gmail API** ซึ่งวิ่งทางพอร์ตเว็บ (443) ที่ไม่ถูกบล็อก
+อีเมลยังออกจาก Gmail บัญชีเดิม ไม่ต้องแก้โค้ด
+
+**1. ใน Google Cloud** (ล็อกอินด้วยบัญชี Gmail ที่ใช้ส่ง) ที่ <https://console.cloud.google.com>
+
+1. สร้างโปรเจกต์ใหม่ ชื่ออะไรก็ได้ เช่น `talentmatch-mail` (ไม่ต้องผูกบัตร)
+2. เมนู **APIs & Services → Library** ค้น `Gmail API` → **Enable**
+3. เมนู **Google Auth Platform** → **Get started** · ใส่ชื่อแอป + อีเมล · Audience เลือก **External** → Create
+4. **Audience → Publish app → Confirm** ให้สถานะเป็น **In production**
+   > ⚠️ **ข้อนี้ห้ามข้าม** ถ้าค้างที่ Testing สิทธิ์ส่งอีเมลหมดอายุทุก 7 วัน แล้วระบบจะส่งไม่ได้เอง
+5. **Clients → Create client** · Application type เลือก **Desktop app** → Create
+   จะได้ **Client ID** กับ **Client secret** (ห้ามส่งให้ใคร ห้ามวางในแชต)
+
+**2. บน VPS** รันสคริปต์ แล้วทำตามที่มันบอก (ถาม ID/Secret → ให้ลิงก์ไปกดอนุญาต → วาง URL กลับมา)
+
+```bash
+cd /root/TalentMatch_AI
+python3 backend/scripts/gmail_oauth_setup.py
+docker compose -f docker-compose.prod.yml up -d backend
+```
+
+ตอนกดอนุญาตจะเจอ "Google hasn't verified this app" เป็นปกติ (แอปของคุณเอง) กด **Advanced →
+Go to ... (unsafe)** · พอกดอนุญาตแล้วเบราว์เซอร์จะไปหน้า `127.0.0.1` ที่เปิดไม่ขึ้น — ปกติเช่นกัน
+คัดลอก URL ทั้งเส้นจากช่องที่อยู่ไปวาง สคริปต์เขียนค่าลง `backend/.env` ให้เอง
+
+สิทธิ์ที่ขอคือ **ส่งอีเมลได้อย่างเดียว อ่านกล่องจดหมายไม่ได้** · จะกลับไปใช้ SMTP แก้
+`EMAIL_TRANSPORT=smtp` ใน `backend/.env` แล้ว `up -d backend` · ถ้าเปลี่ยนรหัส Google ทีหลัง
+สิทธิ์จะถูกยกเลิก — รันสคริปต์นี้ใหม่
+
 ---
 
 ## ขั้นที่ 8 — ตั้ง backup
@@ -329,6 +367,8 @@ docker compose -f docker-compose.prod.yml down
 | อัปโหลดแล้วค้าง "รอคิว" | โควตา AI หมดแล้ว | ไม่ต้องทำอะไร ระบบพักไว้เองและรันต่อวันถัดไป |
 | ขั้นตอน build ตายกลางทาง | แรมไม่พอ | ต้องใช้เครื่อง 2GB ขึ้นไป |
 | ssh เข้าไม่ได้หลังตั้ง firewall | ลืม `ufw allow OpenSSH` | ใช้ console ในหน้าเว็บของผู้ให้บริการ VPS เข้าไปแก้ |
+| ส่งอีเมลขึ้น 502 | ผู้ให้เช่าบล็อกพอร์ต SMTP | ใช้ Gmail API (ดูใต้ขั้นที่ 7) |
+| ส่งอีเมลขึ้น 503 หลังใช้ Gmail API มาสักพัก | สิทธิ์หมด (แอปยังเป็น Testing / เปลี่ยนรหัส Google) | `logs backend` บอกสาเหตุ · รัน `gmail_oauth_setup.py` ใหม่ |
 
 ---
 
