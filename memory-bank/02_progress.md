@@ -1055,8 +1055,15 @@ attempts 0 · แถว `a8ce77b3` ไม่ถูกแตะ ขึ้น `int
 
 1. **Deploy จริง** — ฝั่งโค้ดพร้อมแล้ว (ดู "ชุดไฟล์ขึ้น cloud" ด้านบน) **รอผู้ใช้หา VPS + โดเมน**
    แล้วทำตาม [DEPLOY.md](../DEPLOY.md) · Hardening ที่เหลือ (ดู [04_security.md](04_security.md)):
-   ~~TLS/reverse proxy~~ (Caddy แล้ว) · backend ยังรันเป็น root (frontend โปรดักชันเป็น uid 1000 แล้ว) ·
+   ~~TLS/reverse proxy~~ (Caddy แล้ว) · ~~backend รันเป็น root~~ (ผู้ใช้ `app` แล้ว 2026-10-12) ·
    ย้าย rate-limit ไป Redis · secrets manager · backup อัตโนมัติมีสคริปต์ใน DEPLOY.md ขั้นที่ 8 แต่ยังไม่ได้ตั้งจริง
+   · **ซ้อมรัน `docker-compose.prod.yml` ในเครื่องผ่านแล้ว (2026-10-15, Gemini 0 call)** — โปรเจกต์แยก
+   `talentmatch-rehearsal` + override ใน scratchpad (`env_file: !override` ไม่โหลด backend/.env จริง, Caddy ที่
+   `talentmatch.localhost:8443`) ผ่าน: build, healthy ทั้ง 4 กล่อง (ว่างกินแรมรวม ~250MB), HTTPS + header,
+   แยก /api, ล็อกอิน, สร้างตำแหน่งแบบไม่เรียก AI, อัป 1 ใบ → `deferred_quota`, ดูไฟล์ต้นฉบับตรงทุกไบต์,
+   restart แล้วคิวอยู่, uid 1000, backup→กู้ลงกล่องชั่วคราวนับแถวตรง · ซ้อมไม่ได้: มือถือ (เบราว์เซอร์ในแอป
+   ไม่เปิดใบรับรอง local) · เจอแล้วใส่ DEPLOY.md: quota `0` = ไม่จำกัด, ตัวอย่างเปิด LangSmith ไว้,
+   กู้ได้เมื่อ `POSTGRES_USER` เหมือนเดิม
 2. เคลียร์หนี้ dev: ~~job ที่ `parsed_criteria` เป็น NULL~~ (ปิดแล้ว), ~~แถวอีเมลที่โดน stub ทับ (subject='s')~~ (ล้างแล้ว 2026-10-12), reducer ของ HRSystemState
 3. ~~ปรับปรุงความทนทาน: อัปโหลดหลายไฟล์แล้วชนโควตา~~ — **ปิดแล้ว 2026-09-10** ดู "คิวงานประมวลผล + คุมโควตา" ด้านล่าง
 4. ~~ข้อมูล dev ค้าง: 2 งาน `parsed_criteria` = NULL~~ — **ปิดแล้ว 2026-09-02** ดู "เก็บกวาดข้อมูล dev" ด้านล่าง
@@ -1068,7 +1075,7 @@ attempts 0 · แถว `a8ce77b3` ไม่ถูกแตะ ขึ้น `int
 8. **เฟส 5: calibration** — ใช้ `interview_outcome` เทียบกับ `fit_score` เพื่อดูว่าคะแนน
    ของ AI แม่นแค่ไหน · **ยังทำไม่ได้ตอนนี้** ต้องรอข้อมูลสัมภาษณ์สะสมหลายเดือนก่อน
    ตอนนี้ทำได้แค่เก็บให้ครบทุกครั้งที่สัมภาษณ์
-9. **หนี้เล็ก ๆ ที่เจอตอนทำเฟส 4:** โมดัลเดิม `hire-employee-dialog` กับ `confirm-dialog`
+9. ~~**หนี้เล็ก ๆ ที่เจอตอนทำเฟส 4:**~~ — **ปิดแล้ว** ทั้งสองโมดัลใช้ `createPortal` แล้ว · โมดัลเดิม `hire-employee-dialog` กับ `confirm-dialog`
    ติดบั๊ก stacking context เดียวกับที่แก้ไปแล้วในโมดัลผลสัมภาษณ์ แต่ยังไม่แสดงอาการ
    เพราะกว้างแค่ `max-w-lg` — จะโผล่เมื่อจอแคบกว่า 1024px หรือมีใครขยายความกว้างมัน
    ทางแก้เดียวกัน คือ `createPortal` ไป `document.body`
