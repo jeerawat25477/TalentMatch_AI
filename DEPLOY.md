@@ -241,9 +241,18 @@ for p in 587 465; do timeout 5 bash -c "echo > /dev/tcp/smtp.gmail.com/$p" 2>/de
 1. สร้างโปรเจกต์ใหม่ ชื่ออะไรก็ได้ เช่น `talentmatch-mail` (ไม่ต้องผูกบัตร)
 2. เมนู **APIs & Services → Library** ค้น `Gmail API` → **Enable**
 3. เมนู **Google Auth Platform** → **Get started** · ใส่ชื่อแอป + อีเมล · Audience เลือก **External** → Create
-4. **Audience → Publish app → Confirm** ให้สถานะเป็น **In production**
+4. **Branding** — ปุ่ม Publish จะกดไม่ได้จนกว่าจะกรอกสองช่องนี้ แล้วกด **Save**
+
+   | ช่อง | ใส่ |
+   |---|---|
+   | Application home page | `https://github.com/jeerawat25477/TalentMatch_AI` |
+   | Application privacy policy link | `https://github.com/jeerawat25477/TalentMatch_AI/blob/main/PRIVACY.md` |
+   | Authorized domains | `github.com` |
+
+   > ⚠️ **ห้ามอัปโหลด App logo** ใส่โลโก้แล้วต้องส่งแอปให้ Google ตรวจ (หลายสัปดาห์)
+5. **Audience → Publish app → Confirm** ให้สถานะเป็น **In production**
    > ⚠️ **ข้อนี้ห้ามข้าม** ถ้าค้างที่ Testing สิทธิ์ส่งอีเมลหมดอายุทุก 7 วัน แล้วระบบจะส่งไม่ได้เอง
-5. **Clients → Create client** · Application type เลือก **Desktop app** → Create
+6. **Clients → Create client** · Application type เลือก **Desktop app** → Create
    จะได้ **Client ID** กับ **Client secret** (ห้ามส่งให้ใคร ห้ามวางในแชต)
 
 **2. บน VPS** รันสคริปต์ แล้วทำตามที่มันบอก (ถาม ID/Secret → ให้ลิงก์ไปกดอนุญาต → วาง URL กลับมา)
