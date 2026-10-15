@@ -277,29 +277,36 @@ Go to ... (unsafe)** · พอกดอนุญาตแล้วเบรา�
 
 **ทำก่อนใส่ข้อมูลจริง** ถ้า VPS พังหรือถูกลบ ข้อมูลทั้งหมดหายพร้อมกัน ไม่มีทางกู้
 
-**สร้างสคริปต์** — คัดลอกทั้งก้อนนี้ไปวางแล้วกด Enter
+**สร้างสคริปต์** — คัดลอกทั้งก้อนนี้ (ถึงบรรทัด `EOF`) ไปวางแล้วกด Enter
 
 ```bash
-mkdir -p /root/backups
-printf '%s\n' \
-  '#!/bin/bash' \
-  'cd /root/TalentMatch_AI || exit 1' \
-  'source .env' \
-  'docker compose -f docker-compose.prod.yml exec -T db \' \
-  '  pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" \' \
-  '  | gzip > "/root/backups/tm-$(date +%F-%H%M).sql.gz"' \
-  "find /root/backups -name 'tm-*.sql.gz' -mtime +14 -delete" \
-  > /root/backup.sh
-chmod +x /root/backup.sh
+mkdir -p /root/backups && cat > /root/backup.sh <<'EOF'
+#!/bin/bash
+set -o pipefail
+cd /root/TalentMatch_AI || exit 1
+source .env
+f="/root/backups/tm-$(date +%F-%H%M).sql.gz"
+if ! docker compose -f docker-compose.prod.yml exec -T db pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > "$f"; then
+  rm -f "$f"; echo "$(date) backup ล้มเหลว" >&2; exit 1
+fi
+find /root/backups -name 'tm-*.sql.gz' -mtime +14 -delete
+echo "$(date) backup สำเร็จ: $f"
+EOF
+chmod 700 /root/backup.sh
 ```
 
-บรรทัดสุดท้ายในสคริปต์คือลบไฟล์ที่เก่ากว่า 14 วันทิ้ง กันดิสก์เต็ม
+- `set -o pipefail` + `if` = ถ้า pg_dump พัง จะลบไฟล์เสียทิ้งและบอกว่าล้มเหลว (ไม่งั้น gzip
+  สร้างไฟล์เล็ก ๆ ที่ดูเหมือนสำเร็จ แต่กู้อะไรไม่ได้)
+- บรรทัด `find` ลบไฟล์ที่เก่ากว่า 14 วันทิ้ง กันดิสก์เต็ม
 
-**สั่งให้ทำทุกวันตี 3**
+**สั่งให้ทำทุกคืนตี 3 เวลาไทย** — เครื่องใช้เวลา UTC (ช้ากว่าไทย 7 ชม.) จึงเป็น `0 20`
+(ถ้าเขียน `0 3` จะได้ 10 โมงเช้าเวลาไทย ตรงกับช่วงคนใช้งาน)
 
 ```bash
-(crontab -l 2>/dev/null; echo "0 3 * * * /root/backup.sh") | crontab -
+(crontab -l 2>/dev/null | grep -v backup.sh; echo "0 20 * * * /root/backup.sh >> /root/backups/backup.log 2>&1") | crontab -
 ```
+
+ผลแต่ละคืนจดไว้ที่ `/root/backups/backup.log`
 
 **ทดสอบเดี๋ยวนี้ว่ามันทำงาน**
 
@@ -307,7 +314,7 @@ chmod +x /root/backup.sh
 /root/backup.sh && ls -lh /root/backups/
 ```
 
-ต้องเห็นไฟล์ที่มีขนาดจริง (หลัก MB) ถ้าขนาด 0 แปลว่าไม่สำเร็จ
+ต้องขึ้น "backup สำเร็จ" และไฟล์มีขนาดจริง (ฐานเล็ก ๆ ก็หลายร้อย KB)
 
 > ⚠️ **backup ที่ไม่เคยลองกู้ ไม่นับว่ามี backup** ลองกู้จริงหนึ่งครั้งก่อนใส่ข้อมูลจริง
 > ด้วยการกู้ลงกล่องฐานข้อมูลชั่วคราว (ไม่แตะของจริง) แล้วนับว่าตำแหน่งงานมีครบ
@@ -325,11 +332,16 @@ chmod +x /root/backup.sh
 > — ตอนย้ายเครื่องให้ใช้ไฟล์ `.env` ชุดเดิม
 >
 > และไฟล์ที่อยู่ในเครื่องเดียวกับระบบไม่ช่วยอะไรตอนเครื่องหาย — **ต้องคัดลอกออกไปข้างนอกด้วย**
-> รันคำสั่งนี้จากเครื่องคุณเป็นระยะ
+> รันจาก PowerShell **บนเครื่องคุณ** สัปดาห์ละครั้ง (เก็บนอกโฟลเดอร์โปรเจกต์ จะได้ไม่เผลอ push)
 >
-> ```bash
-> scp root@165.22.xxx.xxx:/root/backups/*.gz .
+> ```powershell
+> mkdir $HOME\TalentMatch-backups -Force
+> cd $HOME\TalentMatch-backups
+> scp "root@165.22.xxx.xxx:/root/backups/tm-*.sql.gz" .
 > ```
+>
+> ใช้ `cd` แล้วคัดลอกมาที่ `.` — ถ้าชื่อผู้ใช้ Windows มีเว้นวรรค การเขียนปลายทางเป็น
+> `$HOME\...\` ตรง ๆ จะพัง (`\` ท้ายไปกินเครื่องหมายคำพูด) · 🔒 ไฟล์นี้มีข้อมูลผู้สมัคร ห้ามแชร์
 
 ---
 
