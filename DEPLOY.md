@@ -154,11 +154,14 @@ cp backend/.env.example backend/.env
 **สร้างค่าสุ่มขึ้นมาก่อน** (คัดลอกผลที่ได้ไปวางในไฟล์)
 
 ```bash
-openssl rand -base64 32
+openssl rand -hex 32
 openssl rand -hex 32
 ```
 
 บรรทัดแรกเอาไปใส่ `POSTGRES_PASSWORD` บรรทัดที่สองเอาไปใส่ `JWT_SECRET`
+
+> ⚠️ **ใช้ `-hex` ห้ามใช้ `-base64`** รหัสแบบ base64 มีตัว `/` `+` ปนได้ รหัสฐานข้อมูลถูกเอาไปต่อเป็น
+> `postgresql://ผู้ใช้:รหัส@db/...` ตัว `/` ทำให้อ่านที่อยู่ผิด แล้ว backend ต่อฐานข้อมูลไม่ได้
 
 **แก้ไฟล์แรก** `nano .env`
 
