@@ -131,13 +131,13 @@ def get_current_role(username: str = Depends(get_current_user)) -> str:
 
 
 def require_admin(role: str = Depends(get_current_role)) -> None:
-    """กัน endpoint ที่บัญชีทดลองห้ามทำ: ลบ · ส่งอีเมลจริง · ตั้งค่าระบบ.
+    """กัน endpoint ที่บัญชีทดลองห้ามทำ: ลบ · ตั้งค่าระบบ (ส่งอีเมลได้ตั้งแต่ 2026-10-16).
 
     ใส่เป็น `dependencies=[Depends(require_admin)]` ที่ decorator · tests/test_roles.py ไล่ทุก route
     ถ้ามี DELETE ใหม่ที่ลืมใส่ตัวนี้ เทสต์จะพัง
     """
     if role != "admin":
-        raise HTTPException(status_code=403, detail="บัญชีทดลองทำรายการนี้ไม่ได้ (ลบ ส่งอีเมลจริง และตั้งค่าระบบ สงวนไว้ให้ผู้ดูแล)")
+        raise HTTPException(status_code=403, detail="บัญชีทดลองทำรายการนี้ไม่ได้ (การลบและตั้งค่าระบบ สงวนไว้ให้ผู้ดูแล)")
 
 
 # ---------- seed admin ----------

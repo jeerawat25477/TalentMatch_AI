@@ -1,6 +1,7 @@
 """ระดับสิทธิ์ admin / demo (บัญชีทดลองให้อาจารย์และเพื่อนกดเล่น).
 
-demo ทำได้เหมือน HR ยกเว้น ลบ · ส่งอีเมลจริง · ตั้งค่าระบบ — กันที่ backend ด้วย require_admin
+demo ทำได้เหมือน HR ยกเว้น ลบ · ตั้งค่าระบบ — กันที่ backend ด้วย require_admin
+(ส่งอีเมลจริงได้ตั้งแต่ 2026-10-16 ตามที่ผู้ใช้เลือก — log ชื่อคนส่งทุกครั้งแทน)
 หน้าเว็บซ่อนปุ่มเป็นแค่ความสะดวก คนยิง API ตรงก็ต้องโดนกันเหมือนกัน
 """
 import uuid
@@ -19,7 +20,6 @@ DELETE_ALLOWED_FOR_DEMO = {"/api/v1/candidates/{candidate_id}/email/draft"}
 
 # ที่ต้องกันนอกเหนือจาก DELETE
 ADMIN_ONLY_NON_DELETE = {
-    ("POST", "/api/v1/candidates/{candidate_id}/email/send"),
     ("PATCH", "/api/v1/settings/email-intake"),
     ("PATCH", "/api/v1/settings/screening-photos"),
 }
@@ -85,15 +85,13 @@ GUARDED_CALLS = [
     ("delete", f"/api/v1/jobs/{RID}", None),
     ("delete", f"/api/v1/candidates/{RID}", None),
     ("delete", f"/api/v1/email-templates/{RID}", None),
-    ("post", f"/api/v1/candidates/{RID}/email/send", {"to": "a@example.com", "subject": "s", "body": "b"}),
     ("patch", "/api/v1/settings/email-intake", {"enabled": True}),
     ("patch", "/api/v1/settings/screening-photos", {"enabled": True}),
 ]
 
 
 @pytest.mark.parametrize("method,url,body", GUARDED_CALLS)
-def test_demo_gets_403(as_role, method, url, body, monkeypatch):
-    monkeypatch.setattr("app.routers.hr.send_email", lambda **kw: pytest.fail("demo ส่งอีเมลได้"))
+def test_demo_gets_403(as_role, method, url, body):
     r = getattr(as_role("demo"), method)(url, **({"json": body} if body else {}))
     assert r.status_code == 403
     assert "บัญชีทดลอง" in r.json()["detail"]
@@ -110,6 +108,37 @@ def test_demo_can_still_play(as_role):
     c = as_role("demo")
     assert c.patch(f"/api/v1/jobs/{RID}", json={"status": "closed"}).status_code == 404
     assert c.post(f"/api/v1/candidates/{RID}/decision", json={"decision": "approved"}).status_code == 404
+
+
+@pytest.fixture
+def evaluated_candidate():
+    with get_conn() as conn:
+        job = conn.execute(
+            "INSERT INTO jobs (title, raw_text) VALUES ('เทส role ส่งอีเมล (ลบได้)', 'Python') RETURNING id"
+        ).fetchone()["id"]
+        cid = conn.execute(
+            "INSERT INTO candidates (job_id, full_name) VALUES (%s, 'ผู้สมัครเทส role') RETURNING id", (job,)
+        ).fetchone()["id"]
+        conn.execute("INSERT INTO evaluations (job_id, candidate_id, fit_score) VALUES (%s, %s, 40)", (job, cid))
+        conn.commit()
+    yield str(cid)
+    with get_conn() as conn:
+        conn.execute("DELETE FROM jobs WHERE id = %s", (job,))
+        conn.commit()
+
+
+def test_demo_can_send_email_and_sender_is_logged(as_role, evaluated_candidate, monkeypatch, caplog):
+    """ส่งได้เหมือน HR จริง — แต่ log ต้องบอกว่าใครกด (บทเรียน 2026-10-16: ตอบไม่ได้ว่าใครส่ง)."""
+    sent: list[dict] = []
+    monkeypatch.setattr("app.routers.hr.send_email", lambda **kw: sent.append(kw))
+    caplog.set_level("INFO", logger="app.routers.hr")
+    r = as_role("demo").post(
+        f"/api/v1/candidates/{evaluated_candidate}/email/send",
+        json={"to": "me@example.com", "subject": "เชิญสัมภาษณ์", "body": "ขอเชิญ"},
+    )
+    assert r.status_code == 200
+    assert sent and sent[0]["to"] == "me@example.com"
+    assert "demo-test ส่งอีเมลถึง me@example.com" in caplog.text
 
 
 def test_disabled_settings_still_readable_by_demo(as_role):

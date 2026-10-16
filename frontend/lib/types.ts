@@ -533,7 +533,7 @@ export interface TokenResponse {
 
 export interface UserInfo {
   username: string;
-  /** demo = บัญชีทดลอง: ลบ / ส่งอีเมลจริง / ตั้งค่าระบบไม่ได้ (backend ตอบ 403) */
+  /** demo = บัญชีทดลอง: ลบ / ตั้งค่าระบบไม่ได้ (backend ตอบ 403) · ส่งอีเมลได้ */
   role: "admin" | "demo";
 }
 

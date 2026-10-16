@@ -7,7 +7,7 @@ from psycopg.types.json import Json
 
 from app.agents.bias_rules import find_biased_message_phrases
 from app.agents.runner import active_candidates, reserve_candidates
-from app.auth import get_current_user, require_admin
+from app.auth import get_current_user
 from app.database import get_conn
 from app.job_queue import enqueue, enqueue_many
 from app.email_sender import EmailConfigError, send_email
@@ -232,7 +232,9 @@ def clear_email_draft(candidate_id: str) -> EmailDraftDeleteOut:
     return EmailDraftDeleteOut(candidate_id=candidate_id)
 
 
-@router.post("/{candidate_id}/email/send", response_model=EmailSendOut, dependencies=[Depends(require_admin)])
+# บัญชีทดลอง (demo) ส่งได้เหมือน HR จริง — ผู้ใช้เลือกเอง 2026-10-16 ให้อาจารย์ลองครบวงจร
+# แล้วบอกให้ส่งหาตัวเองแทน · ช่องผู้รับเติมอีเมลจริงจากเรซูเม่ จึง log ชื่อคนส่งทุกครั้ง
+@router.post("/{candidate_id}/email/send", response_model=EmailSendOut)
 def send_candidate_email(
     candidate_id: str, payload: EmailSendIn, user: str = Depends(get_current_user)
 ) -> EmailSendOut:
@@ -280,6 +282,9 @@ def send_candidate_email(
     except Exception as exc:  # noqa: BLE001 — SMTP/Gmail API ล้มได้หลายแบบ ไม่ leak stack ให้ client
         log.exception("ส่งอีเมลถึง %s ล้มเหลว: %s", payload.to, exc)
         raise HTTPException(status_code=502, detail="ส่งอีเมลไม่สำเร็จ ลองใหม่อีกครั้ง") from exc
+
+    # ใครส่ง ถึงใคร — email_sender log แค่ผู้รับ ครั้งแรกที่บัญชีทดลองใช้ ตอบไม่ได้ว่าใครกดส่ง
+    log.info("%s ส่งอีเมลถึง %s (ผู้สมัคร %s)", user, payload.to, candidate_id)
 
     with get_conn() as conn:
         sent = conn.execute(
