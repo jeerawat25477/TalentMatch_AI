@@ -428,3 +428,20 @@ CREATE TABLE IF NOT EXISTS candidate_files (
     size_bytes INT NOT NULL,
     stored_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- ประวัติการใช้งาน (2026-10-16) — ใครทำอะไร เมื่อไร สำเร็จไหม · จดโดย app/audit.py (ตัวจดกลาง)
+-- ไม่เก็บชื่อผู้สมัคร/เงินเดือน/เนื้อความอีเมล — เก็บแค่ ID แล้วหน้าเว็บดึงชื่อสดตอนเปิดดู
+-- ผู้สมัครถูกลบ → แถวยังอยู่แต่ไม่เหลือตัวตน · ลบแถวที่เก่ากว่า 1 ปีอัตโนมัติ (audit.purge_expired)
+CREATE TABLE IF NOT EXISTS audit_log (
+    id BIGSERIAL PRIMARY KEY,
+    at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT timezone('utc'::text, now()),
+    username VARCHAR(100) NOT NULL,
+    action TEXT NOT NULL,                  -- "POST /api/v1/candidates/{candidate_id}/decision" หรือ "login"
+    target_type VARCHAR(20),               -- job | candidate | employee | template
+    target_id UUID,
+    detail JSONB NOT NULL DEFAULT '{}'::jsonb,   -- เฉพาะคีย์ใน audit.DETAIL_KEYS
+    outcome VARCHAR(10) NOT NULL CHECK (outcome IN ('ok', 'denied', 'error', 'failed')),
+    status_code INT
+);
+CREATE INDEX IF NOT EXISTS audit_log_at_idx ON audit_log (at DESC);
+CREATE INDEX IF NOT EXISTS audit_log_user_at_idx ON audit_log (username, at DESC);

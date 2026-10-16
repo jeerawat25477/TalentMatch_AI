@@ -20,6 +20,7 @@ DELETE_ALLOWED_FOR_DEMO = {"/api/v1/candidates/{candidate_id}/email/draft"}
 
 # ที่ต้องกันนอกเหนือจาก DELETE
 ADMIN_ONLY_NON_DELETE = {
+    ("GET", "/api/v1/audit"),  # ประวัติการใช้งาน — บัญชีทดลองไม่ควรเห็นว่าคนอื่นทำอะไร
     ("PATCH", "/api/v1/settings/email-intake"),
     ("PATCH", "/api/v1/settings/screening-photos"),
 }

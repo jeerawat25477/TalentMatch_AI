@@ -10,11 +10,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.audit import AuditMiddleware, purge_expired
 from app.database import close_pool, init_db
 from app.email_intake import intake_status_line, start_intake_worker, stop_intake_worker
 from app.job_queue import reclaim_running
 from app.queue_worker import start_worker, stop_worker
 from app.routers import (
+    audit,
     auth,
     candidates,
     email_templates,
@@ -43,6 +45,7 @@ async def lifespan(app: FastAPI):
     # กู้งานที่ค้างจากโปรเซสที่ตายไป **ก่อน** สตาร์ต worker — ตอนนี้ไม่มีอะไรรันจริง
     # แถวที่ยังเป็น running จึงเป็นเศษแน่นอน (นี่คือกลไกที่ทำให้งานไม่หายตอนรีสตาร์ต)
     reclaim_running()
+    purge_expired()    # ประวัติการใช้งานเก็บ 1 ปี (เรียกซ้ำตอนเปิดหน้าประวัติด้วย)
     start_worker()
     # ปากทางรับใบสมัครทางอีเมล — สตาร์ตเฉพาะเมื่อตั้ง IMAP_* ครบ และถึงสตาร์ตแล้วก็ยัง
     # ไม่แตะเมลจนกว่า HR จะเปิดสวิตช์ในหน้าตั้งค่า (ดีฟอลต์ปิด)
@@ -85,6 +88,9 @@ def allowed_origins(raw: str | None) -> list[str]:
 ALLOWED_ORIGINS = allowed_origins(os.getenv("ALLOWED_ORIGINS"))
 log.info("CORS อนุญาต origin: %s", ", ".join(ALLOWED_ORIGINS))
 
+# ประวัติการใช้งาน — เพิ่มก่อน CORS เพื่อให้ CORS อยู่ชั้นนอกสุด (ตอบ preflight ก่อนถึงตัวจด)
+app.add_middleware(AuditMiddleware, routes_provider=lambda: app.routes)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -103,6 +109,7 @@ app.include_router(settings.router)
 app.include_router(hiring_board.router)
 app.include_router(interview_outcome.router)
 app.include_router(job_offer.router)
+app.include_router(audit.router)
 
 
 @app.get("/health", tags=["meta"])

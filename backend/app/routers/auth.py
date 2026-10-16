@@ -3,6 +3,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from app import audit
 from app.auth import (
     check_login_allowed,
     clear_login_failures,
@@ -35,9 +36,14 @@ def login(payload: LoginIn, request: Request) -> TokenOut:
     ok = user is not None and verify_password(payload.password, user["password_hash"])
     if not ok:
         record_login_failure(request, payload.username)
+        # จดเฉพาะชื่อที่มีจริง — มีคนเดารหัสของบัญชีจริงต้องรู้ ส่วนชื่อสุ่มจากบอต
+        # ไม่มีประโยชน์และทำให้ตารางบวม
+        if user is not None:
+            audit.record(user["username"], audit.LOGIN, "failed", status_code=401)
         raise HTTPException(status_code=401, detail="ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
 
     clear_login_failures(request, payload.username)
+    audit.record(user["username"], audit.LOGIN, "ok", status_code=200)
     log.info("ผู้ใช้ %r ล็อกอินสำเร็จ", payload.username)
     return TokenOut(access_token=create_token(user["username"]))
 

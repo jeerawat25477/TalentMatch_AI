@@ -964,3 +964,32 @@ export interface JobCriteriaConfirm {
   /** ถ้อยคำที่ HR ยืนยันว่าจำเป็นตั้งแต่ขั้นยืนยันเกณฑ์ */
   bias_acks?: BiasAckIn[];
 }
+
+// ---------- ประวัติการใช้งาน (admin) — มิเรอร์ AuditEntry/AuditOut ใน backend/app/schemas.py ----------
+export type AuditOutcome = "ok" | "denied" | "error" | "failed";
+
+export interface AuditEntry {
+  id: number;
+  at: string;
+  username: string;
+  /** "PATCH /api/v1/jobs/{job_id}" หรือ "login" — ใช้กรอง */
+  action: string;
+  /** ชื่อการกระทำภาษาคน (backend เป็นเจ้าของ) */
+  label: string;
+  target_type: "job" | "candidate" | "employee" | "template" | null;
+  target_id: string | null;
+  /** ชื่อสดจากตารางจริง — ไม่ได้เก็บในประวัติ */
+  target_label: string | null;
+  target_deleted: boolean;
+  job_id: string | null;
+  /** เฉพาะคีย์ที่อนุญาต: decision status stage result response enabled to kind name count */
+  detail: Record<string, string | number | boolean>;
+  outcome: AuditOutcome;
+}
+
+export interface AuditOut {
+  items: AuditEntry[];
+  users: string[];
+  actions: { key: string; label: string }[];
+}
+

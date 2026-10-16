@@ -819,3 +819,31 @@ class InterviewSlot(BaseModel):
 
 
 InterviewSlot.model_rebuild()
+
+
+# ---------- ประวัติการใช้งาน (admin) ----------
+class AuditEntry(BaseModel):
+    id: int
+    at: datetime
+    username: str
+    action: str
+    label: str                       # ชื่อการกระทำภาษาคน (audit.ACTION_LABELS)
+    target_type: Optional[str] = None
+    target_id: Optional[str] = None
+    target_label: Optional[str] = None   # ชื่อสดจากตารางจริง — ไม่ได้เก็บใน audit_log
+    target_deleted: bool = False
+    job_id: Optional[str] = None     # ไว้ทำลิงก์ไปหน้าผู้สมัคร /jobs/{job_id}/candidates/{id}
+    detail: dict[str, Any] = Field(default_factory=dict)
+    outcome: Literal["ok", "denied", "error", "failed"]
+
+
+class AuditAction(BaseModel):
+    key: str
+    label: str
+
+
+class AuditOut(BaseModel):
+    items: list[AuditEntry]
+    users: list[str]
+    actions: list[AuditAction]
+

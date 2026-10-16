@@ -3,6 +3,7 @@
 import {
   Briefcase,
   CalendarDays,
+  History,
   Inbox,
   LogOut,
   Monitor,
@@ -38,6 +39,9 @@ const LINKS = [
   { href: "/search", icon: Search, label: "ค้นหาผู้สมัคร" },
   { href: "/employees", icon: Users, label: "พนักงาน" },
 ];
+
+// ผู้ดูแลเท่านั้น — บัญชีทดลองไม่เห็นเมนูนี้ (backend ตอบ 403 อยู่แล้ว)
+const ADMIN_LINKS = [{ href: "/audit", icon: History, label: "ประวัติการใช้งาน", badge: false }];
 
 const THEME_ICON: Record<Theme, typeof Sun> = {
   light: Sun,
@@ -144,7 +148,7 @@ export default function SideNav({
 
       {/* ── กลาง: เมนูหลัก ── */}
       <nav className="flex-1 mt-xl space-y-1 overflow-y-auto overflow-x-hidden">
-        {LINKS.map((l) => {
+        {(role === "admin" ? [...LINKS, ...ADMIN_LINKS] : LINKS).map((l) => {
           const active =
             l.href === "/" ? pathname === "/" : pathname.startsWith(l.href);
           const Icon = l.icon;
