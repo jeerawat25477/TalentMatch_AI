@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { deleteCandidate, reprocessCandidate } from "@/lib/api";
+import { useIsAdmin } from "@/lib/use-me";
 import type { CandidateSummary } from "@/lib/types";
 import { QUEUE_STATE } from "@/lib/types";
 import { skillLabel } from "@/lib/skill-group";
@@ -46,6 +47,7 @@ export default function CandidateCard({
 }) {
   // หน้ารายชื่อยังมีการตัดสิน (ติ๊กเลือกตัดสินหมู่) → รูปขึ้นเฉพาะเมื่อ HR เปิดสวิตช์
   const showPhoto = useScreeningPhotos();
+  const isAdmin = useIsAdmin(); // บัญชีทดลองลบไม่ได้ — ซ่อนปุ่มถังขยะ
   const [busy, setBusy] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   // งานยังอยู่ในคิวฝั่ง backend — ระบบจะรันให้เอง ไม่ต้องให้ HR กดอะไร
@@ -207,6 +209,7 @@ export default function CandidateCard({
           </span>
         </Link>
 
+        {isAdmin && (
         <button
           onClick={() => {
             setDeleteError(null);
@@ -222,6 +225,7 @@ export default function CandidateCard({
         >
           <span className="material-symbols-outlined text-[20px]">delete</span>
         </button>
+        )}
       </div>
 
       {confirmDelete && (

@@ -15,7 +15,7 @@ import logging
 
 from fastapi import APIRouter, Depends, Query
 
-from app.auth import get_current_user
+from app.auth import get_current_user, require_admin
 from app.database import get_conn
 from app.email_intake import (
     DEFAULT_SETTING,
@@ -121,7 +121,7 @@ def get_email_intake_activity(
     return [EmailIntakeActivityItem(**r) for r in rows]
 
 
-@router.patch("/email-intake", response_model=EmailIntakeSettingOut)
+@router.patch("/email-intake", response_model=EmailIntakeSettingOut, dependencies=[Depends(require_admin)])
 def set_email_intake(payload: EmailIntakeSettingIn) -> EmailIntakeSettingOut:
     """เปิด/ปิดปากทางรับอีเมล — มีผลภายในไม่กี่วินาที ไม่ต้องรีสตาร์ต.
 
@@ -140,7 +140,7 @@ def get_screening_photos() -> ScreeningPhotosSetting:
     return ScreeningPhotosSetting(enabled=bool(setting.get("enabled")))
 
 
-@router.patch("/screening-photos", response_model=ScreeningPhotosSetting)
+@router.patch("/screening-photos", response_model=ScreeningPhotosSetting, dependencies=[Depends(require_admin)])
 def set_screening_photos(payload: ScreeningPhotosSetting) -> ScreeningPhotosSetting:
     """เปิด/ปิดการแสดงรูปบนหน้าคัดกรอง — มีผลทันที ไม่ต้องรีสตาร์ต."""
     patch_setting(

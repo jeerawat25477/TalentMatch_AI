@@ -5,6 +5,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { getEmailIntake, setEmailIntake } from "@/lib/api";
 import type { EmailIntakeSettings } from "@/lib/types";
+import { useIsAdmin } from "@/lib/use-me";
 
 /**
  * การ์ดเปิด/ปิดปากทางรับใบสมัครทางอีเมล
@@ -22,6 +23,7 @@ export default function EmailIntakeCard() {
     { refreshInterval: 15000 }, // สถานะ/ตัวนับขยับเองเมื่อ worker ทำงาน
   );
   const [busy, setBusy] = useState(false);
+  const isAdmin = useIsAdmin(); // ตั้งค่าระบบ = งานผู้ดูแล บัญชีทดลองดูได้อย่างเดียว
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const enabled = data?.enabled ?? false;
@@ -67,7 +69,7 @@ export default function EmailIntakeCard() {
           aria-checked={enabled}
           aria-label="เปิดหรือปิดการรับใบสมัครทางอีเมล"
           onClick={toggle}
-          disabled={!configured || busy || !data}
+          disabled={!isAdmin || !configured || busy || !data}
           className={`relative flex-none w-14 h-8 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
             enabled ? "bg-primary" : "bg-outline/40"
           }`}
@@ -80,6 +82,9 @@ export default function EmailIntakeCard() {
         </button>
       </div>
 
+      {!isAdmin && data && (
+        <p className="text-label-sm text-on-surface-variant">บัญชีทดลองเปลี่ยนการตั้งค่านี้ไม่ได้</p>
+      )}
       {saveError && (
         <p className="text-error text-label-md" role="alert">
           {saveError}

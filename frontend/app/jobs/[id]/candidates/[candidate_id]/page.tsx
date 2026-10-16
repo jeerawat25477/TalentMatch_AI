@@ -28,6 +28,7 @@ import StatusBadge from "@/components/status-badge";
 import WorkingNote from "@/components/working-note";
 import Spinner from "@/components/spinner";
 import NotFoundCard, { isNotFound, useGone } from "@/components/not-found-card";
+import { useIsAdmin } from "@/lib/use-me";
 import {
   biasWarningOf,
   clearEmailDraft,
@@ -91,6 +92,8 @@ export default function CandidateDeepDive() {
   // เปิดโหมดแก้ไขคำตัดสิน (กรณี HR กดผิด) — ปกติถ้าตัดสินแล้วจะโชว์สรุป ไม่โชว์ปุ่มคู่
   const [editing, setEditing] = useState(false);
   const [sending, setSending] = useState(false);
+  // บัญชีทดลองร่าง/บันทึกร่างได้ แต่ส่งจริงไม่ได้ (backend ตอบ 403) — ปิดปุ่มพร้อมบอกเหตุผล
+  const canSend = useIsAdmin();
   const [sendError, setSendError] = useState<string | null>(null);
   // ถ้อยคำที่ backend เตือนตอนกดส่ง — มีค่า = เปิดหน้าต่างให้ HR เลือกกลับไปแก้หรือส่งต่อ
   const [biasWarning, setBiasWarning] = useState<BiasPhrase[] | null>(null);
@@ -890,7 +893,7 @@ export default function CandidateDeepDive() {
                     return;
                   handleSend();
                 }}
-                disabled={sending || !emailTo || !emailSubject || !emailBody}
+                disabled={!canSend || sending || !emailTo || !emailSubject || !emailBody}
                 className="btn-primary w-full disabled:opacity-50"
               >
                 {sending ? (
@@ -906,6 +909,11 @@ export default function CandidateDeepDive() {
                       ? `ส่งซ้ำ (ส่งแล้ว ${c.email_send_count} ครั้ง)`
                       : "ส่งอีเมล"}
               </button>
+              {!canSend && (
+                <p className="text-label-sm text-on-surface-variant text-center">
+                  บัญชีทดลองส่งอีเมลจริงไม่ได้ — ร่างและบันทึกร่างได้ตามปกติ
+                </p>
+              )}
 
               {biasWarning && (
                 <ConfirmDialog

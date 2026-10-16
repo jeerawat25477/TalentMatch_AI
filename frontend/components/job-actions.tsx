@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import ConfirmDialog from "@/components/confirm-dialog";
 import { deleteJob, setJobStatus } from "@/lib/api";
 import type { JobListItem } from "@/lib/types";
+import { useIsAdmin } from "@/lib/use-me";
 
 /**
  * เมนู ⋯ บนการ์ดตำแหน่งงาน — ปิด/เปิดรับสมัคร และลบถาวร.
@@ -25,6 +26,7 @@ export default function JobActions({
   const [busy, setBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const isAdmin = useIsAdmin(); // บัญชีทดลองลบไม่ได้ — ไม่โชว์เมนูลบเลย
 
   const closed = job.status === "closed";
 
@@ -103,6 +105,7 @@ export default function JobActions({
             </span>
             {closed ? "เปิดรับสมัครอีกครั้ง" : "ปิดรับสมัคร"}
           </button>
+          {isAdmin && (
           <button
             role="menuitem"
             onClick={() => {
@@ -116,6 +119,7 @@ export default function JobActions({
             <span className="material-symbols-outlined text-[18px]">delete</span>
             ลบตำแหน่งงาน
           </button>
+          )}
         </div>
       )}
 

@@ -27,6 +27,7 @@ import {
   readStoredTheme,
   type Theme,
 } from "@/lib/theme";
+import { useMe } from "@/lib/use-me";
 import { useIntakeFeed } from "./intake-notifications";
 import Tooltip from "./tooltip";
 
@@ -77,6 +78,9 @@ export default function SideNav({
 }) {
   const pathname = usePathname();
   const { unreadCount } = useIntakeFeed();
+  const role = useMe().data?.role;
+  const isDemo = role === "demo";
+  const roleLabel = isDemo ? "บัญชีทดลอง" : role === "admin" ? "ผู้ดูแล" : "";
   const slide = mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0";
   const width = collapsed ? "md:w-16" : "md:w-64";
   // ข้อความจะถูกซ่อนเฉพาะตอนหุบและอยู่บนจอ md+ (มือถือ drawer โชว์ข้อความเสมอ)
@@ -199,8 +203,8 @@ export default function SideNav({
           </Link>
         </Tooltip>
 
-        {/* โปรไฟล์ Admin */}
-        <Tooltip label={username ?? "ผู้ใช้"} show={collapsed}>
+        {/* โปรไฟล์ + ระดับสิทธิ์ */}
+        <Tooltip label={`${username ?? "ผู้ใช้"} · ${roleLabel}`} show={collapsed}>
           <div className={rowClass(collapsed).replace("hover:bg-glass/20", "")}>
             <div className="w-8 h-8 flex-none rounded-full bg-glass/70 border border-glass/50 flex items-center justify-center text-label-sm text-primary uppercase">
               {username ? username.slice(0, 2) : "HR"}
@@ -209,7 +213,11 @@ export default function SideNav({
               <p className="text-label-md text-on-surface truncate">
                 {username ?? "ผู้ใช้"}
               </p>
-              <p className="text-label-sm text-outline truncate">Admin</p>
+              <p
+                className={`text-label-sm truncate ${isDemo ? "text-tertiary font-semibold" : "text-outline"}`}
+              >
+                {roleLabel}
+              </p>
             </div>
           </div>
         </Tooltip>

@@ -9,7 +9,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.auth import get_current_user
+from app.auth import get_current_user, require_admin
 from app.database import get_conn
 from app.schemas import (
     EmailKind,
@@ -65,7 +65,7 @@ def create_template(payload: EmailTemplateIn) -> EmailTemplateOut:
     return EmailTemplateOut(**row)
 
 
-@router.delete("/{template_id}", response_model=EmailTemplateDeleteOut)
+@router.delete("/{template_id}", response_model=EmailTemplateDeleteOut, dependencies=[Depends(require_admin)])
 def delete_template(template_id: str) -> EmailTemplateDeleteOut:
     """ลบเทมเพลตถาวร — ไม่กระทบอีเมลที่ส่งไปแล้ว (เทมเพลตถูกคัดลอกเป็นข้อความตอนใช้).
 

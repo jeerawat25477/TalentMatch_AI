@@ -8,6 +8,7 @@ import {
 } from "@/lib/api";
 import { fillTemplate } from "@/lib/types";
 import type { EmailDraft, EmailTemplate, TemplateVars } from "@/lib/types";
+import { useIsAdmin } from "@/lib/use-me";
 
 /**
  * เลือก/บันทึกเทมเพลตอีเมลที่ใช้ซ้ำ — เป็นชั้นอำนวยความสะดวกล้วน ๆ
@@ -30,6 +31,7 @@ export default function EmailTemplatePicker({
   vars: TemplateVars;
   onApply: (subject: string, body: string) => void;
 }) {
+  const isAdmin = useIsAdmin(); // บัญชีทดลองลบเทมเพลตไม่ได้ (บันทึกใหม่ได้)
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [selected, setSelected] = useState("");
   const [busy, setBusy] = useState(false);
@@ -124,7 +126,7 @@ export default function EmailTemplatePicker({
           </select>
         </label>
 
-        {selected && (
+        {selected && isAdmin && (
           <button
             onClick={remove}
             disabled={busy}

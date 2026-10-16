@@ -533,6 +533,8 @@ export interface TokenResponse {
 
 export interface UserInfo {
   username: string;
+  /** demo = บัญชีทดลอง: ลบ / ส่งอีเมลจริง / ตั้งค่าระบบไม่ได้ (backend ตอบ 403) */
+  role: "admin" | "demo";
 }
 
 /** สถานะกราฟของผู้สมัคร — บอกว่าการกดปุ่ม HR จะ "เดินต่อ" หรือ "ตัดสินใหม่ทับของเดิม" */

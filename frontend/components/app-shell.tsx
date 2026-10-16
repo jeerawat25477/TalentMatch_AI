@@ -2,8 +2,10 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { mutate } from "swr";
 import { getMe } from "@/lib/api";
 import { clearToken, isAuthed } from "@/lib/auth";
+import { ME_KEY } from "@/lib/use-me";
 import { IntakeNotificationsProvider } from "./intake-notifications";
 import SideNav from "./side-nav";
 import Spinner from "./spinner";
@@ -37,7 +39,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
     // มี token — ยืนยันกับ backend ว่ายังใช้ได้ แล้วดึง username มาโชว์
     getMe()
-      .then((u) => setUsername(u.username))
+      .then((u) => {
+        setUsername(u.username);
+        mutate(ME_KEY, u, false); // เติม cache ให้ useMe() ทั้งแอป ไม่ต้องยิงซ้ำ
+      })
       .catch(() => {
         /* 401 จัดการใน api.ts (เด้ง login) แล้ว */
       })
@@ -46,6 +51,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   function logout() {
     clearToken();
+    mutate(ME_KEY, undefined, false); // ล็อกอินบัญชีอื่นต่อ จะได้ไม่เห็น role ของคนก่อน
     router.replace("/login");
   }
 

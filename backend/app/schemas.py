@@ -550,6 +550,8 @@ class TokenOut(BaseModel):
 
 class UserOut(BaseModel):
     username: str
+    # demo = บัญชีทดลอง: หน้าเว็บซ่อนปุ่มลบ/ส่งอีเมล/ตั้งค่า (backend กันจริงด้วย require_admin)
+    role: Literal["admin", "demo"]
 
 
 # ---------- Human-in-the-Loop ----------

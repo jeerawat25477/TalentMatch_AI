@@ -20,3 +20,19 @@ try:
     _ls_utils.get_env_var.cache_clear()
 except Exception:  # noqa: BLE001 — ไม่มี langsmith ก็ไม่มีอะไรให้ปิด
     pass
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _role_defaults_to_admin():
+    """เทสต์เดิมแทน get_current_user ด้วยชื่อสมมติที่ไม่มีแถวใน users — ถ้าปล่อยให้ get_current_role
+    อ่าน DB จริง endpoint ที่มี require_admin จะตอบ 401 ทั้งหมด จึงตั้ง role เป็น admin ไว้ก่อนทุกเทสต์
+    (เทสต์ที่ .clear() ตอนจบ ก็แค่ลบทิ้ง เทสต์ถัดไปตั้งใหม่) · tests/test_roles.py แทนเป็น demo เอง"""
+    from app.auth import get_current_role
+    from app.main import app
+
+    app.dependency_overrides[get_current_role] = lambda: "admin"
+    yield
+    app.dependency_overrides.pop(get_current_role, None)

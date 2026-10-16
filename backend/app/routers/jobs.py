@@ -17,7 +17,7 @@ from app.agents.nodes.bias_auditor import audit_jd, build_jd_audit
 from app.agents.nodes.jd_reviewer import review_jd
 from app.agents.runner import active_candidates
 from app.agents.models import JDReview
-from app.auth import get_current_user
+from app.auth import get_current_user, require_admin
 from app.bias_ack import (
     AckError, biased_skill_message, biased_skills, effective_biased_skills, llm_skill_phrases,
     names_in_criteria, removal_phrases,
@@ -823,7 +823,7 @@ def _deletion_blocker(
     return None
 
 
-@router.delete("/{job_id}", response_model=JobDeleteOut)
+@router.delete("/{job_id}", response_model=JobDeleteOut, dependencies=[Depends(require_admin)])
 def delete_job(job_id: str) -> JobDeleteOut:
     """ลบตำแหน่งงานถาวร — สำหรับงานที่สร้างผิดเท่านั้น.
 

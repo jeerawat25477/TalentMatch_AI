@@ -5,6 +5,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { SCREENING_PHOTOS_KEY, fetcher, setScreeningPhotos } from "@/lib/api";
 import type { ScreeningPhotosSetting } from "@/lib/types";
+import { useIsAdmin } from "@/lib/use-me";
 
 /**
  * สวิตช์แสดงรูปผู้สมัครบนหน้าคัดกรอง — เก็บใน DB (app_settings) เหมือนสวิตช์รับอีเมล
@@ -18,6 +19,7 @@ export default function ScreeningPhotosCard() {
     fetcher,
   );
   const [busy, setBusy] = useState(false);
+  const isAdmin = useIsAdmin(); // ตั้งค่าระบบ = งานผู้ดูแล บัญชีทดลองดูได้อย่างเดียว
   const [saveError, setSaveError] = useState<string | null>(null);
   const enabled = data?.enabled ?? false;
 
@@ -53,7 +55,7 @@ export default function ScreeningPhotosCard() {
           aria-checked={enabled}
           aria-label="เปิดหรือปิดการแสดงรูปผู้สมัครหน้าคัดกรอง"
           onClick={toggle}
-          disabled={busy || !data}
+          disabled={!isAdmin || busy || !data}
           className={`relative flex-none w-14 h-8 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
             enabled ? "bg-primary" : "bg-outline/40"
           }`}
@@ -66,6 +68,9 @@ export default function ScreeningPhotosCard() {
         </button>
       </div>
 
+      {!isAdmin && data && (
+        <p className="text-label-sm text-on-surface-variant">บัญชีทดลองเปลี่ยนการตั้งค่านี้ไม่ได้</p>
+      )}
       {saveError && (
         <p className="text-error text-label-md" role="alert">
           {saveError}

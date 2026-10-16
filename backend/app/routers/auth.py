@@ -7,6 +7,7 @@ from app.auth import (
     check_login_allowed,
     clear_login_failures,
     create_token,
+    get_current_role,
     get_current_user,
     record_login_failure,
     verify_password,
@@ -42,6 +43,8 @@ def login(payload: LoginIn, request: Request) -> TokenOut:
 
 
 @router.get("/me", response_model=UserOut)
-def me(username: str = Depends(get_current_user)) -> UserOut:
-    """คืนผู้ใช้ปัจจุบัน — frontend ใช้เช็คว่า token ยังใช้ได้."""
-    return UserOut(username=username)
+def me(
+    username: str = Depends(get_current_user), role: str = Depends(get_current_role)
+) -> UserOut:
+    """คืนผู้ใช้ปัจจุบัน + role — frontend ใช้เช็คว่า token ยังใช้ได้ และซ่อนปุ่มที่บัญชีทดลองทำไม่ได้."""
+    return UserOut(username=username, role=role)

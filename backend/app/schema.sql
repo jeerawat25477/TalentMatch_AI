@@ -136,6 +136,18 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+-- ระดับสิทธิ์ (2026-10-16): admin ทำได้ทุกอย่าง · demo = บัญชีทดลองให้อาจารย์/เพื่อนกดเล่น
+-- ทำได้เหมือน HR ยกเว้นลบ ส่งอีเมลจริง และตั้งค่าระบบ (app/auth.py::require_admin)
+-- ADD COLUMN เติม 'admin' ให้บัญชีเดิมทุกแถว แล้วค่อยเปลี่ยนดีฟอลต์เป็น 'demo' — แถวใหม่ที่ลืมระบุ
+-- role จะได้สิทธิ์น้อยสุด ไม่ใช่มากสุด (seed_admin / manage_users.py ระบุเองเสมอ)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'admin';
+ALTER TABLE users ALTER COLUMN role SET DEFAULT 'demo';
+DO $$
+BEGIN
+    ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'demo'));
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ทะเบียนพนักงาน — ผู้สมัครที่ผ่านสัมภาษณ์แล้วถูกรับเข้าทำงาน
 -- เป็นข้อมูลถาวร: FK ไป candidates/jobs แบบ *ไม่* ON DELETE CASCADE โดยตั้งใจ

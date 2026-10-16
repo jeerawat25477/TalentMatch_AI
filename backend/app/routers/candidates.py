@@ -11,7 +11,7 @@ from app.bias_ack import bias_view
 from app.agents.nodes.matcher import score_breakdown
 from app.criteria_edit import needs_recheck
 from app.agents.runner import active_candidates, get_graph_status, reserve_candidates
-from app.auth import get_current_user
+from app.auth import get_current_user, require_admin
 from app.database import get_checkpointer, get_conn
 from app.hiring_board import board_stage
 from app.job_queue import PENDING_STATUSES, enqueue, enqueue_many, pending_status
@@ -245,7 +245,7 @@ def _candidate_deletion_blocker(
     return None
 
 
-@router.delete("/candidates/{candidate_id}", response_model=CandidateDeleteOut)
+@router.delete("/candidates/{candidate_id}", response_model=CandidateDeleteOut, dependencies=[Depends(require_admin)])
 def delete_candidate(candidate_id: str) -> CandidateDeleteOut:
     """ลบผู้สมัครถาวร — สำหรับกรณีอัปโหลดผิดไฟล์หรืออัปซ้ำ.
 

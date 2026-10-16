@@ -117,6 +117,29 @@ def get_current_user(
     return username
 
 
+# ---------- ระดับสิทธิ์ ----------
+ROLES = ("admin", "demo")
+
+
+def get_current_role(username: str = Depends(get_current_user)) -> str:
+    """role ของผู้ใช้ปัจจุบัน — อ่านจาก DB ทุกครั้ง (ไม่ฝังใน token) จึงถอนสิทธิ์/ปิดบัญชีได้ทันที."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT role FROM users WHERE username = %s", (username,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=401, detail="ไม่พบผู้ใช้นี้แล้ว")
+    return row["role"]
+
+
+def require_admin(role: str = Depends(get_current_role)) -> None:
+    """กัน endpoint ที่บัญชีทดลองห้ามทำ: ลบ · ส่งอีเมลจริง · ตั้งค่าระบบ.
+
+    ใส่เป็น `dependencies=[Depends(require_admin)]` ที่ decorator · tests/test_roles.py ไล่ทุก route
+    ถ้ามี DELETE ใหม่ที่ลืมใส่ตัวนี้ เทสต์จะพัง
+    """
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="บัญชีทดลองทำรายการนี้ไม่ได้ (ลบ ส่งอีเมลจริง และตั้งค่าระบบ สงวนไว้ให้ผู้ดูแล)")
+
+
 # ---------- seed admin ----------
 def seed_admin() -> None:
     """สร้างผู้ใช้แรกจาก env (idempotent) — เรียกใน init_db()."""
@@ -127,7 +150,7 @@ def seed_admin() -> None:
         return
     with get_conn() as conn:
         conn.execute(
-            """INSERT INTO users (username, password_hash) VALUES (%s, %s)
+            """INSERT INTO users (username, password_hash, role) VALUES (%s, %s, 'admin')
                ON CONFLICT (username) DO NOTHING""",
             (username, hash_password(password)),
         )

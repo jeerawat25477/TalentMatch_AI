@@ -7,7 +7,7 @@ from psycopg.types.json import Json
 
 from app.agents.bias_rules import find_biased_message_phrases
 from app.agents.runner import active_candidates, reserve_candidates
-from app.auth import get_current_user
+from app.auth import get_current_user, require_admin
 from app.database import get_conn
 from app.job_queue import enqueue, enqueue_many
 from app.email_sender import EmailConfigError, send_email
@@ -232,7 +232,7 @@ def clear_email_draft(candidate_id: str) -> EmailDraftDeleteOut:
     return EmailDraftDeleteOut(candidate_id=candidate_id)
 
 
-@router.post("/{candidate_id}/email/send", response_model=EmailSendOut)
+@router.post("/{candidate_id}/email/send", response_model=EmailSendOut, dependencies=[Depends(require_admin)])
 def send_candidate_email(
     candidate_id: str, payload: EmailSendIn, user: str = Depends(get_current_user)
 ) -> EmailSendOut:
