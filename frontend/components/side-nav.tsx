@@ -92,14 +92,15 @@ export default function SideNav({
 
   // h-dvh ไม่ใช่ h-screen: บนมือถือ 100vh = ความสูงตอนแถบเบราว์เซอร์ซ่อน ส่วนล่าง (ออกจากระบบ)
   // จึงจมใต้แถบที่อยู่ จนกว่าจะเลื่อนหน้าให้แถบหด — หน้าสั้นเลื่อนไม่ได้เลยหาปุ่มไม่เจอ (2026-10-16)
-  // overflow-y-auto เฉพาะมือถือ: จอแนวนอนเตี้ยกว่าเมนู ให้เลื่อนในเมนูได้ · md ขึ้นไปต้อง visible
+  // overflow-y-auto เฉพาะมือถือ: จอแนวนอนเตี้ยกว่าเมนู ให้เลื่อนในเมนูได้ · ต้องคู่กับ overflow-x-hidden
+  // (ตั้งแกนเดียว เบราว์เซอร์จะเปิดอีกแกนเป็น auto ให้เอง → ลากเมนูออกข้างได้ เจอบนมือถือจริง) · md ขึ้นไปต้อง visible
   // ไม่งั้น tooltip ตอนหุบ (โผล่ทางขวาของแถบ) โดนตัด
   return (
     <aside
       className={`fixed left-0 top-0 h-dvh w-64 ${width} ${slide}
         bg-glass/60 backdrop-blur-xl border-r border-glass/40 shadow-sm
         flex flex-col py-md px-sm z-50 transition-all duration-300 ease-in-out
-        overflow-y-auto md:overflow-visible`}
+        overflow-y-auto overflow-x-hidden md:overflow-visible`}
     >
       {/* ── บน: โลโก้ + ปุ่ม Toggle ── */}
       <div className={`flex items-center gap-xs ${collapsed ? "md:flex-col" : ""}`}>
