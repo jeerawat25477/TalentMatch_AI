@@ -16,9 +16,14 @@ import argparse
 import getpass
 import re
 import sys
+from pathlib import Path
 
-from app.auth import ROLES, hash_password
-from app.database import get_conn
+# รันแบบ python scripts/manage_users.py → Python ใส่แค่ scripts/ ใน path ไม่เห็นแพ็กเกจ app
+# (สคริปต์อื่นในโฟลเดอร์นี้ทำแบบเดียวกัน — ลืมบรรทัดนี้แล้วพังบน VPS 2026-10-16)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from app.auth import ROLES, hash_password  # noqa: E402
+from app.database import get_conn  # noqa: E402
 
 MIN_PASSWORD = 10
 USERNAME_RE = re.compile(r"[A-Za-z0-9._-]{3,50}")
