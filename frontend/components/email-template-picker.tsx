@@ -16,6 +16,14 @@ import { useIsAdmin } from "@/lib/use-me";
  * เลือกแล้ว "เติมช่อง" หัวข้อ/เนื้อความให้เท่านั้น HR ยังต้องอ่าน แก้ได้ และกดส่งเอง
  * (ไม่มี auto-send — ดู CLAUDE.md "Email send is synchronous and HR-gated")
  */
+/** คำอธิบายตัวแปรเทมเพลตภาษาคน — ผูก type กับ TemplateVars เพิ่มตัวแปรใหม่แล้วลืมใส่ตรงนี้ tsc จะฟ้อง */
+const VAR_LABELS: Record<keyof TemplateVars, string> = {
+  candidate_name: "ชื่อผู้สมัคร",
+  job_title: "ตำแหน่ง",
+  interview_datetime: "วันเวลานัดสัมภาษณ์",
+  interview_location: "สถานที่สัมภาษณ์",
+};
+
 export default function EmailTemplatePicker({
   kind,
   subject,
@@ -32,6 +40,9 @@ export default function EmailTemplatePicker({
   onApply: (subject: string, body: string) => void;
 }) {
   const isAdmin = useIsAdmin(); // บัญชีทดลองลบเทมเพลตไม่ได้ (บันทึกใหม่ได้)
+  // คำอธิบายตัวแปรเทมเพลต — เปิดเมื่อกด ⓘ เท่านั้น (เดิมโชว์ตลอด เกะกะคนที่แค่จะส่งอีเมล)
+  // ใช้การกด ไม่ใช่ hover เพราะมือถือไม่มี hover
+  const [showHelp, setShowHelp] = useState(false);
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [selected, setSelected] = useState("");
   const [busy, setBusy] = useState(false);
@@ -71,7 +82,7 @@ export default function EmailTemplatePicker({
     setError(null);
     try {
       // บันทึก "ข้อความที่เห็นอยู่ตอนนี้" ตรง ๆ — ถ้า HR อยากให้ใช้ซ้ำได้กับคนอื่น
-      // ให้พิมพ์ {candidate_name} / {job_title} ไว้เอง (มีคำใบ้ใต้ปุ่ม)
+      // ให้พิมพ์ {candidate_name} / {job_title} ไว้เอง (คำใบ้อยู่ในปุ่ม ⓘ)
       await createEmailTemplate({
         name,
         kind,
@@ -146,15 +157,34 @@ export default function EmailTemplatePicker({
           <span className="material-symbols-outlined text-[18px]">bookmark_add</span>
           บันทึกเป็นเทมเพลต
         </button>
+        <button
+          type="button"
+          onClick={() => setShowHelp((v) => !v)}
+          aria-expanded={showHelp}
+          aria-controls="template-vars-help"
+          aria-label="วิธีใส่ชื่อผู้สมัครและวันนัดในเทมเพลต"
+          title="วิธีใส่ชื่อผู้สมัครและวันนัดในเทมเพลต"
+          className={`w-9 h-9 flex-none rounded-lg flex items-center justify-center hover:bg-glass
+                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                       showHelp ? "text-primary" : "text-outline"
+                     }`}
+        >
+          <span className="material-symbols-outlined text-[20px]">info</span>
+        </button>
       </div>
 
-      <p className="text-label-sm text-outline">
-        ใช้ <code className="text-on-surface-variant">{"{candidate_name}"}</code>,{" "}
-        <code className="text-on-surface-variant">{"{interview_datetime}"}</code>,{" "}
-        <code className="text-on-surface-variant">{"{interview_location}"}</code> และ{" "}
-        <code className="text-on-surface-variant">{"{job_title}"}</code>{" "}
-        ในเทมเพลตได้ ระบบจะแทนค่าให้ตอนเลือกใช้
-      </p>
+      {showHelp && (
+        <div id="template-vars-help" className="text-label-sm text-on-surface-variant space-y-0.5">
+          <p>พิมพ์คำในวงเล็บนี้ลงในเทมเพลต ระบบจะใส่ข้อมูลจริงให้ตอนเลือกใช้</p>
+          <ul className="grid gap-x-sm sm:grid-cols-2">
+            {Object.entries(VAR_LABELS).map(([v, label]) => (
+              <li key={v}>
+                <code className="text-on-surface">{`{${v}}`}</code> {label}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {error && (
         <p className="text-error text-label-sm" role="alert">
