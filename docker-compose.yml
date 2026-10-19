@@ -108,5 +108,19 @@ services:
     volumes:
       - ./backend:/app
 
+  # Adminer — ดูฐานข้อมูลแบบ phpMyAdmin (รองรับ PostgreSQL) · เปิดเฉพาะตอนใช้:
+  #   docker compose --profile tools up -d adminer   → http://localhost:8081
+  #   (System: PostgreSQL · Server: db · User/Password/Database: talentmatch)
+  # ผูกกับ 127.0.0.1 เท่านั้น — เครื่องอื่นในวง LAN เข้าไม่ได้ · ⚠️ แก้/ลบข้อมูลได้จริง
+  adminer:
+    profiles: ["tools"]
+    image: adminer:4.8.1
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    ports:
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      - db
+
 volumes:
   pgdata:

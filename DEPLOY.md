@@ -381,6 +381,93 @@ docker compose -f docker-compose.prod.yml exec -it backend python scripts/manage
 
 ---
 
+## ดูฐานข้อมูลแบบ phpMyAdmin (Adminer)
+
+ฐานข้อมูลเป็น PostgreSQL จึงใช้ **Adminer** แทน phpMyAdmin (หน้าตาคล้ายกัน กดดูตาราง/พิมพ์ SQL ได้)
+มีให้ทั้งในเครื่อง dev และบน VPS · **ปกติไม่รัน** เปิดเฉพาะตอนใช้ แล้วปิด
+
+> ⚠️ **ห้ามเปิดให้เข้าจากอินเทอร์เน็ต** (ห้ามเพิ่มใน Caddyfile) — Adminer ผูกกับ `127.0.0.1` ของเครื่องเท่านั้น
+> บน VPS เข้าได้ผ่าน "อุโมงค์ SSH" จากเครื่องคุณคนเดียว · **Adminer แก้และลบข้อมูลได้จริง** ตอนโชว์ให้กดดูอย่างเดียว
+
+### บนเครื่อง dev (ข้อมูลทดลอง)
+
+```bash
+docker compose --profile tools up -d adminer
+```
+
+เปิด <http://localhost:8081> → System `PostgreSQL` · Server `db` · Username / Password / Database `talentmatch`
+
+### บน VPS (ข้อมูลจริง)
+
+**1. บน VPS** — เปิด Adminer และดูรหัสฐานข้อมูล (ขึ้นบนจอคุณเท่านั้น **ห้ามแคปส่งใคร**)
+
+```bash
+cd /root/TalentMatch_AI
+docker compose -f docker-compose.prod.yml --profile tools up -d adminer
+grep POSTGRES_PASSWORD .env
+```
+
+**2. บนเครื่องคุณ** — เปิด PowerShell ใหม่ แล้วเปิดอุโมงค์ (ใส่รหัส VPS · เปิดหน้าต่างนี้ค้างไว้ตลอดที่ใช้)
+
+```bash
+ssh -L 8081:localhost:8081 root@IP_ของ_VPS
+```
+
+**3.** เปิด <http://localhost:8081> ในเบราว์เซอร์ → System `PostgreSQL` · Server `db` ·
+Username `talentmatch` · Password = ค่าจากข้อ 1 · Database `talentmatch`
+
+**4. ใช้เสร็จ** — ปิด Adminer (บน VPS) แล้วปิดหน้าต่างอุโมงค์
+
+```bash
+docker compose -f docker-compose.prod.yml --profile tools stop adminer
+```
+
+### ตารางที่น่าโชว์ (ข้อมูลไม่อัปเดตเอง — กด F5 หลังกดอะไรบนเว็บ)
+
+| ตาราง | คืออะไร |
+|---|---|
+| `jobs` / `candidates` / `evaluations` / `hr_decisions` | ตำแหน่ง · ผู้สมัคร · คะแนน · คำตัดสิน HR |
+| `audit_log` | ประวัติการใช้งาน — เห็นแถวใหม่เกือบทุกครั้งที่กดบนเว็บ |
+| `processing_queue` | คิวงาน AI — อัปเรซูเม่แล้วดู `queued → running → done` |
+| `resume_embeddings` | **ฐานข้อมูลเวกเตอร์** (pgvector) — คอลัมน์ `embedding` = ตัวเลข 768 มิติ, ดัชนี HNSW |
+
+**ระวังตอนฉายขึ้นจอ:** `users` (รหัสผ่านที่เข้ารหัสแล้ว — อย่าเปิดทั้งตาราง) · `candidates` (เรซูเม่คนจริง) ·
+`job_offers` / `employees` (เงินเดือน)
+
+### SQL สำหรับโชว์ (วางในเมนู "SQL command")
+
+ดูบัญชีผู้ใช้โดยไม่โชว์รหัสผ่าน
+
+```sql
+SELECT username, role, created_at FROM users ORDER BY created_at;
+```
+
+ใครทำอะไรล่าสุด
+
+```sql
+SELECT at, username, action, outcome FROM audit_log ORDER BY at DESC LIMIT 20;
+```
+
+ใช้เวกเตอร์หาผู้สมัครที่โปรไฟล์คล้ายกัน (เปลี่ยน `JEERAWAT` เป็นชื่อคนอื่นได้ · `<=>` คือ cosine distance ของ pgvector)
+
+```sql
+SELECT c.full_name, round((1 - (e.embedding <=> t.embedding))::numeric, 3) AS similarity
+FROM resume_embeddings e
+JOIN candidates c ON c.id = e.candidate_id
+CROSS JOIN (SELECT embedding FROM resume_embeddings
+            JOIN candidates ON candidates.id = resume_embeddings.candidate_id
+            WHERE candidates.full_name ILIKE '%JEERAWAT%' LIMIT 1) t
+WHERE c.full_name NOT ILIKE '%JEERAWAT%'
+ORDER BY e.embedding <=> t.embedding
+LIMIT 5;
+```
+
+> เวกเตอร์ใช้**จัดลำดับให้ HR ดูประกอบ** (เมนูค้นหาผู้สมัคร / ผู้สมัครที่โปรไฟล์คล้ายกัน) **ไม่ได้ใช้ให้คะแนน** —
+> วัดแล้ว Java↔JavaScript คล้ายกัน 0.865 สูงกว่าคู่ที่ควรตรงกันจริงบางคู่ คะแนนจึงมาจากการเทียบทักษะตามกฎ
+> (ทดลองบน dev: เรซูเม่ชื่อไทยของคนเดียวกันได้ 0.894 — เวกเตอร์จับได้ว่าเป็นคนเดียวกันข้ามภาษา)
+
+---
+
 ## ขั้นที่ 9 — เวลาจะอัปเดตโค้ดทีหลัง
 
 ในเครื่องคุณ: แก้โค้ด → commit → `git push`

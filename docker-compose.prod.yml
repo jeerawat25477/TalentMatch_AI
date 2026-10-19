@@ -96,6 +96,23 @@ services:
       - backend
     mem_limit: 256m
 
+  # Adminer — ดูฐานข้อมูลแบบ phpMyAdmin · **ปกติไม่รัน** (profile tools) และ**ไม่เปิดออกอินเทอร์เน็ต**:
+  # ผูกกับ 127.0.0.1 ของ VPS เท่านั้น เข้าได้ผ่านอุโมงค์ SSH จากเครื่องผู้ดูแล (ดู DEPLOY.md)
+  #   docker compose -f docker-compose.prod.yml --profile tools up -d adminer
+  #   docker compose -f docker-compose.prod.yml --profile tools stop adminer   ← ใช้เสร็จปิดทุกครั้ง
+  # ห้ามเพิ่มเส้นทางใน Caddyfile — เปิดสู่สาธารณะ = ใครก็เดารหัสฐานข้อมูลได้
+  adminer:
+    profiles: ["tools"]
+    image: adminer:4.8.1
+    restart: "no"
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    ports:
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      - db
+    mem_limit: 128m
+
 volumes:
   pgdata:
   caddy_data:
