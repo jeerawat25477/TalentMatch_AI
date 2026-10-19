@@ -159,23 +159,21 @@ export default function CandidateCard({
             )}
           </div>
         )}
+        {/* ✓/✕ ในป้าย: สีอย่างเดียวคนอ่านไม่รู้ว่าแดง = ขาด (เจ้าของระบบเองยังต้องถาม 2026-10-19)
+            และคนแยกแดง/เขียวไม่ออกก็อ่านได้ · +N บอกว่ายังมีที่ไม่ได้โชว์ — เดิมหายไปเฉย ๆ */}
         <div className="flex gap-base flex-wrap">
-          {matched.slice(0, 4).map((s) => (
-            <span
-              key={s}
-              className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-secondary-fixed text-on-secondary-fixed-variant"
-            >
-              {skillLabel(s)}
-            </span>
+          {matched.slice(0, MAX_MATCHED).map((s) => (
+            <SkillChip key={s} skill={s} has />
           ))}
-          {missing.slice(0, 3).map((s) => (
-            <span
-              key={s}
-              className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-error/10 text-on-error-container"
-            >
-              {skillLabel(s)}
-            </span>
+          {matched.length > MAX_MATCHED && (
+            <MoreChip n={matched.length - MAX_MATCHED} what="ทักษะที่มี" />
+          )}
+          {missing.slice(0, MAX_MISSING).map((s) => (
+            <SkillChip key={s} skill={s} has={false} />
           ))}
+          {missing.length > MAX_MISSING && (
+            <MoreChip n={missing.length - MAX_MISSING} what="ทักษะที่ขาด" />
+          )}
         </div>
       </div>
 
@@ -252,5 +250,39 @@ export default function CandidateCard({
         />
       )}
     </div>
+  );
+}
+
+const MAX_MATCHED = 4;
+const MAX_MISSING = 3;
+
+function SkillChip({ skill, has }: { skill: string; has: boolean }) {
+  return (
+    <span
+      title={has ? "มีในเรซูเม่" : "ไม่เจอในเรซูเม่"}
+      className={`inline-flex items-center gap-0.5 text-[11px] font-semibold pl-1.5 pr-2.5 py-1 rounded-full ${
+        has
+          ? "bg-secondary-fixed text-on-secondary-fixed-variant"
+          : "bg-error/10 text-on-error-container"
+      }`}
+    >
+      <span className="material-symbols-outlined text-[13px] leading-none" aria-hidden>
+        {has ? "check" : "close"}
+      </span>
+      <span className="sr-only">{has ? "มี " : "ขาด "}</span>
+      {skillLabel(skill)}
+    </span>
+  );
+}
+
+function MoreChip({ n, what }: { n: number; what: string }) {
+  return (
+    <span
+      title={`ยังมี${what}อีก ${n} อย่าง — ดูครบในหน้ารายละเอียด`}
+      className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-surface-container-high text-on-surface-variant"
+    >
+      +{n}
+      <span className="sr-only"> {what}</span>
+    </span>
   );
 }
