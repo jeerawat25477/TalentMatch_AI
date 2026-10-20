@@ -16,6 +16,16 @@ def blank_if_unstated(value: object) -> str:
     return "" if text.lower() in _EMPTY_WORDS else text
 
 
+def email_or_none(value: object) -> Optional[str]:
+    """อีเมลที่ใช้ได้ หรือ None — คำว่า "null"/"ไม่ระบุ" และข้อความที่ไม่มี @ ถือว่าไม่มีอีเมล.
+
+    สำคัญกว่าแค่ช่องผู้รับ: candidates.same_person เทียบอีเมลเพื่อบอกว่า "คนละไฟล์แต่คนเดียวกัน"
+    ถ้า LLM ตอบ "null" ให้เรซูเม่ 2 ใบที่ไม่มีอีเมล คนสองคนจะถูกจับเป็นคนเดียวกัน (2026-10-21)
+    """
+    text = blank_if_unstated(value)
+    return text if "@" in text else None
+
+
 class JobRequirement(BaseModel):
     """ผลจาก JD Analyzer — รูปแบบกลางที่ resume ก็ต้อง map เข้าหาได้."""
     job_title: str = Field(..., description="ชื่อตำแหน่ง")
@@ -73,6 +83,7 @@ class ResumeProfile(BaseModel):
     education: str = Field("", description="วุฒิการศึกษาสูงสุด")
 
     _blank_education = field_validator("education", mode="before")(blank_if_unstated)
+    _usable_email = field_validator("email", mode="before")(email_or_none)
 
 
 class SkillEvidence(BaseModel):

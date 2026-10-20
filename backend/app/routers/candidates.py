@@ -8,6 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
 
 from app.bias_ack import bias_view
+from app.agents.models import email_or_none
 from app.agents.nodes.matcher import score_breakdown
 from app.criteria_edit import needs_recheck
 from app.agents.runner import active_candidates, get_graph_status, reserve_candidates
@@ -402,8 +403,9 @@ def same_person(current: dict, other: dict) -> str | None:
         return "same_file"
     if current.get("text_md5") and current.get("text_md5") == other.get("text_md5"):
         return "same_file"
-    a = (current.get("email") or "").strip().lower()
-    if a and a == (other.get("email") or "").strip().lower():
+    # email_or_none: แถวที่อาจเก็บ "null"/"-" ไว้ก่อนมีตัวกรองใน model ต้องไม่ถูกจับคู่กันเอง
+    a = (email_or_none(current.get("email")) or "").lower()
+    if a and a == (email_or_none(other.get("email")) or "").lower():
         return "same_email"
     return None
 

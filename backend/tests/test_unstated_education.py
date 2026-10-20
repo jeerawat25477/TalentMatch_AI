@@ -48,3 +48,34 @@ def test_old_parsed_criteria_with_null_loads_blank():
 def test_resume_profile_null_education_is_blank():
     """ฝั่งเรซูเม่ใช้ LLM แบบเดียวกัน — หน้าผู้สมัครต้องไม่โชว์ null ในช่องการศึกษาเช่นกัน."""
     assert ResumeProfile(full_name="Suda", education="null").education == ""
+
+
+# ── อีเมล: "null" จาก LLM ห้ามทำให้คนสองคนถูกจับเป็นคนเดียวกัน (2026-10-21) ──
+
+from app.agents.models import email_or_none  # noqa: E402
+from app.routers.candidates import same_person  # noqa: E402
+
+
+@pytest.mark.parametrize("value", UNSTATED + ["no email", "somchai.gmail.com"])
+def test_unusable_email_becomes_none(value):
+    assert email_or_none(value) is None
+    assert ResumeProfile(full_name="X", email=value).email is None
+
+
+def test_real_email_is_kept():
+    assert email_or_none("  suda@example.com ") == "suda@example.com"
+    assert ResumeProfile(full_name="Suda", email="Suda@Example.com").email == "Suda@Example.com"
+
+
+def test_two_people_without_email_are_not_the_same_person():
+    """เรซูเม่ 2 ใบที่ไม่มีอีเมล — ทั้งที่ model กรองแล้ว และแถวเก่าที่อาจเก็บ "null" ไว้."""
+    a = {"sha": "a", "text_md5": "1", "email": "null"}
+    b = {"sha": "b", "text_md5": "2", "email": "NULL"}
+    assert same_person(a, b) is None
+    assert same_person({**a, "email": "-"}, {**b, "email": "-"}) is None
+
+
+def test_same_real_email_still_matches():
+    a = {"sha": "a", "text_md5": "1", "email": "Jeerawat@gmail.com"}
+    b = {"sha": "b", "text_md5": "2", "email": "jeerawat@gmail.com "}
+    assert same_person(a, b) == "same_email"
