@@ -1,7 +1,19 @@
 """Pydantic v2 models สำหรับ structured output ของแต่ละโหนด LLM."""
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# คำที่ LLM ใช้แทน "ไม่ได้ระบุ" ในช่องข้อความ — เจอจริง 2026-10-20: ประกาศที่ไม่มีวุฒิการศึกษา
+# ได้ education เป็นสตริง "null" (ไม่ใช่ JSON null) แล้วหน้ายืนยันเกณฑ์โชว์คำว่า null ในช่อง
+_EMPTY_WORDS = {"null", "none", "nil", "n/a", "na", "-", "—", "ไม่ระบุ", "ไม่มี", "ไม่ได้ระบุ"}
+
+
+def blank_if_unstated(value: object) -> str:
+    """ค่าที่หมายถึง "ไม่ได้ระบุ" ให้เป็นสตริงว่าง ส่วนค่าจริงคืนตามเดิม (ตัดช่องว่างหัวท้าย)."""
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return "" if text.lower() in _EMPTY_WORDS else text
 
 
 class JobRequirement(BaseModel):
@@ -11,6 +23,8 @@ class JobRequirement(BaseModel):
     required_skills: list[str] = Field(default_factory=list, description="ทักษะที่ต้องมี (Must-have)")
     preferred_skills: list[str] = Field(default_factory=list, description="ทักษะที่มีก็ดี (Nice-to-have)")
     education: str = Field("", description="ระดับการศึกษาที่ต้องการ")
+
+    _blank_education = field_validator("education", mode="before")(blank_if_unstated)
 
 
 class JDSkillItem(BaseModel):
@@ -47,6 +61,8 @@ class JDExtraction(BaseModel):
     education: str = Field("", description="ระดับการศึกษาและสาขาที่ต้องการ")
     items: list[JDSkillItem] = Field(default_factory=list, description="ทุกคำที่อาจเป็นทักษะในประกาศ")
 
+    _blank_education = field_validator("education", mode="before")(blank_if_unstated)
+
 
 class ResumeProfile(BaseModel):
     """ผลจาก Resume Parser — ฟอร์แมตเดียวกับ JD เพื่อทำ gap analysis แบบ field-by-field."""
@@ -55,6 +71,8 @@ class ResumeProfile(BaseModel):
     total_experience_years: float = Field(0, description="ปีประสบการณ์รวม")
     skills: list[str] = Field(default_factory=list, description="ทักษะทั้งหมดของผู้สมัคร")
     education: str = Field("", description="วุฒิการศึกษาสูงสุด")
+
+    _blank_education = field_validator("education", mode="before")(blank_if_unstated)
 
 
 class SkillEvidence(BaseModel):
